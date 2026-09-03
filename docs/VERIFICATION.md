@@ -20,7 +20,7 @@ Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
 The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
 [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 38 unit/integration tests: passed.
+- 46 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -51,7 +51,9 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
   cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
   per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
   rejection, replay rejection, unprovisioned-runtime failure, explicit test-only prototype
-  injection, and agent denial: passed without invoking polkit.
+  injection, exact signed-field and daemon-expiry rejection, policy validation, locked
+  provisioning and umask isolation, Unicode-safe preview rendering, isolated installer
+  environment, and agent denial: passed without invoking polkit.
 
 ## Initial-slice checklist disposition
 
@@ -71,7 +73,7 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 | Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
 | SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
-| Real Linux polkit/user-presence broker | Implementation and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke and independent review not run; issue #3 remains open |
+| Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
 | Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; no third-party runtime dependency, but host Python/SQLite remain supply-chain inputs |

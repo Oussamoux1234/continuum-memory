@@ -19,13 +19,18 @@ On a provisioned Linux account, the broker sends the exact bounded challenge ove
 input to a fixed root-owned helper through `pkexec`. The helper revalidates the preview
 digest, operation, nonce, vault, OS user, and short expiry; polkit requires uncached
 administrator authentication, then the helper renders the preview on `/dev/tty` and
-requires its digest prefix. It signs a canonical payload with a root-only per-user RSA key.
+requires its digest prefix. The terminal rendering escapes all non-ASCII characters to
+prevent Unicode direction-control spoofing. The helper validates the installed non-caching
+policy before each request and serializes key provisioning. The installer builds a fresh
+isolated runtime in a root-created staging directory instead of executing a possibly partial
+existing runtime. The helper signs a canonical payload with a root-only per-user RSA key.
 The daemon reads only the root-owned public key and rejects legacy HMAC grants while that
 key exists.
 
 The system key path is selected by daemon/vault owner UID, not by user-writable database
 metadata. The signed payload still includes the vault ID, preventing cross-vault replay.
-Preview and key material never appear in broker process arguments or environment variables.
+Preview and key material never appear in broker process arguments or environment variables;
+only the fixed private-key pathname appears in the privileged OpenSSL invocation.
 
 ## Limitation and replacement
 
