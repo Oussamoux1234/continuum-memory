@@ -1,4 +1,5 @@
 recursive-include packaging/linux *
+recursive-include fixtures *.py
 recursive-include tests *.py
 include docs/LINUX_APPROVAL_BROKER.md
 include scripts/polkit_smoke.py

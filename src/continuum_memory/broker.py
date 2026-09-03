@@ -133,7 +133,10 @@ class LinuxPolkitApprovalBroker:
         return result
 
 
-def broker_for_challenge(challenge: Dict[str, Any], control_capability_file: Path) -> ApprovalBroker:
+def broker_for_challenge(challenge: Dict[str, Any]) -> ApprovalBroker:
     if challenge.get("approval_boundary") == LINUX_APPROVAL_BOUNDARY:
         return LinuxPolkitApprovalBroker()
-    return TerminalApprovalBroker(control_capability_file)
+    raise MemoryError(
+        "approval_broker_unavailable",
+        "No provisioned OS-backed approval broker is available for this vault.",
+    )

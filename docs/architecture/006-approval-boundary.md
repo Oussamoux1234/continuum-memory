@@ -1,7 +1,7 @@
 # ADR 006: Exact-preview, one-shot grants behind a broker interface
 
-Status: accepted; terminal prototype retained for unprovisioned vaults and Linux polkit
-implementation pending real-host evidence.
+Status: accepted; Linux polkit implementation pending real-host evidence. The terminal
+prototype is retained only as an explicitly injected deterministic-test seam.
 
 ## Decision
 
@@ -29,9 +29,10 @@ Preview and key material never appear in broker process arguments or environment
 
 ## Limitation and replacement
 
-The terminal fallback still uses the owner-only control capability as its HMAC key. A
-shell-capable same-UID agent can cross that fallback boundary. Provisioning the Linux key
-prevents capability possession from minting grants, but it does not encrypt the database,
-prevent direct same-UID mutation of user-owned files, stop daemon replacement, or create a
-trusted display path independent of the local desktop. A controlled real-polkit smoke test
-and independent review remain required before trustworthy local v1.
+The packaged daemon fails closed when no OS-backed approval key is available; it never
+enables the terminal/HMAC path. That path can only be enabled through constructor injection
+in a temporary marked test vault. Provisioning the Linux key prevents control-capability
+possession from minting grants, but it does not encrypt the database, prevent direct
+same-UID mutation of user-owned files, stop daemon replacement, or create a trusted display
+path independent of the local desktop. A controlled real-polkit smoke test and independent
+review remain required before trustworthy local v1.

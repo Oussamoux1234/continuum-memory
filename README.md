@@ -23,8 +23,8 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 
 - a single local daemon is the post-bootstrap SQLite writer;
 - users can accept exact, previewed claims using a one-shot approval grant;
-- provisioned Linux users can replace the terminal signer with a polkit-authorized,
-  root-keyed approval proof that the user daemon verifies using only a public key;
+- provisioned Linux users approve through a polkit-authorized, root-keyed proof that the
+  user daemon verifies using only a public key;
 - agents can search, read, propose, send feedback, and inspect status, but cannot accept,
   correct, forget, export, or change policy through MCP;
 - immutable correction history and explicit open conflicts are returned honestly;
@@ -63,11 +63,11 @@ continuum status --project PROJECT_ID
 continuum audit verify
 ```
 
-Administrative commands require an interactive confirmation over the exact preview. There
-is deliberately no `--yes` bypass. An unprovisioned vault uses the truthful terminal
-prototype, which does **not** resist a shell-capable same-UID agent. Linux users can install
-and provision the OS-backed broker described in `docs/LINUX_APPROVAL_BROKER.md`; after its
-root-owned public key appears, the daemon rejects terminal/HMAC grants automatically.
+Administrative commands require an interactive OS-backed confirmation over the exact
+preview. There is deliberately no `--yes` bypass, and live use fails closed when no native
+broker is provisioned. Linux users can install and provision the broker described in
+`docs/LINUX_APPROVAL_BROKER.md`. The old same-UID terminal/HMAC seam is injectable only by
+the temporary test harness; the packaged daemon and CLI never select it.
 
 To run the verified fixture demo and complete local test suite:
 

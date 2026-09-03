@@ -23,6 +23,7 @@ EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
 MAX_METADATA_BYTES = 1024 * 1024
 REQUIRED_SDIST_FILES = (
+    "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",

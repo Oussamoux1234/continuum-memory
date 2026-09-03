@@ -20,7 +20,7 @@ Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
 The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
 [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 37 unit/integration tests: passed.
+- 38 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -50,7 +50,8 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 - Linux approval regressions: exact request binding, stdin-only broker transport,
   cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
   per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
-  rejection, replay rejection, and agent denial: passed without invoking polkit.
+  rejection, replay rejection, unprovisioned-runtime failure, explicit test-only prototype
+  injection, and agent denial: passed without invoking polkit.
 
 ## Initial-slice checklist disposition
 
