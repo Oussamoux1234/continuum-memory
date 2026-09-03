@@ -7,7 +7,7 @@
 - [x] Deterministic cross-agent fixture and lifecycle/isolation tests
 - [x] Strict UTC dates, persisted retention expiry, complete logical forget projections
 - [x] Symlink/hardlink/owner/mode checks for vault files, capabilities, and local socket
-- [ ] Validate the terminal broker and daemon on Linux x86-64 (current build host may differ)
+- [x] Run the complete verifier on GitHub-hosted Ubuntu 24.04 x86-64 / Python 3.9
 
 ## Trustworthy local v1
 
@@ -35,6 +35,7 @@
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
 - [ ] SBOM, license/vulnerability policy, deterministic payload, signing rehearsal
 - [ ] Linux packaging and independently reviewed security claims
+- [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))
 
 ## Future sync
 
