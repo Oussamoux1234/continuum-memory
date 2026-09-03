@@ -85,7 +85,7 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
 | Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
-| SQLCipher/page/WAL/temp/FTS candidate | Local implementation and regression gates passed; independent review and green branch CI remain before Issue #7 closure or an accepted encryption claim |
+| SQLCipher/page/WAL/temp/FTS candidate | Local implementation and regression gates passed; both push and pull-request CI passed for commit `8a8014b`; independent review remains before Issue #7 closure or an accepted encryption claim |
 | Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
@@ -93,7 +93,7 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
 This result supports only the maturity label “experimental local prototype” and an Issue #7
-implementation candidate. Until independent review and branch CI pass, it is not an
-accepted encryption claim. It is not evidence for production security, native-host
+implementation candidate. Until independent review passes, it is not an accepted
+encryption claim. It is not evidence for production security, native-host
 compatibility, Linux packaging, cross-platform behavior, whole-vault confidentiality,
 physical erasure, backup revocation, or benchmark-leading recall.

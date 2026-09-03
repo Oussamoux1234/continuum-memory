@@ -20,5 +20,5 @@ request; acquiring the hash-pinned SQLCipher wheel is a separate installation st
 | Platform | Status |
 |---|---|
 | macOS 26.5.2 arm64, Python 3.9.6 | Full local verifier passed; development evidence, not a packaged support promise |
-| GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Full verifier passed in Actions run 33742253644 |
+| GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Baseline full verifier passed in Actions run 33742253644; Issue #7 SQLCipher branch push and PR gates passed in runs 33764230305 and 33764247970 |
 | Windows | Unsupported: POSIX IPC and filesystem security assumptions require a separate design; tracked in issue #1 |
