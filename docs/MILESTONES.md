@@ -34,7 +34,7 @@
 
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
 - [ ] SBOM, license/vulnerability policy, deterministic payload, signing rehearsal
-- [ ] Linux packaging and independently reviewed security claims
+- [ ] Linux packaging and independently reviewed security claims ([issue #2](https://github.com/Oussamoux1234/continuum-memory/issues/2))
 - [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))
 
 ## Future sync

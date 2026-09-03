@@ -10,8 +10,9 @@ python3 scripts/verify.py
 
 The command parses both JSON schemas, checks source whitespace, compiles every Python
 module, runs the unit/integration suite with resource warnings promoted to errors, executes
-the complete two-client fixture demo, performs an offline editable-install/entry-point
-smoke test in a temporary virtual environment, and runs `git diff --check`.
+the complete two-client fixture demo, builds a source distribution, installs that exact
+archive offline into a temporary virtual environment, exercises its entry points, and runs
+`git diff --check`.
 
 ## Observed result
 
@@ -42,8 +43,8 @@ The same command passed on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 in
 - Filesystem boundary: data-directory/ancestor/database/capability/socket symlinks,
   database and capability hardlinks, and group/world-accessible directory/file modes
   rejected: passed.
-- Offline editable install and the `continuum`, `memoryd`, and `continuum-mcp` entry points:
-  passed.
+- Offline source-distribution build/install and the `continuum`, `memoryd`, and
+  `continuum-mcp` entry points: passed.
 
 ## Initial-slice checklist disposition
 
@@ -60,7 +61,7 @@ The same command passed on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 in
 | Content-free HMAC audit verification/tamper detection | Passed prototype tests |
 | Default runtime network access | No network code exists; packet-level instrumentation not run |
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
-| Linux distribution package | Not built; editable-install and entry-point smoke only |
+| Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
 | SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
 | Real Linux polkit/user-presence broker | Not implemented or run; terminal boundary only |
