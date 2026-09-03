@@ -38,19 +38,34 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
   group/world-accessible modes at the access boundary;
 - two deterministic stdio MCP clients can share approved project memory.
 
-## Five-minute safe quickstart
+## Five-minute reproducible quickstart
 
-Requires Python 3.9 and the pinned `sqlcipher3==0.6.2` runtime. Package installation may
-download that dependency; runtime operation uses no network service. Use a temporary
-directory while evaluating the prototype:
+Requires CPython 3.11–3.14 and the pinned `sqlcipher3==0.6.2` runtime. Linux x86-64 runs
+the complete gate on every declared Python version. The native macOS evidence is limited
+to arm64 with Python 3.14; no broader macOS support is claimed. Artifact acquisition uses
+the package index, but installation and runtime operation use no network service. Use a
+temporary directory while evaluating the prototype:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
+python3.14 -m venv .venv
+.venv/bin/python -m pip download --require-hashes --only-binary=:all: --no-deps \
+  --dest work/dependencies -r requirements/sqlcipher-maintained.txt
+.venv/bin/python -m pip download --require-hashes --only-binary=:all: --no-deps \
+  --dest work/build-dependencies -r requirements/verification-tools.txt
+.venv/bin/python -m pip install --no-index --no-deps --find-links work/build-dependencies \
+  setuptools==80.9.0
+.venv/bin/python -m pip install --no-index --no-deps --find-links work/dependencies \
+  sqlcipher3==0.6.2
+.venv/bin/python -m pip install --no-build-isolation --no-index --no-deps -e .
+source .venv/bin/activate
 export CONTINUUM_HOME="$(mktemp -d)"
 continuum init --project-name demo --project-path "$PWD" --providers codex,claude
 memoryd --data-dir "$CONTINUUM_HOME"
 ```
+
+On a verified Linux target, select any Python from 3.11 through 3.14 for the virtual
+environment. A plain `pip install -e .` is only an unverified developer convenience because
+it may resolve artifacts without the repository's reviewed hashes.
 
 In another terminal, using the project ID printed by `init`:
 

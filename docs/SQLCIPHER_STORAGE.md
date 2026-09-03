@@ -5,22 +5,31 @@ Status: Issue #7 implementation candidate. Independent review is still required.
 ## Runtime and reproducibility
 
 Continuum Memory pins `sqlcipher3==0.6.2` and accepts SQLCipher runtime
-`4.12.0 community`. The supported verification targets for this issue are CPython 3.9 on
-macOS 11+ arm64 and manylinux 2.28+ x86-64. Their wheel filenames and SHA-256 digests are
-fixed in `requirements/sqlcipher-python39.txt` and `scripts/verify.py`.
+`4.12.0 community`. Python 3.9 is excluded because it is end-of-life and no longer receives
+security updates. The declared maintained matrix is CPython 3.11–3.14. GitHub Actions runs
+the full matrix on Ubuntu 24.04 x86-64. Native macOS evidence is limited to macOS arm64 with
+Python 3.14; the other macOS wheel hashes are pinned for artifact identity but are not a
+support claim. Wheel filenames and SHA-256 digests are fixed in
+`requirements/sqlcipher-maintained.txt` and `scripts/verify.py`.
 
 Source builds are not a supported reproducible path for this milestone. The inspected
 source distribution invokes Conan and external dependency resolution. CI first downloads
 the matching hash-checked binary wheel into `work/dependencies`, installs it into the test
-interpreter, and then runs the gate. The packaging smoke creates another clean virtual
-environment and installs both that already-validated wheel and the built Continuum source
-archive with `PIP_NO_INDEX=1`, `--no-deps`, and no checkout `PYTHONPATH`.
+interpreter, and then runs the gate. The verification-only `setuptools==80.9.0` wheel is
+also hash-pinned because fresh maintained-Python environments do not implicitly provide it.
+The packaging smoke creates another clean virtual environment and installs the pinned build
+tool, the validated SQLCipher wheel, and the built Continuum source archive with
+`PIP_NO_INDEX=1`, `--no-build-isolation`, `--no-deps`, and no checkout `PYTHONPATH`.
 
-To prepare and run the same gate on a supported Python 3.9 host:
+To prepare and run the same gate on a declared maintained Python host:
 
 ```bash
 python3 -m pip download --require-hashes --only-binary=:all: --no-deps \
-  --dest work/dependencies -r requirements/sqlcipher-python39.txt
+  --dest work/dependencies -r requirements/sqlcipher-maintained.txt
+python3 -m pip download --require-hashes --only-binary=:all: --no-deps \
+  --dest work/build-dependencies -r requirements/verification-tools.txt
+python3 -m pip install --no-index --no-deps --find-links work/build-dependencies \
+  setuptools==80.9.0
 python3 -m pip install --no-index --no-deps --find-links work/dependencies \
   sqlcipher3==0.6.2
 python3 scripts/verify.py
@@ -34,8 +43,10 @@ multiple candidate wheels.
 
 `continuum init` generates 32 random bytes with the operating system randomness source. It
 writes them directly to `storage.key` in the owner-only vault directory using exclusive,
-no-follow creation and mode `0600`. The key is never accepted from command-line arguments
-or environment variables and is not included in status, logs, audit events, or errors.
+no-follow creation and mode `0600`. The key file is fsynced, then the vault directory is
+opened and fsynced before database creation so the directory entry is durable before any
+encrypted database commit. The key is never accepted from command-line arguments or
+environment variables and is not included in status, logs, audit events, or errors.
 
 The file is required to be a single owner-owned regular file with one link and no group or
 world permissions. Missing, malformed, linked, substituted, or inaccessible key material
@@ -48,14 +59,19 @@ The daemon is the only post-bootstrap writer. For each connection it:
 1. validates the vault directory, database, and key-file boundaries;
 2. opens the SQLCipher binding and applies the raw 32-byte key as the first database operation;
 3. requires the exact cipher version and an active cipher status;
-4. reads `sqlite_master` to authenticate the encrypted header before write-affecting settings;
-5. requires WAL, `synchronous=FULL`, and `temp_store=MEMORY`, disables extension loading and
-   memory mapping, and checks FTS5 availability;
-6. requires the schema version and metadata storage mode `sqlcipher-4.12.0`.
+4. enables connection-level query-only mode and reads `sqlite_master` to authenticate the
+   encrypted header;
+5. validates schema version, storage mode, and vault identity while writes remain disabled;
+6. only after acceptance disables query-only mode, applies WAL, `synchronous=FULL`,
+   `temp_store=MEMORY`, `secure_delete=ON`, foreign keys, `trusted_schema=OFF`, bounded busy
+   timeout, disabled memory mapping and extension loading, and checks FTS5 availability;
+7. reads every critical PRAGMA back and fails closed unless each exact value is active.
 
 There is no stdlib SQLite fallback. A missing binding returns `sqlcipher_unavailable`; a
 wrong key or plaintext database returns `storage_key_invalid`; an unsupported metadata mode
 returns `storage_mode_mismatch`. These messages contain no key or database content.
+An unsupported encrypted schema or storage mode is rejected without changing database
+bytes, journal mode, or sidecar artifacts.
 
 `continuum status` reports the storage mode. `continuum audit verify` runs both SQLite and
 SQLCipher integrity checks and reports `sqlite_integrity` and `sqlcipher_integrity`.

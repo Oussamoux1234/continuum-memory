@@ -9,19 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  linux-python39:
+  linux-maintained-python:
+    name: linux-python${{ matrix.python-version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python-version }}
       - name: Acquire hash-pinned SQLCipher wheel
         run: >-
           python3 -m pip download --require-hashes --only-binary=:all: --no-deps
-          --dest work/dependencies -r requirements/sqlcipher-python39.txt
-      - name: Install SQLCipher runtime from the pinned wheel
+          --dest work/dependencies -r requirements/sqlcipher-maintained.txt
+      - name: Acquire hash-pinned verification build tool
+        run: >-
+          python3 -m pip download --require-hashes --only-binary=:all: --no-deps
+          --dest work/build-dependencies -r requirements/verification-tools.txt
+      - name: Install pinned verification build tool
+        run: >-
+          python3 -m pip install --no-index --no-deps --find-links work/build-dependencies
+          setuptools==80.9.0
+      - name: Install pinned SQLCipher runtime
         run: >-
           python3 -m pip install --no-index --no-deps --find-links work/dependencies
           sqlcipher3==0.6.2

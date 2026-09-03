@@ -11,6 +11,7 @@ from scripts.verify import (
     find_sdist,
     find_sqlcipher_wheel,
     require_sdist_files,
+    runtime_check,
 )
 
 
@@ -136,6 +137,19 @@ class SqlcipherWheelDiscoveryTest(unittest.TestCase):
             expected = {first.name: hashlib.sha256(b"expected").hexdigest()}
             with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                 find_sqlcipher_wheel(directory, expected)
+
+
+class SupportedRuntimeTest(unittest.TestCase):
+    def test_accepts_declared_maintained_python_matrix(self):
+        for version in ((3, 11), (3, 12), (3, 13), (3, 14)):
+            with self.subTest(version=version):
+                runtime_check(version)
+
+    def test_rejects_eol_and_undeclared_python_versions(self):
+        for version in ((3, 9), (3, 10), (3, 15)):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(RuntimeError, "maintained CPython"):
+                    runtime_check(version)
 
 
 if __name__ == "__main__":

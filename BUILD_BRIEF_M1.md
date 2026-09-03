@@ -91,8 +91,8 @@ policies. It operates only in a temporary home and never touches real host profi
 
 ## Definition of done
 
-Done means the documented command passes on a machine with the supported Python 3.9 and
-SQLCipher/FTS5 runtime, and the
+Done means the documented command passes on a machine with a declared maintained CPython
+3.11–3.14 and the pinned SQLCipher/FTS5 runtime, and the
 demo produces evidence for each scoped acceptance test. The slice is still a prototype:
 real Linux polkit, independently accepted SQLCipher, native hosts, backup revocation,
 independent security audit, signed package reproducibility, and benchmark gates remain

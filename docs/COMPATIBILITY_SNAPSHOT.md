@@ -10,7 +10,7 @@ Recorded 2026-09-03 for design; runtime and builds make no network requests.
 | SQLCipher | https://www.zetetic.net/sqlcipher/sqlcipher-api/ | Issue #7 candidate pins `sqlcipher3` 0.6.2 / SQLCipher 4.12.0, raw 32-byte key, encrypted WAL, integrity check; independent review pending |
 | W3C provenance | https://www.w3.org/TR/prov-o/ | compact author/recorder/authorizer/validator roles only; no conformance claim |
 
-Current local evidence at bootstrap: Python 3.9.6, SQLCipher 4.12.0 community over SQLite
+Current local evidence at bootstrap: Python 3.14.6, SQLCipher 4.12.0 community over SQLite
 3.51.1 with FTS5, no Rust toolchain. Native Codex, Claude Code, and Antigravity
 versions/configurations were not probed or modified. Runtime operation makes no network
 request; acquiring the hash-pinned SQLCipher wheel is a separate installation step.
@@ -19,6 +19,6 @@ request; acquiring the hash-pinned SQLCipher wheel is a separate installation st
 
 | Platform | Status |
 |---|---|
-| macOS 26.5.2 arm64, Python 3.9.6 | Full local verifier passed; development evidence, not a packaged support promise |
-| GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Baseline full verifier passed in Actions run 33742253644; Issue #7 SQLCipher branch push and PR gates passed in runs 33764230305 and 33764247970 |
+| macOS 26.5.2 arm64, Python 3.14.6 | Full local verifier passed; this is the only native macOS target in Issue #7 and remains development evidence, not a packaged support promise |
+| GitHub-hosted Ubuntu 24.04 x86-64, Python 3.11–3.14 | Complete maintained-version matrix required by the verify workflow |
 | Windows | Unsupported: POSIX IPC and filesystem security assumptions require a separate design; tracked in issue #1 |

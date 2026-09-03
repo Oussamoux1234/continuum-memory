@@ -23,6 +23,8 @@ ENV["PIP_NO_INDEX"] = "1"
 ENV["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
 EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
+MINIMUM_PYTHON = (3, 11)
+EXCLUDED_PYTHON = (3, 15)
 MAX_METADATA_BYTES = 1024 * 1024
 REQUIRED_SDIST_FILES = (
     "docs/SQLCIPHER_STORAGE.md",
@@ -30,7 +32,8 @@ REQUIRED_SDIST_FILES = (
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",
-    "requirements/sqlcipher-python39.txt",
+    "requirements/sqlcipher-maintained.txt",
+    "requirements/verification-tools.txt",
     "scripts/polkit_smoke.py",
     "src/continuum_memory/approval.py",
     "src/continuum_memory/polkit_helper.py",
@@ -39,11 +42,34 @@ REQUIRED_SDIST_FILES = (
     "tests/test_verify.py",
 )
 EXPECTED_SQLCIPHER_WHEELS = {
-    "sqlcipher3-0.6.2-cp39-cp39-macosx_11_0_arm64.whl": (
-        "7634c16e937c42f3570b41bf2a5032fbec8413cd221e84782ff567f850a0f76c"
+    "sqlcipher3-0.6.2-cp311-cp311-macosx_11_0_arm64.whl": (
+        "22e6502c364706fe64695219877f2bb01cdb25450bec81e69c8a08deff8c14ee"
     ),
-    "sqlcipher3-0.6.2-cp39-cp39-manylinux_2_28_x86_64.whl": (
-        "3a8ced91852c599a19a1e223436ef2e43f6727141958880183aea02b6ad5b375"
+    "sqlcipher3-0.6.2-cp311-cp311-manylinux_2_28_x86_64.whl": (
+        "0f08e5bb5eb1ab93819c444ebec61fa3349e9690c14f5d0276fd4f61c3049fd9"
+    ),
+    "sqlcipher3-0.6.2-cp312-cp312-macosx_11_0_arm64.whl": (
+        "bc2edd981e65783bc0d4e337704a9eb436871ab91c68af02ed76354876087642"
+    ),
+    "sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl": (
+        "6b26d28ca844dc2a69b8f74b390e940db47760f0be4c96d93337c57ae8250a48"
+    ),
+    "sqlcipher3-0.6.2-cp313-cp313-macosx_11_0_arm64.whl": (
+        "8e1ff6079603dfd955d57c26dad5eab14f6baacdc643d8753dd651913ba789cf"
+    ),
+    "sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl": (
+        "9fb7109981583b631ac795e7e955d4bf78058f64b54c7f334ccc437adc322d4b"
+    ),
+    "sqlcipher3-0.6.2-cp314-cp314-macosx_11_0_arm64.whl": (
+        "5c1f4a5805faa418c9c7290e6a556a8c5abae40ea59b04d76e960e33c257e618"
+    ),
+    "sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl": (
+        "e00988174ecd67ecd4537504c3df55bf8daeb75fce98401f099dff8e22c43ae1"
+    ),
+}
+EXPECTED_BUILD_WHEELS = {
+    "setuptools-80.9.0-py3-none-any.whl": (
+        "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
     ),
 }
 
@@ -51,6 +77,11 @@ EXPECTED_SQLCIPHER_WHEELS = {
 def run(command: List[str], environment: Optional[Dict[str, str]] = None) -> None:
     print("+ %s" % " ".join(command), flush=True)
     subprocess.run(command, cwd=str(ROOT), env=ENV if environment is None else environment, check=True)
+
+
+def runtime_check(version: tuple[int, int] = sys.version_info[:2]) -> None:
+    if version < MINIMUM_PYTHON or version >= EXCLUDED_PYTHON:
+        raise RuntimeError("verification requires maintained CPython 3.11 through 3.14")
 
 
 def schema_check() -> None:
@@ -148,24 +179,47 @@ def require_sdist_files(archive: Path, required: tuple[str, ...] = REQUIRED_SDIS
         raise RuntimeError("source distribution is missing required files: %s" % ", ".join(missing))
 
 
+def _find_hash_pinned_wheel(
+    wheelhouse: Path,
+    pattern: str,
+    expected: Dict[str, str],
+    label: str,
+) -> Path:
+    wheels = sorted(wheelhouse.glob(pattern)) if wheelhouse.is_dir() else []
+    if len(wheels) != 1:
+        raise RuntimeError("expected exactly one %s wheel, found %d" % (label, len(wheels)))
+    wheel = wheels[0]
+    info = wheel.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise RuntimeError("%s wheel must be a single regular file" % label)
+    expected_digest = expected.get(wheel.name)
+    if expected_digest is None:
+        raise RuntimeError("unsupported %s wheel: %s" % (label, wheel.name))
+    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    if digest != expected_digest:
+        raise RuntimeError("%s wheel digest mismatch: %s" % (label, wheel.name))
+    return wheel
+
+
 def find_sqlcipher_wheel(
     wheelhouse: Path,
     expected: Dict[str, str] = EXPECTED_SQLCIPHER_WHEELS,
 ) -> Path:
-    wheels = sorted(wheelhouse.glob("sqlcipher3-*.whl")) if wheelhouse.is_dir() else []
-    if len(wheels) != 1:
-        raise RuntimeError("expected exactly one SQLCipher wheel, found %d" % len(wheels))
-    wheel = wheels[0]
-    info = wheel.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-        raise RuntimeError("SQLCipher wheel must be a single regular file")
-    expected_digest = expected.get(wheel.name)
-    if expected_digest is None:
-        raise RuntimeError("unsupported SQLCipher wheel: %s" % wheel.name)
-    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-    if digest != expected_digest:
-        raise RuntimeError("SQLCipher wheel digest mismatch: %s" % wheel.name)
-    return wheel
+    return _find_hash_pinned_wheel(
+        wheelhouse,
+        "sqlcipher3-*.whl",
+        expected,
+        "SQLCipher",
+    )
+
+
+def find_build_tool_wheel(wheelhouse: Path) -> Path:
+    return _find_hash_pinned_wheel(
+        wheelhouse,
+        "setuptools-*.whl",
+        EXPECTED_BUILD_WHEELS,
+        "build-tool",
+    )
 
 
 def packaging_smoke() -> None:
@@ -185,17 +239,31 @@ def packaging_smoke() -> None:
         archive = find_sdist(artifacts)
         require_sdist_files(archive)
         dependency = find_sqlcipher_wheel(ROOT / "work" / "dependencies")
+        build_dependency = find_build_tool_wheel(ROOT / "work" / "build-dependencies")
         environment = str(Path(temp) / "venv")
         run([sys.executable, "-m", "venv", environment])
         python = str(Path(environment) / "bin" / "python")
         package_environment = dict(ENV)
         package_environment.pop("PYTHONPATH", None)
         run(
+            [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(build_dependency)],
+            package_environment,
+        )
+        run(
             [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(dependency)],
             package_environment,
         )
         run(
-            [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(archive)],
+            [
+                python,
+                "-m",
+                "pip",
+                "install",
+                "--no-build-isolation",
+                "--no-cache-dir",
+                "--no-deps",
+                str(archive),
+            ],
             package_environment,
         )
         run([str(Path(environment) / "bin" / "continuum"), "--version"], package_environment)
@@ -208,6 +276,7 @@ def packaging_smoke() -> None:
 
 
 def main() -> int:
+    runtime_check()
     schema_check()
     whitespace_check()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])

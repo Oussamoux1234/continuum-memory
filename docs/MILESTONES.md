@@ -7,7 +7,8 @@
 - [x] Deterministic cross-agent fixture and lifecycle/isolation tests
 - [x] Strict UTC dates, persisted retention expiry, complete logical forget projections
 - [x] Symlink/hardlink/owner/mode checks for vault files, capabilities, and local socket
-- [x] Run the complete verifier on GitHub-hosted Ubuntu 24.04 x86-64 / Python 3.9
+- [x] Historical prototype verifier on GitHub-hosted Ubuntu 24.04 x86-64 / Python 3.9
+- [x] Require the current verifier on a maintained Python 3.11–3.14 Linux matrix in Actions
 
 ## Trustworthy local v1
 
