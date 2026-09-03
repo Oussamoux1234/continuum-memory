@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec /opt/continuum-memory-polkit/bin/continuum-polkit-helper "$@"

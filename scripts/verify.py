@@ -22,6 +22,16 @@ ENV["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
 EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
 MAX_METADATA_BYTES = 1024 * 1024
+REQUIRED_SDIST_FILES = (
+    "packaging/linux/approval-helper",
+    "packaging/linux/install-polkit.sh",
+    "packaging/linux/org.continuummemory.approval.policy",
+    "scripts/polkit_smoke.py",
+    "src/continuum_memory/approval.py",
+    "src/continuum_memory/polkit_helper.py",
+    "tests/test_approval.py",
+    "tests/test_verify.py",
+)
 
 
 def run(command: List[str], environment: Optional[Dict[str, str]] = None) -> None:
@@ -108,6 +118,22 @@ def find_sdist(artifacts: Path) -> Path:
     return archive
 
 
+def require_sdist_files(archive: Path, required: tuple[str, ...] = REQUIRED_SDIST_FILES) -> None:
+    try:
+        with tarfile.open(str(archive), mode="r:gz") as bundle:
+            packaged_files = set()
+            for member in bundle.getmembers():
+                parts = PurePosixPath(member.name).parts
+                if member.isfile() and len(parts) >= 2:
+                    packaged_files.add(str(PurePosixPath(*parts[1:])))
+    except (OSError, tarfile.TarError) as error:
+        raise RuntimeError("invalid source distribution: %s" % archive.name) from error
+
+    missing = sorted(set(required) - packaged_files)
+    if missing:
+        raise RuntimeError("source distribution is missing required files: %s" % ", ".join(missing))
+
+
 def packaging_smoke() -> None:
     with tempfile.TemporaryDirectory(prefix="continuum-package-", dir=str(ROOT / "work")) as temp:
         artifacts = Path(temp) / "dist"
@@ -123,6 +149,7 @@ def packaging_smoke() -> None:
             ]
         )
         archive = find_sdist(artifacts)
+        require_sdist_files(archive)
         environment = str(Path(temp) / "venv")
         run([sys.executable, "-m", "venv", environment])
         python = str(Path(environment) / "bin" / "python")
@@ -135,6 +162,10 @@ def packaging_smoke() -> None:
         run([str(Path(environment) / "bin" / "continuum"), "--version"], package_environment)
         run([str(Path(environment) / "bin" / "memoryd"), "--help"], package_environment)
         run([str(Path(environment) / "bin" / "continuum-mcp"), "--help"], package_environment)
+        run(
+            [str(Path(environment) / "bin" / "continuum-polkit-helper"), "--help"],
+            package_environment,
+        )
 
 
 def main() -> int:
