@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible defect without including memory bodies or secrets.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste credentials, private evidence, database files, or raw memory bodies.
+  - type: input
+    id: version
+    attributes: {label: Version, placeholder: "continuum --version"}
+    validations: {required: true}
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [ledger, temporal, retrieval, MCP, CLI, daemon, deletion, audit, documentation]
+    validations: {required: true}
+  - type: textarea
+    id: reproduction
+    attributes: {label: Minimal reproduction, description: Use synthetic/non-sensitive values.}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected and actual behavior}
+    validations: {required: true}

@@ -1,0 +1,23 @@
+name: Roadmap proposal
+description: Propose a scoped capability while preserving the constitution.
+title: "[roadmap] "
+labels: ["roadmap"]
+body:
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options: [prototype, trustworthy-local-v1, adapters, retrieval-quality, hardening, future-sync]
+    validations: {required: true}
+  - type: textarea
+    id: outcome
+    attributes: {label: User outcome}
+    validations: {required: true}
+  - type: textarea
+    id: invariants
+    attributes: {label: Affected invariants and trust boundaries}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Proposed acceptance evidence}
+    validations: {required: true}
