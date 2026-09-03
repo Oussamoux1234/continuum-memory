@@ -17,10 +17,10 @@ archive offline into a temporary virtual environment, exercises its entry points
 ## Observed result
 
 Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
-The same command passed on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 in
-[Actions run 33742253644](https://github.com/Oussamoux1234/continuum-memory/actions/runs/33742253644).
+The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
+[verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 19 unit/integration tests: passed.
+- 25 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -43,8 +43,9 @@ The same command passed on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 in
 - Filesystem boundary: data-directory/ancestor/database/capability/socket symlinks,
   database and capability hardlinks, and group/world-accessible directory/file modes
   rejected: passed.
-- Offline source-distribution build/install and the `continuum`, `memoryd`, and
-  `continuum-mcp` entry points: passed.
+- Portable hyphen/underscore source-distribution discovery, exact filename and embedded
+  name/version validation, invalid/multiple artifact rejection, offline archive install,
+  and the `continuum`, `memoryd`, and `continuum-mcp` entry points: passed.
 
 ## Initial-slice checklist disposition
 
