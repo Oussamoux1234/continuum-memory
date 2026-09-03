@@ -1,10 +1,14 @@
+import fcntl
 import json
+import os
 import subprocess
 import tempfile
 import time
 import unittest
 import xml.etree.ElementTree as ElementTree
+from contextlib import nullcontext
 from pathlib import Path
+from unittest import mock
 
 from continuum_memory.approval import (
     LINUX_APPROVAL_BOUNDARY,
@@ -22,7 +26,15 @@ from continuum_memory.approval import (
 from continuum_memory.broker import LinuxPolkitApprovalBroker, broker_for_challenge
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
-from continuum_memory.polkit_helper import authorize_request
+from continuum_memory.polkit_helper import (
+    _ensure_privileged_runtime,
+    _provision_lock,
+    _root_directory,
+    authorize_request,
+    provision_keys,
+    render_preview,
+    validate_installed_policy,
+)
 from continuum_memory.security import digest_json, sign_grant
 from continuum_memory.storage import Store, load_capability, paths
 
@@ -155,6 +167,131 @@ class ApprovalContractTest(unittest.TestCase):
         self.assertEqual(annotation.text, "/usr/libexec/continuum-memory/approval-helper")
         wrapper = (ROOT / "packaging" / "linux" / "approval-helper").read_text(encoding="utf-8")
         self.assertIn("/opt/continuum-memory-polkit/bin/continuum-polkit-helper", wrapper)
+        validate_installed_policy(
+            ROOT / "packaging" / "linux" / "org.continuummemory.approval.policy",
+            path_validator=no_path_validation,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="continuum-policy-test-") as temporary:
+            mutated = Path(temporary) / "approval.policy"
+            policy_text = (
+                ROOT / "packaging" / "linux" / "org.continuummemory.approval.policy"
+            ).read_text(encoding="utf-8")
+            mutations = {
+                "permissive": policy_text.replace("auth_admin", "yes"),
+                "redirected": policy_text.replace(
+                    "/usr/libexec/continuum-memory/approval-helper", "/tmp/approval-helper"
+                ),
+            }
+            for label, contents in mutations.items():
+                with self.subTest(policy=label):
+                    mutated.write_text(contents, encoding="utf-8")
+                    with self.assertRaises(MemoryError) as unsafe:
+                        validate_installed_policy(mutated, path_validator=no_path_validation)
+                    self.assertEqual(unsafe.exception.code, "approval_broker_unsafe")
+
+    def test_privileged_runtime_requires_policy_validation(self):
+        with mock.patch("continuum_memory.polkit_helper.sys.platform", "linux"):
+            with mock.patch("continuum_memory.polkit_helper.os.geteuid", return_value=0):
+                with mock.patch("continuum_memory.polkit_helper.ensure_root_owned_regular"):
+                    failure = MemoryError("approval_broker_unsafe", "Synthetic unsafe policy.")
+                    with mock.patch(
+                        "continuum_memory.polkit_helper.validate_installed_policy",
+                        side_effect=failure,
+                    ) as validate_policy:
+                        with self.assertRaises(MemoryError) as rejected:
+                            _ensure_privileged_runtime()
+        validate_policy.assert_called_once_with()
+        self.assertEqual(rejected.exception.code, "approval_broker_unsafe")
+
+    def test_key_directory_symlink_is_rejected_before_chmod(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-key-directory-") as temporary:
+            target = Path(temporary) / "target"
+            target.mkdir()
+            symlink = Path(temporary) / "approval-keys"
+            symlink.symlink_to(target, target_is_directory=True)
+            with mock.patch("continuum_memory.polkit_helper.os.chmod") as chmod:
+                with self.assertRaises(MemoryError) as unsafe:
+                    _root_directory(symlink, private=True)
+            chmod.assert_not_called()
+            self.assertEqual(unsafe.exception.code, "approval_broker_unsafe")
+
+    def test_provisioning_uses_a_private_exclusive_lock(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-provision-lock-") as temporary:
+            lock_path = Path(temporary) / ".provision.lock"
+            with mock.patch("continuum_memory.polkit_helper.fcntl.flock") as flock:
+                with _provision_lock(lock_path, expected_owner=os.getuid()):
+                    info = lock_path.stat()
+                    self.assertEqual(info.st_mode & 0o777, 0o600)
+                flock.assert_called_once_with(mock.ANY, fcntl.LOCK_EX)
+
+            target = Path(temporary) / "target"
+            target.write_text("not a lock", encoding="utf-8")
+            symlink = Path(temporary) / "unsafe.lock"
+            symlink.symlink_to(target)
+            with self.assertRaises(MemoryError) as unsafe:
+                with _provision_lock(symlink, expected_owner=os.getuid()):
+                    pass
+            self.assertEqual(unsafe.exception.code, "approval_broker_unsafe")
+
+    def test_provisioning_sanitizes_the_caller_umask_before_creating_directories(self):
+        with mock.patch("continuum_memory.polkit_helper.os.umask", side_effect=[0o077, 0o022]) as umask:
+            with mock.patch("continuum_memory.polkit_helper.private_key_path") as private_path:
+                with mock.patch("continuum_memory.polkit_helper.public_key_path") as public_path:
+                    private_path.return_value = Path("/private/uid-1234.pem")
+                    public_path.return_value = Path("/public/uid-1234.pem")
+                    with mock.patch("continuum_memory.polkit_helper._root_directory"):
+                        with mock.patch(
+                            "continuum_memory.polkit_helper._provision_lock",
+                            return_value=nullcontext(),
+                        ):
+                            with mock.patch(
+                                "continuum_memory.polkit_helper._provision_keys_locked",
+                                return_value={"status": "provisioned"},
+                            ):
+                                self.assertEqual(provision_keys(1234), {"status": "provisioned"})
+        self.assertEqual(umask.call_args_list, [mock.call(0o022), mock.call(0o077)])
+
+    def test_preview_rendering_escapes_unicode_direction_controls(self):
+        rendered = render_preview({"claim": "safe\u202eevil"})
+        self.assertNotIn("\u202e", rendered)
+        self.assertIn("\\u202e", rendered)
+
+    def test_root_installer_ignores_caller_path_and_python_environment(self):
+        installer = ROOT / "packaging" / "linux" / "install-polkit.sh"
+        source = installer.read_text(encoding="utf-8")
+        self.assertIn("PATH=/usr/sbin:/usr/bin:/sbin:/bin", source)
+        self.assertIn("/usr/bin/readlink -f", source)
+        self.assertIn("/usr/bin/python3 -I -m venv", source)
+        self.assertIn("/usr/bin/env -i", source)
+        self.assertIn("/opt/.continuum-memory-polkit-build.XXXXXX", source)
+        self.assertIn('"$BUILD_DIRECTORY/bin/python" -I -m pip', source)
+        self.assertNotIn('"$RUNTIME_DIRECTORY/bin/python" -I -m pip', source)
+        self.assertIn("existing approval runtime is unsafe", source)
+        if os.geteuid() == 0:
+            self.skipTest("the non-root installer environment test must not mutate system paths")
+        with tempfile.TemporaryDirectory(prefix="continuum-installer-path-") as temporary:
+            fake_bin = Path(temporary) / "bin"
+            fake_bin.mkdir()
+            marker = Path(temporary) / "caller-path-was-used"
+            fake_id = fake_bin / "id"
+            fake_id.write_text(
+                "#!/bin/sh\n/usr/bin/touch '%s'\necho 1\n" % marker,
+                encoding="utf-8",
+            )
+            fake_id.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = str(fake_bin)
+            environment["PYTHONPATH"] = str(fake_bin)
+            result = subprocess.run(
+                [str(installer)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(marker.exists())
 
 
 class AsymmetricApprovalIntegrationTest(unittest.TestCase):
@@ -295,6 +432,71 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
                 },
             )
         self.assertEqual(rejected.exception.code, "approval_invalid")
+
+    def test_signature_rejects_cross_user_vault_operation_digest_and_expiry(self):
+        challenge = self._remember_challenge("all signed fields")
+        signed_fields = {
+            "vault_id": challenge["vault_id"],
+            "caller_uid": challenge["caller_uid"],
+            "nonce": challenge["nonce"],
+            "operation": challenge["operation"],
+            "preview_digest": challenge["preview_digest"],
+            "expires_at": challenge["expires_at"],
+        }
+        mutations = {
+            "vault": {"vault_id": "vlt_other_vault"},
+            "caller": {"caller_uid": challenge["caller_uid"] + 1},
+            "nonce": {"nonce": "gnt_other_nonce"},
+            "operation": {"operation": "forget"},
+            "digest": {"preview_digest": "0" * 64},
+            "expiry": {"expires_at": challenge["expires_at"] + 1},
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(field=label):
+                fields = dict(signed_fields, **mutation)
+                payload = approval_payload(**fields)
+                grant = sign_payload(self.private_key, payload, key_validator=no_path_validation)
+                with self.assertRaises(MemoryError) as rejected:
+                    self.kernel.admin_apply(
+                        self.control,
+                        {
+                            "nonce": challenge["nonce"],
+                            "preview_digest": challenge["preview_digest"],
+                            "grant": grant,
+                            "preview": challenge["preview"],
+                        },
+                    )
+                self.assertEqual(rejected.exception.code, "approval_invalid")
+
+    def test_daemon_rejects_an_expired_signed_challenge(self):
+        challenge = self._remember_challenge("expired signed challenge")
+        expired_at = int(time.time()) - 1
+        self.store.begin()
+        self.store.connection.execute(
+            "UPDATE admin_challenges SET expires_at=? WHERE nonce=?",
+            (expired_at, challenge["nonce"]),
+        )
+        self.store.commit()
+        payload = approval_payload(
+            challenge["vault_id"],
+            challenge["caller_uid"],
+            challenge["nonce"],
+            challenge["operation"],
+            challenge["preview_digest"],
+            expired_at,
+        )
+        grant = sign_payload(self.private_key, payload, key_validator=no_path_validation)
+        with self.assertRaises(MemoryError) as rejected:
+            self.kernel.admin_apply(
+                self.control,
+                {
+                    "nonce": challenge["nonce"],
+                    "preview_digest": challenge["preview_digest"],
+                    "grant": grant,
+                    "preview": challenge["preview"],
+                },
+            )
+        self.assertEqual(rejected.exception.code, "approval_expired")
 
     def test_unprovisioned_runtime_fails_closed(self):
         kernel = Kernel(self.store, approval_public_key_provider=lambda _caller_uid: None)

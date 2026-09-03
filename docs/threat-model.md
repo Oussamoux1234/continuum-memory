@@ -22,8 +22,8 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 | Deleted content remnants | transactional canonical/feedback/recall/FTS removal, orphan cleanup, secure_delete, checkpoint | Plaintext copies/snapshots/WAL history/SSD not guaranteed; deletion tests |
 | Stale retained content | strict UTC deadlines; serialized audited expiry before current reads; current-recall recheck | Expired history intentionally remains available; injected-clock lifecycle tests |
 | Secrets stored in memory | README prohibition and small allowlist; no diagnostic bodies | Sophisticated DLP not implemented; use only synthetic data |
-| Capability/file attacks | owner/type/mode/link-count checks, no-follow capability opens, socket inode and peer-owner checks | Same-UID replacement races remain in the prototype boundary; symlink/hardlink/mode regressions |
-| Supply-chain/network | no Python runtime dependencies, no network code/telemetry; Linux helper paths must be root-owned | Python/SQLite/OpenSSL/polkit are host-supplied; audits and distribution packaging not yet run |
+| Capability/file attacks | owner/type/mode/link-count checks, no-follow capability opens, socket inode and peer-owner checks; Linux policy/helper/key paths are fixed and root-owned; provisioning is locked | Same-UID replacement races remain for user-owned prototype files; root/admin replacement is outside the Linux broker boundary; symlink/hardlink/mode regressions |
+| Supply-chain/network | no Python runtime dependencies, no network code/telemetry; Linux installer isolates PATH and Python/pip environment and stages a fresh runtime before replacement | The reviewed source checkout remains trusted installer input; Python/SQLite/OpenSSL/polkit are host-supplied; audits, signed artifacts, and distribution packaging not yet run |
 
 The prototype does not claim confidentiality, secure deletion, fully reviewed human presence,
 perfect timing noninterference, crash-proof audit anchoring, or enforcement inside unrelated
