@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://continuum-memory.invalid/schemas/canonical-assertion.schema.json",
+  "title": "Continuum Memory accepted assertion version",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "thread_id", "project_id", "body", "admission", "epistemic",
+    "lifecycle", "authority", "classification", "retention", "valid_precision",
+    "recorded_at", "ingest_seq", "created_by"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^asr_[A-Za-z0-9_-]+$", "maxLength": 128},
+    "thread_id": {"type": "string", "pattern": "^mem_[A-Za-z0-9_-]+$", "maxLength": 128},
+    "project_id": {"type": "string", "pattern": "^prj_[A-Za-z0-9_-]+$", "maxLength": 128},
+    "evidence_id": {"type": ["string", "null"], "maxLength": 128},
+    "body": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "admission": {"const": "accepted"},
+    "epistemic": {"enum": ["asserted", "verified", "disputed", "refuted"]},
+    "lifecycle": {"enum": ["active", "superseded", "retracted", "expired"]},
+    "authority": {"const": "data"},
+    "classification": {"enum": ["public", "internal", "confidential", "restricted"]},
+    "retention": {
+      "type": "string",
+      "pattern": "^(forever|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z)$",
+      "maxLength": 64
+    },
+    "valid_precision": {"enum": ["unknown", "instant", "open", "interval"]},
+    "valid_from": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",
+      "maxLength": 64
+    },
+    "valid_to": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",
+      "maxLength": 64
+    },
+    "recorded_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",
+      "maxLength": 64
+    },
+    "ingest_seq": {"type": "integer", "minimum": 1},
+    "retired_at": {"type": ["string", "null"], "maxLength": 64},
+    "retired_seq": {"type": ["integer", "null"], "minimum": 1},
+    "created_by": {"type": "string", "maxLength": 64}
+  }
+}
