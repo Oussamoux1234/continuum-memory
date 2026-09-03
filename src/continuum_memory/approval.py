@@ -26,6 +26,7 @@ APPROVAL_OPERATIONS = {
 }
 LINUX_APPROVAL_BOUNDARY = "linux_polkit_rsa_sha256"
 PROTOTYPE_APPROVAL_BOUNDARY = "terminal_prototype_same_uid_not_resistant"
+OS_APPROVAL_UNAVAILABLE_BOUNDARY = "os_approval_unavailable"
 GRANT_PREFIX = "rsa-sha256:"
 MAX_BROKER_FRAME_BYTES = 65_536
 MAX_GRANT_BYTES = 1024

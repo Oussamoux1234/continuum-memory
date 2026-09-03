@@ -8,7 +8,7 @@ import socketserver
 import stat
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from .errors import MemoryError
 from .kernel import Kernel
@@ -82,13 +82,18 @@ class RequestHandler(socketserver.StreamRequestHandler):
 class MemoryServer(socketserver.UnixStreamServer):
     allow_reuse_address = False
 
-    def __init__(self, socket_path: Path, store: Store):
+    def __init__(
+        self,
+        socket_path: Path,
+        store: Store,
+        kernel_factory: Callable[[Store], Kernel] = Kernel,
+    ):
         self.store = store
-        self.kernel = Kernel(store)
+        self.kernel = kernel_factory(store)
         super().__init__(str(socket_path), RequestHandler)
 
 
-def serve(data_dir: Path) -> None:
+def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:
     ensure_private_directory(data_dir)
     file_map = paths(data_dir)
     socket_path = file_map["socket"]
@@ -98,7 +103,7 @@ def serve(data_dir: Path) -> None:
         raise MemoryError("already_running", "The daemon socket already exists; remove it only after verifying no daemon runs.")
     store = Store(data_dir)
     try:
-        server = MemoryServer(socket_path, store)
+        server = MemoryServer(socket_path, store, kernel_factory)
     except Exception:
         store.close()
         raise

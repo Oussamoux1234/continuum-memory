@@ -8,6 +8,7 @@ from pathlib import Path
 
 from continuum_memory.approval import (
     LINUX_APPROVAL_BOUNDARY,
+    OS_APPROVAL_UNAVAILABLE_BOUNDARY,
     PROTOTYPE_APPROVAL_BOUNDARY,
     approval_payload,
     approval_request,
@@ -18,7 +19,7 @@ from continuum_memory.approval import (
     validate_approval_request,
     verify_payload,
 )
-from continuum_memory.broker import LinuxPolkitApprovalBroker
+from continuum_memory.broker import LinuxPolkitApprovalBroker, broker_for_challenge
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.polkit_helper import authorize_request
@@ -295,8 +296,32 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
             )
         self.assertEqual(rejected.exception.code, "approval_invalid")
 
-    def test_unprovisioned_provider_preserves_explicit_prototype_mode(self):
+    def test_unprovisioned_runtime_fails_closed(self):
         kernel = Kernel(self.store, approval_public_key_provider=lambda _caller_uid: None)
+        info = kernel.approval_info(self.control, {})
+        self.assertEqual(info["approval_boundary"], OS_APPROVAL_UNAVAILABLE_BOUNDARY)
+        self.assertFalse(info["linux_polkit_provisioned"])
+        with self.assertRaises(MemoryError) as unavailable:
+            kernel.admin_preview(
+                self.control,
+                {
+                    "operation": "remember",
+                    "project": self.project,
+                    "subject": "must fail closed",
+                    "claim": "No live prototype approval is allowed.",
+                },
+            )
+        self.assertEqual(unavailable.exception.code, "approval_broker_unavailable")
+        with self.assertRaises(MemoryError) as no_broker:
+            broker_for_challenge({"approval_boundary": OS_APPROVAL_UNAVAILABLE_BOUNDARY})
+        self.assertEqual(no_broker.exception.code, "approval_broker_unavailable")
+
+    def test_prototype_mode_requires_explicit_test_injection(self):
+        kernel = Kernel(
+            self.store,
+            approval_public_key_provider=lambda _caller_uid: None,
+            allow_prototype_approval=True,
+        )
         info = kernel.approval_info(self.control, {})
         self.assertEqual(info["approval_boundary"], PROTOTYPE_APPROVAL_BOUNDARY)
         self.assertFalse(info["linux_polkit_provisioned"])

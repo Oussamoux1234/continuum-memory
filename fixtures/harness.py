@@ -126,7 +126,7 @@ class EphemeralHarness:
         environment["PYTHONPATH"] = str(root / "src")
         environment["PYTHONPYCACHEPREFIX"] = str(root / "work" / "pycache")
         self.daemon = subprocess.Popen(
-            [sys.executable, "-m", "continuum_memory.daemon", "--data-dir", str(self.data_dir)],
+            [sys.executable, "-m", "fixtures.prototype_daemon", "--data-dir", str(self.data_dir)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             env=environment,

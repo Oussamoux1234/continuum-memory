@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .approval import (
     LINUX_APPROVAL_BOUNDARY,
+    OS_APPROVAL_UNAVAILABLE_BOUNDARY,
     PROTOTYPE_APPROVAL_BOUNDARY,
     approval_payload,
     linux_public_key,
@@ -59,12 +60,14 @@ class Kernel:
         now_provider: Optional[Callable[[], datetime]] = None,
         approval_public_key_provider: Callable[[int], Optional[Path]] = linux_public_key,
         approval_signature_verifier: Callable[[Path, bytes, str], bool] = verify_payload,
+        allow_prototype_approval: bool = False,
     ):
         self.store = store
         self.db = store.connection
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._approval_public_key_provider = approval_public_key_provider
         self._approval_signature_verifier = approval_signature_verifier
+        self._allow_prototype_approval = allow_prototype_approval
 
     def _now(self) -> datetime:
         return datetime_utc(self._now_provider())
@@ -228,7 +231,11 @@ class Kernel:
         return self._approval_public_key_provider(self.store.owner_uid)
 
     def _approval_boundary(self) -> str:
-        return LINUX_APPROVAL_BOUNDARY if self._approval_public_key() else PROTOTYPE_APPROVAL_BOUNDARY
+        if self._approval_public_key():
+            return LINUX_APPROVAL_BOUNDARY
+        if self._allow_prototype_approval:
+            return PROTOTYPE_APPROVAL_BOUNDARY
+        return OS_APPROVAL_UNAVAILABLE_BOUNDARY
 
     def approval_info(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         self._require_permission(capability, "control")
@@ -410,6 +417,12 @@ class Kernel:
             ],
             ["operation", "project"],
         )
+        approval_boundary = self._approval_boundary()
+        if approval_boundary == OS_APPROVAL_UNAVAILABLE_BOUNDARY:
+            raise MemoryError(
+                "approval_broker_unavailable",
+                "An OS-backed approval broker must be provisioned before administrative operations.",
+            )
         project = self._project(capability, params)
         self._expire_due(project)
         operation = params["operation"]
@@ -426,7 +439,6 @@ class Kernel:
         digest = digest_json(preview)
         nonce = random_id("gnt")
         expires_at = int(time.time()) + GRANT_TTL_SECONDS
-        approval_boundary = self._approval_boundary()
         self.store.begin()
         try:
             self.db.execute(
@@ -650,11 +662,16 @@ class Kernel:
                 )
                 grant_valid = self._approval_signature_verifier(public_key, signed_payload, grant)
                 approval_method = LINUX_APPROVAL_BOUNDARY
-            else:
+            elif self._allow_prototype_approval:
                 grant_valid = verify_grant(
                     capability["token"].encode("ascii"), nonce, operation, actual_digest, grant
                 )
                 approval_method = "prototype_terminal_grant"
+            else:
+                raise MemoryError(
+                    "approval_broker_unavailable",
+                    "An OS-backed approval broker is required for administrative operations.",
+                )
             if not grant_valid:
                 raise MemoryError("approval_invalid", "The approval grant is invalid.")
             self.db.execute("UPDATE admin_challenges SET used_at=? WHERE nonce=?", (self._now_iso(), nonce))

@@ -1,7 +1,8 @@
 # Linux OS-backed approval broker
 
 Status: implemented but not yet exercised by a real interactive polkit run in project CI.
-The terminal broker remains the explicit fallback for unprovisioned development vaults.
+Unprovisioned live vaults fail closed; the terminal signer is retained only as an explicitly
+injected temporary-test fixture.
 
 ## Boundary
 
@@ -20,9 +21,10 @@ by OS user ID prevents a same-user database edit from downgrading a provisioned 
 the terminal signer; including the vault ID prevents cross-vault grant reuse.
 
 The control capability still authenticates the user CLI to the daemon, but it cannot create
-a valid administrative grant after the root public key is provisioned. HMAC grants are then
-rejected. Existing nonce consumption, expiry, exact-preview verification, and replay
-protection remain enforced by the daemon.
+a valid administrative grant in the packaged runtime. Without a root public key,
+administrative preview/apply calls fail closed. HMAC grants are accepted only by the
+explicitly injected temporary test kernel. Existing nonce consumption, expiry,
+exact-preview verification, and replay protection remain enforced by the daemon.
 
 ## Source installation
 

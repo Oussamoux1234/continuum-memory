@@ -36,7 +36,7 @@ def _print(value: Any, compact: bool) -> None:
 
 def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
     challenge = client.call("admin_preview", params)
-    broker = broker_for_challenge(challenge, client.data_dir / "control.cap")
+    broker = broker_for_challenge(challenge)
     grant = broker.authorize(challenge)
     return client.call(
         "admin_apply",

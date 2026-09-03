@@ -31,7 +31,7 @@ class DirectKernelHarness:
         self.project = result["projects"][0]["id"]
         self.store = Store(self.data_dir)
         self.clock = MutableClock(datetime(2027, 1, 1, tzinfo=timezone.utc))
-        self.kernel = Kernel(self.store, now_provider=self.clock)
+        self.kernel = Kernel(self.store, now_provider=self.clock, allow_prototype_approval=True)
         self.control = self.store.authenticate(load_capability(paths(self.data_dir)["control"])["token"])
         capability = Path(result["projects"][0]["capabilities"]["codex"])
         self.codex = self.store.authenticate(load_capability(capability)["token"])
