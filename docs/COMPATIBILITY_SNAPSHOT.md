@@ -12,3 +12,11 @@ Recorded 2026-09-03 for design; runtime and builds make no network requests.
 Current local evidence at bootstrap: Python 3.9.6, SQLite CLI 3.51.0 with FTS5, no Rust
 toolchain. Native Codex, Claude Code, and Antigravity versions/configurations were not
 probed or modified. URL content is not fetched during build or runtime.
+
+## Platform evidence
+
+| Platform | Status |
+|---|---|
+| macOS 26.5.2 arm64, Python 3.9.6 | Full local verifier passed; development evidence, not a packaged support promise |
+| GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Full verifier passed in Actions run 33742253644 |
+| Windows | Unsupported: POSIX IPC and filesystem security assumptions require a separate design; tracked in issue #1 |

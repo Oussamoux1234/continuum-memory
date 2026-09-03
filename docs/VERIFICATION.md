@@ -16,6 +16,8 @@ smoke test in a temporary virtual environment, and runs `git diff --check`.
 ## Observed result
 
 Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
+The same command passed on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 in
+[Actions run 33742253644](https://github.com/Oussamoux1234/continuum-memory/actions/runs/33742253644).
 
 - 19 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
@@ -57,7 +59,9 @@ Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
 | Filesystem owner/mode/type/link and socket identity checks | Passed on macOS; same-UID race resistance not claimed |
 | Content-free HMAC audit verification/tamper detection | Passed prototype tests |
 | Default runtime network access | No network code exists; packet-level instrumentation not run |
-| Linux x86-64 validation/package | Not run; current host is macOS arm64 |
+| Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
+| Linux distribution package | Not built; editable-install and entry-point smoke only |
+| Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
 | SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
 | Real Linux polkit/user-presence broker | Not implemented or run; terminal boundary only |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
