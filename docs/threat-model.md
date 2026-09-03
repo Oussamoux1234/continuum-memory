@@ -11,20 +11,20 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 
 | Threat | Prototype mitigation | Residual risk / test |
 |---|---|---|
-| Agent forges approval, source, or project | MCP schema excludes fields; daemon assigns identity; admin methods require separate capability and one-shot grant | Same-UID shell may read/control user capability; forged/replay tests |
+| Agent forges approval, source, or project | MCP schema excludes fields; daemon assigns identity; provisioned Linux mode requires a root-keyed polkit proof bound to UID/vault/nonce/operation/digest/expiry | Unprovisioned terminal fallback remains same-UID-readable; real polkit path needs controlled-host evidence; forged/replay/RSA tests |
 | Prompt injection or poisoning | proposals quarantined; memory labeled data; no action tools; conflicts stay explicit | Generic host may act on text; adversarial-memory test |
 | Cross-project/provider disclosure | bound capability; authorization predicates inside exact/FTS/get queries; non-revealing errors | Shared canonical/FTS DB is not physically sharded and leaks access timing/size locally; isolation tests cover results/counts only |
 | SQL/FTS injection | parameterized SQL; literal-token FTS query builder; bounded strings | SQLite/parser defects; injection tests |
 | Oversized/malformed JSON | 64 KiB frames; strict keys/types/ranges; shallow expected objects | Resource exhaustion below OS boundary; malformed MCP tests |
-| Replay/duplicate delivery | scoped idempotency table; nonce-bound single-use grants | Compromised control capability can mint new operations; replay tests |
+| Replay/duplicate delivery | scoped idempotency table; nonce-bound single-use grants; provisioned Linux HMAC downgrade rejection | Compromised control capability can mint operations only while the prototype fallback is active; replay/cross-challenge tests |
 | Crash or corruption | one writer, WAL, FULL sync, transactions, integrity check | No full power-loss/fault matrix yet; integrity tests only |
 | Audit tamper/truncation | content-free HMAC chain and external head file | Same-UID attacker may alter DB and key/head; tamper/tail tests |
 | Deleted content remnants | transactional canonical/feedback/recall/FTS removal, orphan cleanup, secure_delete, checkpoint | Plaintext copies/snapshots/WAL history/SSD not guaranteed; deletion tests |
 | Stale retained content | strict UTC deadlines; serialized audited expiry before current reads; current-recall recheck | Expired history intentionally remains available; injected-clock lifecycle tests |
 | Secrets stored in memory | README prohibition and small allowlist; no diagnostic bodies | Sophisticated DLP not implemented; use only synthetic data |
 | Capability/file attacks | owner/type/mode/link-count checks, no-follow capability opens, socket inode and peer-owner checks | Same-UID replacement races remain in the prototype boundary; symlink/hardlink/mode regressions |
-| Supply-chain/network | no runtime dependencies, no network code/telemetry | Python/SQLite distribution is host-supplied; audits not yet run |
+| Supply-chain/network | no Python runtime dependencies, no network code/telemetry; Linux helper paths must be root-owned | Python/SQLite/OpenSSL/polkit are host-supplied; audits and distribution packaging not yet run |
 
-The prototype does not claim confidentiality, secure deletion, robust human presence,
+The prototype does not claim confidentiality, secure deletion, fully reviewed human presence,
 perfect timing noninterference, crash-proof audit anchoring, or enforcement inside unrelated
 host tools. These are release blockers for stronger maturity language.

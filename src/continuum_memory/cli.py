@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import __version__
-from .broker import TerminalApprovalBroker
+from .approval import LINUX_APPROVAL_BOUNDARY
+from .broker import LinuxPolkitApprovalBroker, broker_for_challenge
 from .client import DaemonClient
 from .daemon import _default_home
 from .errors import MemoryError
@@ -35,7 +36,7 @@ def _print(value: Any, compact: bool) -> None:
 
 def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
     challenge = client.call("admin_preview", params)
-    broker = TerminalApprovalBroker(client.data_dir / "control.cap")
+    broker = broker_for_challenge(challenge, client.data_dir / "control.cap")
     grant = broker.authorize(challenge)
     return client.call(
         "admin_apply",
@@ -116,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit")
     audit_sub = audit.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify")
+
+    approval = sub.add_parser("approval")
+    approval_sub = approval.add_subparsers(dest="approval_command", required=True)
+    approval_sub.add_parser("status")
+    approval_sub.add_parser("provision-linux")
     return parser
 
 
@@ -156,6 +162,19 @@ def run(args: argparse.Namespace) -> Any:
         bounded_text(path_hint, "project_path", MAX_BODY_BYTES)
         return Store.bootstrap(data_dir, [{"name": name, "path_hint": path_hint, "providers": providers}])
     client = _client(data_dir)
+    if args.command == "approval":
+        information = client.call("approval_info", {})
+        if args.approval_command == "status":
+            return information
+        broker = LinuxPolkitApprovalBroker()
+        provisioned = broker.provision(information["vault_id"])
+        updated = client.call("approval_info", {})
+        if updated["approval_boundary"] != LINUX_APPROVAL_BOUNDARY:
+            raise MemoryError(
+                "approval_broker_unavailable",
+                "The Linux approval public key was not activated after provisioning.",
+            )
+        return {"provisioning": provisioned, "approval": updated}
     if args.command == "remember":
         return _admin(
             client,

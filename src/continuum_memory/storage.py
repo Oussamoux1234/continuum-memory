@@ -14,6 +14,7 @@ from .migrations import SCHEMA_SQL, SCHEMA_VERSION
 from .security import (
     MAX_BODY_BYTES,
     MAX_SUBJECT_BYTES,
+    bounded_id,
     bounded_provider,
     bounded_text,
     canonical_json,
@@ -97,7 +98,8 @@ class Store:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.files = paths(data_dir)
-        ensure_private_directory(data_dir)
+        directory_info = ensure_private_directory(data_dir)
+        self.owner_uid = int(directory_info.st_uid)
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
         ensure_private_regular(self.files["db"], "The vault database")
@@ -107,6 +109,11 @@ class Store:
         if version != SCHEMA_VERSION:
             self.connection.close()
             raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
+        vault = self.connection.execute("SELECT value FROM metadata WHERE key='vault_id'").fetchone()
+        if not vault:
+            self.connection.close()
+            raise MemoryError("integrity_error", "The vault identity is unavailable.")
+        self.vault_id = bounded_id(vault[0], "vault_id")
         self.audit_key = audit_key
 
     @classmethod

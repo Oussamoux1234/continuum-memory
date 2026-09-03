@@ -4,8 +4,16 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from .approval import (
+    LINUX_APPROVAL_BOUNDARY,
+    PROTOTYPE_APPROVAL_BOUNDARY,
+    approval_payload,
+    linux_public_key,
+    verify_payload,
+)
 from .errors import MemoryError, NOT_FOUND, invalid
 from .security import (
     GRANT_TTL_SECONDS,
@@ -45,10 +53,18 @@ MEMORY_CONTRACT = {
 
 
 class Kernel:
-    def __init__(self, store: Store, now_provider: Optional[Callable[[], datetime]] = None):
+    def __init__(
+        self,
+        store: Store,
+        now_provider: Optional[Callable[[], datetime]] = None,
+        approval_public_key_provider: Callable[[int], Optional[Path]] = linux_public_key,
+        approval_signature_verifier: Callable[[Path, bytes, str], bool] = verify_payload,
+    ):
         self.store = store
         self.db = store.connection
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self._approval_public_key_provider = approval_public_key_provider
+        self._approval_signature_verifier = approval_signature_verifier
 
     def _now(self) -> datetime:
         return datetime_utc(self._now_provider())
@@ -66,6 +82,7 @@ class Kernel:
             "propose": self.propose,
             "feedback": self.feedback,
             "inbox": self.inbox,
+            "approval_info": self.approval_info,
             "admin_preview": self.admin_preview,
             "admin_apply": self.admin_apply,
             "audit_verify": self.audit_verify,
@@ -204,7 +221,23 @@ class Kernel:
             "projection_watermark": watermark,
             "storage_mode": "plaintext_prototype",
             "network_default": "disabled",
-            "approval_boundary": "terminal_prototype_same_uid_not_resistant",
+            "approval_boundary": self._approval_boundary(),
+        }
+
+    def _approval_public_key(self) -> Optional[Path]:
+        return self._approval_public_key_provider(self.store.owner_uid)
+
+    def _approval_boundary(self) -> str:
+        return LINUX_APPROVAL_BOUNDARY if self._approval_public_key() else PROTOTYPE_APPROVAL_BOUNDARY
+
+    def approval_info(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_permission(capability, "control")
+        require_keys(params, [])
+        boundary = self._approval_boundary()
+        return {
+            "approval_boundary": boundary,
+            "linux_polkit_provisioned": boundary == LINUX_APPROVAL_BOUNDARY,
+            "vault_id": self.store.vault_id,
         }
 
     def propose(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -393,6 +426,7 @@ class Kernel:
         digest = digest_json(preview)
         nonce = random_id("gnt")
         expires_at = int(time.time()) + GRANT_TTL_SECONDS
+        approval_boundary = self._approval_boundary()
         self.store.begin()
         try:
             self.db.execute(
@@ -413,8 +447,19 @@ class Kernel:
             "preview_digest": digest,
             "expires_at": expires_at,
             "preview": preview,
-            "confirmation": "Type ACCEPT %s in an interactive terminal." % digest[:12],
-            "prototype_boundary": "same_uid_shell_not_resistant",
+            "vault_id": self.store.vault_id,
+            "caller_uid": self.store.owner_uid,
+            "approval_boundary": approval_boundary,
+            "confirmation": (
+                "Approve the operating-system request, then type ACCEPT %s." % digest[:12]
+                if approval_boundary == LINUX_APPROVAL_BOUNDARY
+                else "Type ACCEPT %s in an interactive terminal." % digest[:12]
+            ),
+            "prototype_boundary": (
+                None
+                if approval_boundary == LINUX_APPROVAL_BOUNDARY
+                else "same_uid_shell_not_resistant"
+            ),
         }
 
     def _remember_preview(self, project: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -567,7 +612,7 @@ class Kernel:
         require_keys(params, ["nonce", "preview_digest", "grant", "preview"], ["nonce", "preview_digest", "grant", "preview"])
         nonce = bounded_id(params["nonce"], "nonce")
         claimed_digest = bounded_text(params["preview_digest"], "preview_digest", 64)
-        grant = bounded_text(params["grant"], "grant", 64)
+        grant = bounded_text(params["grant"], "grant", 1024)
         preview = params["preview"]
         if not isinstance(preview, dict):
             raise invalid("Preview must be an object.", "preview")
@@ -593,19 +638,39 @@ class Kernel:
             operation = challenge["operation"]
             if preview.get("operation") != operation or preview.get("project_id") != challenge["project_id"]:
                 raise MemoryError("approval_mismatch", "The approved operation or project changed.")
-            if not verify_grant(
-                capability["token"].encode("ascii"), nonce, operation, actual_digest, grant
-            ):
+            public_key = self._approval_public_key()
+            if public_key is not None:
+                signed_payload = approval_payload(
+                    self.store.vault_id,
+                    self.store.owner_uid,
+                    nonce,
+                    operation,
+                    actual_digest,
+                    int(challenge["expires_at"]),
+                )
+                grant_valid = self._approval_signature_verifier(public_key, signed_payload, grant)
+                approval_method = LINUX_APPROVAL_BOUNDARY
+            else:
+                grant_valid = verify_grant(
+                    capability["token"].encode("ascii"), nonce, operation, actual_digest, grant
+                )
+                approval_method = "prototype_terminal_grant"
+            if not grant_valid:
                 raise MemoryError("approval_invalid", "The approval grant is invalid.")
             self.db.execute("UPDATE admin_challenges SET used_at=? WHERE nonce=?", (self._now_iso(), nonce))
             if operation == "remember":
-                result = self._accept_preview(preview, "user_control", None)
+                result = self._accept_preview(preview, "user_control", None, approval_method)
             elif operation == "accept_proposal":
-                result = self._accept_proposal_preview(preview)
+                result = self._accept_proposal_preview(preview, approval_method)
             elif operation == "reject_proposal":
                 result = self._reject_proposal_preview(preview)
             elif operation == "correct":
-                result = self._accept_preview(preview, "user_control", preview["target_assertion_id"])
+                result = self._accept_preview(
+                    preview,
+                    "user_control",
+                    preview["target_assertion_id"],
+                    approval_method,
+                )
             elif operation == "forget":
                 result = self._forget_apply(preview)
             else:
@@ -618,12 +683,14 @@ class Kernel:
             self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return result
 
-    def _accept_proposal_preview(self, preview: Dict[str, Any]) -> Dict[str, Any]:
+    def _accept_proposal_preview(
+        self, preview: Dict[str, Any], approval_method: str
+    ) -> Dict[str, Any]:
         proposal_id = preview["proposal_id"]
         row = self.db.execute("SELECT status,source_agent FROM proposals WHERE id=?", (proposal_id,)).fetchone()
         if not row or row["status"] != "proposed":
             raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
-        result = self._accept_preview(preview, row["source_agent"], None)
+        result = self._accept_preview(preview, row["source_agent"], None, approval_method)
         self.db.execute(
             "UPDATE proposals SET status='accepted',reviewed_at=?,accepted_assertion_id=? WHERE id=?",
             (self._now_iso(), result["assertion_id"], proposal_id),
@@ -650,7 +717,11 @@ class Kernel:
         return {"proposal_id": proposal_id, "review_status": "rejected", "recorded_seq": sequence}
 
     def _accept_preview(
-        self, preview: Dict[str, Any], author: str, supersedes_id: Optional[str]
+        self,
+        preview: Dict[str, Any],
+        author: str,
+        supersedes_id: Optional[str],
+        approval_method: str,
     ) -> Dict[str, Any]:
         project = preview["project_id"]
         scope_id = preview["scope"]["id"]
@@ -736,7 +807,12 @@ class Kernel:
             (assertion_id, project, subject, preview["claim"]),
         )
         roles = [(author, "author", "proposal" if author != "user_control" else "terminal")]
-        roles.extend([("memoryd", "recorder", "serialized_writer"), ("user_control", "authorizer", "prototype_terminal_grant")])
+        roles.extend(
+            [
+                ("memoryd", "recorder", "serialized_writer"),
+                ("user_control", "authorizer", approval_method),
+            ]
+        )
         for principal, role, method in roles:
             self.db.execute(
                 "INSERT INTO attestations(id,assertion_id,principal,role,method,attested_at) VALUES (?,?,?,?,?,?)",

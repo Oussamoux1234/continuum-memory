@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.verify import EXPECTED_DISTRIBUTION, EXPECTED_VERSION, find_sdist
+from scripts.verify import (
+    EXPECTED_DISTRIBUTION,
+    EXPECTED_VERSION,
+    find_sdist,
+    require_sdist_files,
+)
 
 
 class SourceDistributionDiscoveryTest(unittest.TestCase):
@@ -14,6 +19,7 @@ class SourceDistributionDiscoveryTest(unittest.TestCase):
         filename: str,
         metadata_name: str = EXPECTED_DISTRIBUTION,
         metadata_version: str = EXPECTED_VERSION,
+        files: tuple[str, ...] = (),
     ) -> Path:
         archive = directory / filename
         payload = ("Name: %s\nVersion: %s\n\n" % (metadata_name, metadata_version)).encode("utf-8")
@@ -22,6 +28,10 @@ class SourceDistributionDiscoveryTest(unittest.TestCase):
         member.size = len(payload)
         with tarfile.open(str(archive), mode="w:gz") as bundle:
             bundle.addfile(member, io.BytesIO(payload))
+            for relative_path in files:
+                extra = tarfile.TarInfo("%s/%s" % (root, relative_path))
+                extra.size = 0
+                bundle.addfile(extra, io.BytesIO())
         return archive
 
     def test_accepts_hyphenated_distribution_name(self):
@@ -79,6 +89,21 @@ class SourceDistributionDiscoveryTest(unittest.TestCase):
             archive.write_bytes(b"not a tar archive")
             with self.assertRaisesRegex(RuntimeError, "invalid source distribution"):
                 find_sdist(directory)
+
+    def test_requires_named_distribution_files(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-sdist-test-") as temporary:
+            directory = Path(temporary)
+            archive = self.make_sdist(
+                directory,
+                "continuum-memory-0.1.0.dev0.tar.gz",
+                files=("packaging/linux/approval-helper", "src/continuum_memory/approval.py"),
+            )
+            require_sdist_files(
+                archive,
+                ("packaging/linux/approval-helper", "src/continuum_memory/approval.py"),
+            )
+            with self.assertRaisesRegex(RuntimeError, "tests/test_approval.py"):
+                require_sdist_files(archive, ("tests/test_approval.py",))
 
 
 if __name__ == "__main__":

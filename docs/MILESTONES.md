@@ -12,7 +12,8 @@
 ## Trustworthy local v1
 
 - [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS
-- [ ] Linux OS-backed human-presence broker and non-exportable keys
+- [ ] Linux OS-backed human-presence broker and non-exportable keys: implementation and
+  deterministic tests landed; real-host smoke and independent review remain ([issue #3](https://github.com/Oussamoux1234/continuum-memory/issues/3))
 - [ ] Secret/DLP gates, encrypted backup/recovery, deletion revocation anchor
 - [ ] Crash/fault injection, migration compatibility, lock/rotation, audit anchor hardening
 
@@ -35,6 +36,7 @@
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
 - [ ] SBOM, license/vulnerability policy, deterministic payload, signing rehearsal
 - [ ] Linux packaging and independently reviewed security claims ([issue #2](https://github.com/Oussamoux1234/continuum-memory/issues/2))
+- [ ] Hardened macOS approval/filesystem boundary and native CI ([issue #10](https://github.com/Oussamoux1234/continuum-memory/issues/10))
 - [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))
 
 ## Future sync
