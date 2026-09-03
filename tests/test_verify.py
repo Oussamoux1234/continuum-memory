@@ -1,3 +1,4 @@
+import hashlib
 import io
 import tarfile
 import tempfile
@@ -8,6 +9,7 @@ from scripts.verify import (
     EXPECTED_DISTRIBUTION,
     EXPECTED_VERSION,
     find_sdist,
+    find_sqlcipher_wheel,
     require_sdist_files,
 )
 
@@ -104,6 +106,36 @@ class SourceDistributionDiscoveryTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "tests/test_approval.py"):
                 require_sdist_files(archive, ("tests/test_approval.py",))
+
+
+class SqlcipherWheelDiscoveryTest(unittest.TestCase):
+    def test_accepts_exact_hash_pinned_wheel(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-wheel-test-") as temporary:
+            directory = Path(temporary)
+            wheel = directory / "sqlcipher3-0.6.2-cp39-cp39-test.whl"
+            wheel.write_bytes(b"synthetic wheel fixture")
+            expected = {wheel.name: hashlib.sha256(wheel.read_bytes()).hexdigest()}
+            self.assertEqual(find_sqlcipher_wheel(directory, expected), wheel)
+
+    def test_rejects_missing_multiple_unsupported_and_modified_wheels(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-wheel-test-") as temporary:
+            directory = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "found 0"):
+                find_sqlcipher_wheel(directory, {})
+
+            first = directory / "sqlcipher3-0.6.2-cp39-cp39-first.whl"
+            second = directory / "sqlcipher3-0.6.2-cp39-cp39-second.whl"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            with self.assertRaisesRegex(RuntimeError, "found 2"):
+                find_sqlcipher_wheel(directory, {})
+            second.unlink()
+
+            with self.assertRaisesRegex(RuntimeError, "unsupported"):
+                find_sqlcipher_wheel(directory, {})
+            expected = {first.name: hashlib.sha256(b"expected").hexdigest()}
+            with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
+                find_sqlcipher_wheel(directory, expected)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import unittest
 
 from continuum_memory.errors import MemoryError
@@ -165,7 +164,8 @@ class LifecycleIntegrationTest(unittest.TestCase):
                 "show", {"project": self.project, "id": accepted["memory_id"], "history": True}
             )
         self.assertEqual(missing.exception.code, "not_found")
-        connection = sqlite3.connect(str(self.harness.data_dir / "continuum.db"))
+        inspection_store = self.harness.open_store()
+        connection = inspection_store.connection
         try:
             self.assertEqual(connection.execute("SELECT count(*) FROM assertion_fts").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT count(*) FROM feedback").fetchone()[0], 0)
@@ -192,13 +192,15 @@ class LifecycleIntegrationTest(unittest.TestCase):
             )
             receipt = connection.execute("SELECT * FROM deletion_receipts").fetchone()
             self.assertIsNotNone(receipt)
-            self.assertNotIn("SQLite", json.dumps(receipt))
-            self.assertNotIn("PostgreSQL", json.dumps(receipt))
+            encoded_receipt = json.dumps(tuple(receipt))
+            self.assertNotIn("SQLite", encoded_receipt)
+            self.assertNotIn("PostgreSQL", encoded_receipt)
         finally:
-            connection.close()
+            inspection_store.close()
         audit = self.harness.control.call("audit_verify", {})
         self.assertEqual(audit["status"], "valid")
         self.assertEqual(audit["sqlite_integrity"], "ok")
+        self.assertEqual(audit["sqlcipher_integrity"], "ok")
 
 
 if __name__ == "__main__":

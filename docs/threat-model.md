@@ -17,14 +17,16 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 | SQL/FTS injection | parameterized SQL; literal-token FTS query builder; bounded strings | SQLite/parser defects; injection tests |
 | Oversized/malformed JSON | 64 KiB frames; strict keys/types/ranges; shallow expected objects | Resource exhaustion below OS boundary; malformed MCP tests |
 | Replay/duplicate delivery | scoped idempotency table; nonce-bound single-use grants; packaged runtime rejects HMAC grants | Prototype HMAC exists only in an explicitly injected temporary test daemon; replay/cross-challenge tests |
-| Crash or corruption | one writer, WAL, FULL sync, transactions, integrity check | No full power-loss/fault matrix yet; integrity tests only |
+| Crash or corruption | one writer, encrypted WAL, FULL sync, transactions, SQLite and SQLCipher integrity checks | Committed-WAL unclean-exit recovery is tested; no full power-loss/fault matrix yet |
 | Audit tamper/truncation | content-free HMAC chain and external head file | Same-UID attacker may alter DB and key/head; tamper/tail tests |
-| Deleted content remnants | transactional canonical/feedback/recall/FTS removal, orphan cleanup, secure_delete, checkpoint | Plaintext copies/snapshots/WAL history/SSD not guaranteed; deletion tests |
+| Deleted content remnants | transactional canonical/feedback/recall/FTS removal, orphan cleanup, SQLCipher pages, secure_delete, checkpoint | Whole-vault copies, snapshots, exports, backups, and SSD behavior are not revoked; deletion tests |
 | Stale retained content | strict UTC deadlines; serialized audited expiry before current reads; current-recall recheck | Expired history intentionally remains available; injected-clock lifecycle tests |
 | Secrets stored in memory | README prohibition and small allowlist; no diagnostic bodies | Sophisticated DLP not implemented; use only synthetic data |
 | Capability/file attacks | owner/type/mode/link-count checks, no-follow capability opens, socket inode and peer-owner checks; Linux policy/helper/key paths are fixed and root-owned; provisioning is locked | Same-UID replacement races remain for user-owned prototype files; root/admin replacement is outside the Linux broker boundary; symlink/hardlink/mode regressions |
-| Supply-chain/network | no Python runtime dependencies, no network code/telemetry; Linux installer isolates PATH and Python/pip environment and stages a fresh runtime before replacement | The reviewed source checkout remains trusted installer input; Python/SQLite/OpenSSL/polkit are host-supplied; audits, signed artifacts, and distribution packaging not yet run |
+| Storage artifact disclosure | SQLCipher encrypts database/WAL/FTS pages; temp storage is forced to memory; key/runtime failures reject access | The owner-only key is co-located with the vault; same-UID/root/process inspection and whole-vault theft remain out of boundary; canary and key-failure tests |
+| Supply-chain/network | SQLCipher wheel name/version/hash is pinned for verified Python 3.9 macOS arm64 and Linux x86-64 paths; the packaging smoke installs it offline; no runtime network code/telemetry | Wheel acquisition occurs before the offline gate; source builds use external Conan resolution and are not accepted; audits, SBOM, signatures, and broader platform wheels remain unverified |
 
-The prototype does not claim confidentiality, secure deletion, fully reviewed human presence,
+The prototype claims only encrypted SQLCipher artifacts under the stated key boundary. It
+does not claim whole-vault confidentiality, secure deletion, fully reviewed human presence,
 perfect timing noninterference, crash-proof audit anchoring, or enforcement inside unrelated
 host tools. These are release blockers for stronger maturity language.

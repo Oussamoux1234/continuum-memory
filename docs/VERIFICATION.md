@@ -8,19 +8,22 @@ Last run: 2026-09-03.
 python3 scripts/verify.py
 ```
 
-The command parses both JSON schemas, checks source whitespace, compiles every Python
-module, runs the unit/integration suite with resource warnings promoted to errors, executes
-the complete two-client fixture demo, builds a source distribution, installs that exact
-archive offline into a temporary virtual environment, exercises its entry points, and runs
-`git diff --check`.
+After the exact hash-pinned SQLCipher wheel is acquired and installed as documented in
+`SQLCIPHER_STORAGE.md`, the command parses both JSON schemas, checks source whitespace,
+compiles every Python module, runs the unit/integration suite with resource warnings
+promoted to errors, executes the complete two-client fixture demo, builds a source
+distribution, validates the dependency wheel filename and digest, installs that wheel and
+the exact source archive offline into a temporary virtual environment with no checkout
+`PYTHONPATH`, exercises the installed entry points, and runs `git diff --check`.
 
 ## Observed result
 
-Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
+Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; `sqlcipher3` 0.6.2 with
+SQLCipher 4.12.0 community, SQLite 3.51.1, and FTS5.
 The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
 [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 46 unit/integration tests: passed.
+- 55 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -30,6 +33,15 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
   forget/exact/FTS cleanup, and content-free audit/deletion receipts.
 - SQLite `integrity_check`: `ok`; audit HMAC chain: valid; deliberate audit mutation:
   detected at the first invalid event.
+- SQLCipher `cipher_integrity_check`: no findings; audit diagnostics reported
+  `sqlcipher_integrity=ok`.
+- Encrypted-storage regressions: random 32-byte owner-only key creation; correct-key reopen;
+  missing, malformed, wrong, linked, or permissive key rejection; no stdlib SQLite fallback;
+  runtime-unavailable bootstrap without partial vault creation; plaintext legacy database
+  rejection without mutation; committed-WAL recovery after unclean process exit: passed.
+- A canonical claim/evidence/subject canary remained searchable through FTS while absent
+  from the live database, WAL, SHM, and configured SQLite temporary-file directory;
+  `temp_store=MEMORY` and a non-plaintext database header were verified.
 - Secret canary rejection, FTS syntax generation, changed-preview rejection, feedback
   non-mutation, context byte budget, and second-daemon fail-closed behavior: passed.
 - Forget regression: one contentful feedback canary deleted, all affected recall-result
@@ -44,9 +56,10 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
   database and capability hardlinks, and group/world-accessible directory/file modes
   rejected: passed.
 - Portable hyphen/underscore source-distribution discovery, exact filename and embedded
-  name/version validation, invalid/multiple artifact rejection, offline archive install,
-  and the `continuum`, `memoryd`, `continuum-mcp`, and `continuum-polkit-helper` entry
-  points: passed.
+  name/version validation, invalid/multiple artifact rejection, exact SQLCipher wheel
+  filename/hash validation, offline dependency/archive install, removed checkout
+  `PYTHONPATH`, and the `continuum`, `memoryd`, `continuum-mcp`, and
+  `continuum-polkit-helper` entry points: passed.
 - Linux approval regressions: exact request binding, stdin-only broker transport,
   cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
   per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
@@ -72,13 +85,15 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
 | Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
-| SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
+| SQLCipher/page/WAL/temp/FTS candidate | Local implementation and regression gates passed; independent review and green branch CI remain before Issue #7 closure or an accepted encryption claim |
 | Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
-| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; no third-party runtime dependency, but host Python/SQLite remain supply-chain inputs |
+| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; SQLCipher wheel filename/version/hash and MIT metadata checked, but broader supply-chain review remains |
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
-This result supports only the maturity label “experimental local prototype.” It is not
-evidence for encryption, production security, native-host compatibility, Linux packaging,
-cross-platform behavior, physical erasure, backup revocation, or benchmark-leading recall.
+This result supports only the maturity label “experimental local prototype” and an Issue #7
+implementation candidate. Until independent review and branch CI pass, it is not an
+accepted encryption claim. It is not evidence for production security, native-host
+compatibility, Linux packaging, cross-platform behavior, whole-vault confidentiality,
+physical erasure, backup revocation, or benchmark-leading recall.

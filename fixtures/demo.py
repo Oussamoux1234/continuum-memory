@@ -2,7 +2,6 @@
 """Exact Milestone 1 killer demonstration in an ephemeral vault."""
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict
 
@@ -157,7 +156,8 @@ def run_demo() -> Dict[str, Any]:
         deleted_fts = claude.call(
             "memory_search", {"query": "PostgreSQL", "limit": 5, "temporal_mode": "history"}
         )
-        connection = sqlite3.connect(str(harness.data_dir / "continuum.db"))
+        inspection_store = harness.open_store()
+        connection = inspection_store.connection
         try:
             forgotten_fts_rows = connection.execute(
                 "SELECT count(*) FROM assertion_fts WHERE assertion_id IN (?,?,?)",
@@ -169,7 +169,7 @@ def run_demo() -> Dict[str, Any]:
                 (deletion["deletion_receipt_id"],),
             ).fetchone()
         finally:
-            connection.close()
+            inspection_store.close()
         audit = harness.control.call("audit_verify", {})
 
         checks = {
@@ -187,8 +187,11 @@ def run_demo() -> Dict[str, Any]:
             "provider_disclosure_isolated": codex_policy["status"] == "ok" and claude_policy["status"] == "no_matches",
             "forgotten_exact_unretrievable": deleted_exact["status"] == "no_matches",
             "forgotten_fts_unretrievable": deleted_fts["status"] == "no_matches" and forgotten_fts_rows == 0,
-            "deletion_receipt_content_free": receipt_row is not None and "PostgreSQL" not in json.dumps(receipt_row),
-            "audit_chain_valid": audit["status"] == "valid" and audit["sqlite_integrity"] == "ok",
+            "deletion_receipt_content_free": receipt_row is not None
+            and "PostgreSQL" not in json.dumps(tuple(receipt_row)),
+            "audit_chain_valid": audit["status"] == "valid"
+            and audit["sqlite_integrity"] == "ok"
+            and audit["sqlcipher_integrity"] == "ok",
             "memory_never_authorizes_actions": conflict_context["memory_contract"]["may_authorize_actions"] is False,
         }
         if not all(checks.values()):

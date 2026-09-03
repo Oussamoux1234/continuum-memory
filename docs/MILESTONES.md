@@ -11,7 +11,9 @@
 
 ## Trustworthy local v1
 
-- [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS
+- [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS: implementation,
+  fail-closed behavior, crash recovery, and canary gates are on Issue #7; independent review
+  remains before closure
 - [ ] Linux OS-backed human-presence broker and non-exportable keys: implementation and
   deterministic tests landed; real-host smoke and independent review remain ([issue #3](https://github.com/Oussamoux1234/continuum-memory/issues/3))
 - [ ] Secret/DLP gates, encrypted backup/recovery, deletion revocation anchor

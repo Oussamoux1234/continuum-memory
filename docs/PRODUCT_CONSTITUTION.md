@@ -45,11 +45,12 @@ proposals, one-shot exact-preview grants, parameterized SQL, eligibility filters
 candidate query, immutable revisions, explicit conflicts, content-free HMAC-chained audit,
 transactional deletion, owner-only local IPC, and no network or telemetry by default.
 
-Residual limits must stay visible. A same-UID process able to read capability files,
-control a terminal/GUI, debug the daemon, or inspect an unlocked database can cross the
-prototype boundary. Root/admin, malware, screen capture, host misuse of historical data,
-exports, OS snapshots, copied databases, and third-party host tools are outside the core’s
-enforcement. The prototype is plaintext; it makes no encryption or physical-erasure claim.
+Residual limits must stay visible. A same-UID process able to read capability or storage-key
+files, control a terminal/GUI, debug the daemon, or inspect an unlocked database can cross
+the prototype boundary. Root/admin, malware, screen capture, host misuse of historical data,
+exports, whole-vault copies, OS snapshots, and third-party host tools are outside the core’s
+enforcement. SQLCipher protects database artifacts copied without the co-located key; it is
+not a whole-vault confidentiality or physical-erasure claim.
 
 ## Temporal truth, correction, and conflict
 
@@ -80,10 +81,10 @@ different. Forget makes the selected canonical body/evidence and every live proj
 unretrievable in one transaction, then leaves only opaque, content-free deletion and audit
 receipts. Shared evidence is removed only when its last surviving reference is removed.
 
-This slice has no managed backups and therefore no backup-revocation promise. SQLite file
-reuse, OS snapshots, copied databases, exports, SSD behavior, and external backups may
-retain plaintext. Future encrypted storage will use per-object keys and cryptographic
-erasure, but cannot erase copies outside the managed boundary.
+This slice has no managed backups and therefore no backup-revocation promise. OS snapshots,
+whole-vault copies, exports, SSD behavior, and external backups may retain decryptable data
+when they include the storage key. Future per-object keys and cryptographic erasure cannot
+erase copies outside the managed boundary.
 
 ## Integration boundaries
 

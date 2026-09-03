@@ -4,6 +4,10 @@ Status: accepted for the experimental local prototype. This brief narrows the la
 product constitution; its non-goals override broader milestone language in the source
 architecture prompt.
 
+Storage amendment: Issue #7 now carries a provisional SQLCipher implementation and
+verification candidate beyond this original dependency-free slice. It is not part of the
+Milestone 1 completion claim and remains unaccepted until independent review.
+
 ## Goal
 
 Prove that two provider-neutral MCP clients can use one user-owned project ledger without
@@ -87,7 +91,9 @@ policies. It operates only in a temporary home and never touches real host profi
 
 ## Definition of done
 
-Done means the documented command passes on a machine with Python 3.9+ and FTS5, and the
+Done means the documented command passes on a machine with the supported Python 3.9 and
+SQLCipher/FTS5 runtime, and the
 demo produces evidence for each scoped acceptance test. The slice is still a prototype:
-real Linux polkit, SQLCipher, native hosts, backup revocation, independent security audit, package
-reproducibility, and benchmark gates remain explicitly not run.
+real Linux polkit, independently accepted SQLCipher, native hosts, backup revocation,
+independent security audit, signed package reproducibility, and benchmark gates remain
+explicitly incomplete.

@@ -1,13 +1,19 @@
-"""SQLite bootstrap, connection hardening, sequencing, and audit integrity."""
+"""SQLCipher bootstrap, connection hardening, sequencing, and audit integrity."""
+
+from __future__ import annotations
 
 import hashlib
 import hmac
 import json
 import os
 import secrets
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+except ImportError:  # Fail closed at connection time with a stable, content-free error.
+    sqlite3 = None  # type: ignore[assignment]
 
 from .errors import MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION
@@ -32,12 +38,16 @@ from .security import (
 
 POLICY_VERSION = "prototype-1"
 AUDIT_KEY_ID = "prototype-local-hmac-1"
+SQLCIPHER_VERSION = "4.12.0 community"
+STORAGE_KEY_BYTES = 32
+STORAGE_MODE = "sqlcipher-4.12.0"
 
 
 def paths(data_dir: Path) -> Dict[str, Path]:
     return {
         "db": data_dir / "continuum.db",
         "socket": data_dir / "memoryd.sock",
+        "storage_key": data_dir / "storage.key",
         "audit_key": data_dir / "audit.key",
         "audit_head": data_dir / "audit.head",
         "control": data_dir / "control.cap",
@@ -45,19 +55,127 @@ def paths(data_dir: Path) -> Dict[str, Path]:
     }
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+def _read_storage_key(key_path: Path) -> bytes:
+    try:
+        key = read_private(key_path, STORAGE_KEY_BYTES)
+    except (MemoryError, OSError):
+        raise MemoryError(
+            "storage_key_unavailable",
+            "The vault storage key is unavailable.",
+        ) from None
+    if len(key) != STORAGE_KEY_BYTES:
+        raise MemoryError(
+            "storage_key_unavailable",
+            "The vault storage key is unavailable.",
+        )
+    return key
+
+
+def _require_sqlcipher_runtime() -> None:
+    if sqlite3 is None:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        )
+    try:
+        connection = sqlite3.connect(":memory:", isolation_level=None)
+    except sqlite3.Error:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        ) from None
+    try:
+        connection.execute('PRAGMA key = "x\'%s\'"' % (b"\x00" * STORAGE_KEY_BYTES).hex())
+        cipher_row = connection.execute("PRAGMA cipher_version").fetchone()
+        status_row = connection.execute("PRAGMA cipher_status").fetchone()
+        if (
+            not cipher_row
+            or cipher_row[0] != SQLCIPHER_VERSION
+            or not status_row
+            or str(status_row[0]) != "1"
+        ):
+            raise MemoryError(
+                "sqlcipher_unavailable",
+                "The required encrypted storage runtime is unavailable.",
+            )
+    except MemoryError:
+        raise
+    except sqlite3.Error:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        ) from None
+    finally:
+        connection.close()
+
+
+def _connect(db_path: Path, storage_key: bytes) -> sqlite3.Connection:
     ensure_private_directory(db_path.parent)
     ensure_private_regular(db_path, "The vault database")
-    connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
+    _require_sqlcipher_runtime()
+    if len(storage_key) != STORAGE_KEY_BYTES:
+        raise MemoryError("storage_key_unavailable", "The vault storage key is unavailable.")
+    try:
+        connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
+    except sqlite3.Error:
+        raise MemoryError("storage_unavailable", "The encrypted vault could not be opened.") from None
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("PRAGMA trusted_schema=OFF")
-    connection.execute("PRAGMA busy_timeout=5000")
-    connection.execute("PRAGMA synchronous=FULL")
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA secure_delete=ON")
-    connection.execute("PRAGMA temp_store=MEMORY")
-    connection.execute("PRAGMA mmap_size=0")
+    try:
+        # SQLCipher requires the key to be the first operation on a new connection.
+        # Hex encoding constrains the interpolated value to a non-injectable alphabet.
+        connection.execute('PRAGMA key = "x\'%s\'"' % storage_key.hex())
+        cipher_row = connection.execute("PRAGMA cipher_version").fetchone()
+        status_row = connection.execute("PRAGMA cipher_status").fetchone()
+        if (
+            not cipher_row
+            or cipher_row[0] != SQLCIPHER_VERSION
+            or not status_row
+            or str(status_row[0]) != "1"
+        ):
+            raise MemoryError(
+                "sqlcipher_unavailable",
+                "The required encrypted storage runtime is unavailable.",
+            )
+        # Force page authentication before applying any write-affecting pragmas.
+        connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    except MemoryError:
+        connection.close()
+        raise
+    except sqlite3.Error:
+        connection.close()
+        raise MemoryError(
+            "storage_key_invalid",
+            "The encrypted vault could not be opened.",
+        ) from None
+    try:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA synchronous=FULL")
+        journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+        connection.execute("PRAGMA secure_delete=ON")
+        connection.execute("PRAGMA temp_store=MEMORY")
+        connection.execute("PRAGMA mmap_size=0")
+        temp_store = connection.execute("PRAGMA temp_store").fetchone()
+        if (
+            not journal_mode
+            or str(journal_mode[0]).lower() != "wal"
+            or not temp_store
+            or temp_store[0] != 2
+        ):
+            raise MemoryError(
+                "storage_hardening_failed",
+                "The encrypted storage safety settings could not be applied.",
+            )
+    except MemoryError:
+        connection.close()
+        raise
+    except sqlite3.Error:
+        connection.close()
+        raise MemoryError(
+            "storage_hardening_failed",
+            "The encrypted storage safety settings could not be applied.",
+        ) from None
     try:
         connection.enable_load_extension(False)
     except (AttributeError, sqlite3.NotSupportedError):
@@ -103,8 +221,9 @@ class Store:
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
         ensure_private_regular(self.files["db"], "The vault database")
+        storage_key = _read_storage_key(self.files["storage_key"])
         audit_key = read_private(self.files["audit_key"], 128)
-        self.connection = _connect(self.files["db"])
+        self.connection = _connect(self.files["db"], storage_key)
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
         if version != SCHEMA_VERSION:
             self.connection.close()
@@ -114,6 +233,13 @@ class Store:
             self.connection.close()
             raise MemoryError("integrity_error", "The vault identity is unavailable.")
         self.vault_id = bounded_id(vault[0], "vault_id")
+        storage_mode = self.connection.execute(
+            "SELECT value FROM metadata WHERE key='storage_mode'"
+        ).fetchone()
+        if not storage_mode or storage_mode[0] != STORAGE_MODE:
+            self.connection.close()
+            raise MemoryError("storage_mode_mismatch", "The vault storage mode is unsupported.")
+        self.storage_mode = STORAGE_MODE
         self.audit_key = audit_key
 
     @classmethod
@@ -133,6 +259,7 @@ class Store:
                 raise MemoryError("invalid_request", "Each project requires one to eight providers.")
             normalized_projects.append({"name": name, "path_hint": path_hint, "providers": providers})
         projects = normalized_projects
+        _require_sqlcipher_runtime()
         if path_exists(data_dir):
             ensure_private_directory(data_dir)
         else:
@@ -141,13 +268,15 @@ class Store:
             os.chmod(str(data_dir), 0o700)
             ensure_private_directory(data_dir)
         file_map = paths(data_dir)
-        occupied = ("db", "socket", "audit_key", "audit_head", "control", "caps")
+        occupied = ("db", "socket", "storage_key", "audit_key", "audit_head", "control", "caps")
         if any(path_exists(file_map[name]) for name in occupied):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         file_map["caps"].mkdir(mode=0o700)
         os.chmod(str(file_map["caps"]), 0o700)
         ensure_private_directory(file_map["caps"])
         audit_key = secrets.token_bytes(32)
+        storage_key = secrets.token_bytes(STORAGE_KEY_BYTES)
+        write_private(file_map["storage_key"], storage_key)
         write_private(file_map["audit_key"], audit_key)
         control_token = secrets.token_urlsafe(32)
         write_private(
@@ -155,14 +284,14 @@ class Store:
             _capability_document(None, "user_control", ["control", "read"], control_token),
         )
         write_private(file_map["db"], b"")
-        connection = _connect(file_map["db"])
+        connection = _connect(file_map["db"], storage_key)
         try:
             connection.executescript(SCHEMA_SQL)
             connection.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             connection.execute("BEGIN IMMEDIATE")
             vault_id = random_id("vlt")
             connection.execute("INSERT INTO metadata(key,value) VALUES ('vault_id',?)", (vault_id,))
-            connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode','plaintext_prototype')")
+            connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode',?)", (STORAGE_MODE,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('policy_version',?)", (POLICY_VERSION,))
             now = now_iso()
             control_id = random_id("cap")
@@ -222,7 +351,7 @@ class Store:
                 "socket": str(file_map["socket"]),
                 "control_capability": str(file_map["control"]),
                 "projects": created,
-                "storage_mode": "plaintext_prototype",
+                "storage_mode": STORAGE_MODE,
             }
         except Exception:
             connection.rollback()

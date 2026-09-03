@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """One-command supported local verification suite."""
 
+import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -23,16 +25,27 @@ EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
 MAX_METADATA_BYTES = 1024 * 1024
 REQUIRED_SDIST_FILES = (
+    "docs/SQLCIPHER_STORAGE.md",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",
+    "requirements/sqlcipher-python39.txt",
     "scripts/polkit_smoke.py",
     "src/continuum_memory/approval.py",
     "src/continuum_memory/polkit_helper.py",
     "tests/test_approval.py",
+    "tests/test_encrypted_storage.py",
     "tests/test_verify.py",
 )
+EXPECTED_SQLCIPHER_WHEELS = {
+    "sqlcipher3-0.6.2-cp39-cp39-macosx_11_0_arm64.whl": (
+        "7634c16e937c42f3570b41bf2a5032fbec8413cd221e84782ff567f850a0f76c"
+    ),
+    "sqlcipher3-0.6.2-cp39-cp39-manylinux_2_28_x86_64.whl": (
+        "3a8ced91852c599a19a1e223436ef2e43f6727141958880183aea02b6ad5b375"
+    ),
+}
 
 
 def run(command: List[str], environment: Optional[Dict[str, str]] = None) -> None:
@@ -135,6 +148,26 @@ def require_sdist_files(archive: Path, required: tuple[str, ...] = REQUIRED_SDIS
         raise RuntimeError("source distribution is missing required files: %s" % ", ".join(missing))
 
 
+def find_sqlcipher_wheel(
+    wheelhouse: Path,
+    expected: Dict[str, str] = EXPECTED_SQLCIPHER_WHEELS,
+) -> Path:
+    wheels = sorted(wheelhouse.glob("sqlcipher3-*.whl")) if wheelhouse.is_dir() else []
+    if len(wheels) != 1:
+        raise RuntimeError("expected exactly one SQLCipher wheel, found %d" % len(wheels))
+    wheel = wheels[0]
+    info = wheel.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise RuntimeError("SQLCipher wheel must be a single regular file")
+    expected_digest = expected.get(wheel.name)
+    if expected_digest is None:
+        raise RuntimeError("unsupported SQLCipher wheel: %s" % wheel.name)
+    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    if digest != expected_digest:
+        raise RuntimeError("SQLCipher wheel digest mismatch: %s" % wheel.name)
+    return wheel
+
+
 def packaging_smoke() -> None:
     with tempfile.TemporaryDirectory(prefix="continuum-package-", dir=str(ROOT / "work")) as temp:
         artifacts = Path(temp) / "dist"
@@ -151,11 +184,16 @@ def packaging_smoke() -> None:
         )
         archive = find_sdist(artifacts)
         require_sdist_files(archive)
+        dependency = find_sqlcipher_wheel(ROOT / "work" / "dependencies")
         environment = str(Path(temp) / "venv")
         run([sys.executable, "-m", "venv", environment])
         python = str(Path(environment) / "bin" / "python")
         package_environment = dict(ENV)
         package_environment.pop("PYTHONPATH", None)
+        run(
+            [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(dependency)],
+            package_environment,
+        )
         run(
             [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(archive)],
             package_environment,

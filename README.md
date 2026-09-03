@@ -5,8 +5,9 @@
 [![verify](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml/badge.svg)](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
 
 **Maturity: experimental local prototype.** Continuum Memory is not production-ready,
-encrypted, hardened against same-user malware, or validated with native Codex, Claude
-Code, or Antigravity installations. It is a narrow, offline, Linux-first vertical slice
+independently security-reviewed, hardened against same-user malware, or validated with
+native Codex, Claude Code, or Antigravity installations. It is a narrow, offline,
+Linux-first vertical slice
 that demonstrates the ledger and trust-boundary design with deterministic MCP fixtures.
 
 Continuum Memory is a provider-neutral, user-owned ledger of evidence and versioned
@@ -39,12 +40,13 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 
 ## Five-minute safe quickstart
 
-Requires Python 3.9+ with SQLite 3.37+ and FTS5. No package download or network service is used.
-Use a temporary directory while evaluating the prototype:
+Requires Python 3.9 and the pinned `sqlcipher3==0.6.2` runtime. Package installation may
+download that dependency; runtime operation uses no network service. Use a temporary
+directory while evaluating the prototype:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --no-deps -e .
+.venv/bin/python -m pip install -e .
 export CONTINUUM_HOME="$(mktemp -d)"
 continuum init --project-name demo --project-path "$PWD" --providers codex,claude
 memoryd --data-dir "$CONTINUUM_HOME"
@@ -94,19 +96,26 @@ native Codex or Claude Code compatibility.
 
 ## Storage notice
 
-The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 but no
-reproducible SQLCipher binding in this dependency-free slice. File permissions, strict
-date parsing, lifecycle expiry, and deletion semantics are tested, but plaintext can remain
-in filesystem or OS snapshots. The owner-only directory blocks other local accounts; it
-does not resist a malicious process already running as the same user. Do not store secrets
-or sensitive production data. The storage interface is isolated so a reviewed SQLCipher
-implementation can replace it later.
+The Issue #7 implementation candidate routes the canonical database, WAL, and FTS pages
+through SQLCipher 4.12.0 using the pinned `sqlcipher3` 0.6.2 binding. The verifier checks
+plaintext canaries, correct/wrong/missing key behavior, crash recovery, runtime identity,
+and an offline wheel installation. This is not yet an accepted encryption guarantee;
+Issue #7 remains open for independent review, and sensitive production data remains out of
+scope.
+
+This is not a complete confidentiality claim. The random storage key is an owner-only file
+beside the vault, so copying the entire vault directory also copies the key. The boundary
+does not resist the owning user, root/admin, malware in that account, process inspection,
+OS snapshots, exports, or unmanaged backups. Existing plaintext vaults are rejected and
+are not migrated automatically. Key rotation and explicit plaintext migration are not yet
+implemented. See `docs/SQLCIPHER_STORAGE.md`.
 
 ## Repository map
 
 - `docs/PRODUCT_CONSTITUTION.md` — durable product rules.
 - `docs/architecture/` — accepted architecture decisions.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
+- `docs/SQLCIPHER_STORAGE.md` — encrypted-storage runtime, key lifecycle, verification, and limits.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.
