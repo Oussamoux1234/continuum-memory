@@ -33,6 +33,7 @@ MAX_GRANT_BYTES = 1024
 MAX_CLOCK_SKEW_SECONDS = 5
 
 POLKIT_HELPER_PATH = Path("/usr/libexec/continuum-memory/approval-helper")
+POLKIT_POLICY_PATH = Path("/usr/share/polkit-1/actions/org.continuummemory.approval.policy")
 PKEXEC_PATH = Path("/usr/bin/pkexec")
 OPENSSL_PATH = Path("/usr/bin/openssl")
 PUBLIC_KEY_DIRECTORY = Path("/etc/continuum-memory/approval-keys")

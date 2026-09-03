@@ -1,18 +1,23 @@
 """Root-side Linux approval helper. Install only at a root-owned system path."""
 
 import argparse
+import fcntl
 import json
 import os
 import stat
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ElementTree
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TextIO
+from typing import Any, Callable, Dict, Iterator, Optional, TextIO
 
 from .approval import (
     MAX_BROKER_FRAME_BYTES,
     OPENSSL_PATH,
+    POLKIT_HELPER_PATH,
+    POLKIT_POLICY_PATH,
     approval_payload,
     ensure_root_owned_regular,
     private_key_path,
@@ -26,14 +31,85 @@ from .errors import MemoryError
 from .security import canonical_json, path_exists
 
 
+MAX_POLICY_BYTES = 65_536
+PROVISION_LOCK_NAME = ".provision.lock"
+
+
 def _root_directory(path: Path, private: bool) -> None:
     path.mkdir(mode=0o700 if private else 0o755, parents=True, exist_ok=True)
-    os.chmod(str(path), 0o700 if private else 0o755)
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != 0:
         raise MemoryError("approval_broker_unsafe", "An approval key directory is unsafe.")
     if info.st_mode & (0o077 if private else 0o022):
         raise MemoryError("approval_broker_unsafe", "An approval key directory is writable by an untrusted user.")
+    os.chmod(str(path), 0o700 if private else 0o755)
+
+
+@contextmanager
+def _provision_lock(path: Path, expected_owner: int = 0) -> Iterator[None]:
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(str(path), flags, 0o600)
+    except OSError as error:
+        raise MemoryError("approval_broker_unsafe", "The approval provisioning lock is unsafe.") from error
+    try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != expected_owner
+            or info.st_mode & 0o077
+        ):
+            raise MemoryError("approval_broker_unsafe", "The approval provisioning lock is unsafe.")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except OSError as error:
+            raise MemoryError(
+                "approval_broker_unavailable", "Approval key provisioning could not be serialized."
+            ) from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def validate_installed_policy(
+    path: Path = POLKIT_POLICY_PATH,
+    path_validator: Callable[..., Any] = ensure_root_owned_regular,
+) -> None:
+    path_validator(path, "The Continuum approval polkit policy")
+    try:
+        encoded = path.read_bytes()
+    except OSError as error:
+        raise MemoryError("approval_broker_unavailable", "The approval policy could not be read.") from error
+    if not encoded or len(encoded) > MAX_POLICY_BYTES:
+        raise MemoryError("approval_broker_unsafe", "The approval policy size is invalid.")
+    try:
+        root = ElementTree.fromstring(encoded)
+    except ElementTree.ParseError as error:
+        raise MemoryError("approval_broker_unsafe", "The approval policy is malformed.") from error
+    actions = root.findall("./action") if root.tag == "policyconfig" else []
+    if len(actions) != 1 or actions[0].get("id") != "org.continuummemory.approval":
+        raise MemoryError("approval_broker_unsafe", "The approval policy action is invalid.")
+    action = actions[0]
+    defaults = action.findall("./defaults")
+    expected_defaults = {"allow_any": "no", "allow_inactive": "no", "allow_active": "auth_admin"}
+    if len(defaults) != 1:
+        raise MemoryError("approval_broker_unsafe", "The approval policy defaults are invalid.")
+    for name, expected in expected_defaults.items():
+        values = defaults[0].findall("./%s" % name)
+        if len(values) != 1 or (values[0].text or "").strip() != expected:
+            raise MemoryError("approval_broker_unsafe", "The approval policy defaults are invalid.")
+    annotations = [
+        item
+        for item in action.findall("./annotate")
+        if item.get("key") == "org.freedesktop.policykit.exec.path"
+    ]
+    if len(annotations) != 1 or (annotations[0].text or "").strip() != str(POLKIT_HELPER_PATH):
+        raise MemoryError("approval_broker_unsafe", "The approval policy helper path is invalid.")
 
 
 def _sync_file(path: Path) -> None:
@@ -71,22 +147,34 @@ def _run_openssl(arguments: Any) -> None:
 
 
 def provision_keys(caller_uid: int) -> Dict[str, Any]:
-    private_path = private_key_path(caller_uid)
-    public_path = public_key_path(caller_uid)
-    _root_directory(private_path.parent, private=True)
-    _root_directory(public_path.parent, private=False)
+    previous_umask = os.umask(0o022)
+    try:
+        private_path = private_key_path(caller_uid)
+        public_path = public_key_path(caller_uid)
+        _root_directory(private_path.parent, private=True)
+        _root_directory(public_path.parent, private=False)
+        with _provision_lock(private_path.parent / PROVISION_LOCK_NAME):
+            return _provision_keys_locked(private_path, public_path)
+    finally:
+        os.umask(previous_umask)
 
+
+def _verify_key_pair(private_path: Path, public_path: Path) -> None:
+    ensure_root_owned_regular(private_path, "The Linux approval private key", private=True)
+    ensure_root_owned_regular(public_path, "The Linux approval public key")
+    probe = b"continuum-memory approval key pair check"
+    grant = sign_payload(private_path, probe)
+    if not verify_payload(public_path, probe, grant):
+        raise MemoryError("approval_broker_unsafe", "The installed approval key pair does not match.")
+
+
+def _provision_keys_locked(private_path: Path, public_path: Path) -> Dict[str, Any]:
     private_exists = path_exists(private_path)
     public_exists = path_exists(public_path)
     if private_exists or public_exists:
         if not private_exists or not public_exists:
             raise MemoryError("approval_broker_unsafe", "Approval key provisioning is incomplete.")
-        ensure_root_owned_regular(private_path, "The Linux approval private key", private=True)
-        ensure_root_owned_regular(public_path, "The Linux approval public key")
-        probe = b"continuum-memory approval key pair check"
-        grant = sign_payload(private_path, probe)
-        if not verify_payload(public_path, probe, grant):
-            raise MemoryError("approval_broker_unsafe", "The installed approval key pair does not match.")
+        _verify_key_pair(private_path, public_path)
         return {"status": "already_provisioned"}
 
     previous_umask = os.umask(0o077)
@@ -132,8 +220,7 @@ def provision_keys(caller_uid: int) -> Dict[str, Any]:
         public_temporary = None
         _sync_directory(private_path.parent)
         _sync_directory(public_path.parent)
-        ensure_root_owned_regular(private_path, "The Linux approval private key", private=True)
-        ensure_root_owned_regular(public_path, "The Linux approval public key")
+        _verify_key_pair(private_path, public_path)
         return {"status": "provisioned"}
     finally:
         os.umask(previous_umask)
@@ -145,10 +232,15 @@ def provision_keys(caller_uid: int) -> Dict[str, Any]:
                     pass
 
 
+def render_preview(preview: Dict[str, Any]) -> str:
+    """Render untrusted preview text without terminal-active Unicode controls."""
+    return json.dumps(preview, ensure_ascii=True, indent=2, sort_keys=True)
+
+
 def _tty_confirmation(request: Dict[str, Any]) -> bool:
     try:
         with open("/dev/tty", "r+", encoding="utf-8") as terminal:
-            terminal.write(json.dumps(request["preview"], ensure_ascii=False, indent=2, sort_keys=True))
+            terminal.write(render_preview(request["preview"]))
             terminal.write("\n\nOS authorization succeeded. Confirm exact digest %s.\n" % request["preview_digest"])
             terminal.write("Type ACCEPT %s to continue: " % request["preview_digest"][:12])
             terminal.flush()
@@ -211,6 +303,7 @@ def _ensure_privileged_runtime() -> None:
     if not sys.platform.startswith("linux") or os.geteuid() != 0:
         raise MemoryError("approval_broker_unsafe", "The approval helper requires Linux root execution.")
     ensure_root_owned_regular(Path(__file__), "The installed approval helper module")
+    validate_installed_policy()
 
 
 def main(argv: Any = None) -> int:
