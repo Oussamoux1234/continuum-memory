@@ -13,7 +13,8 @@
 ## Trustworthy local v1
 
 - [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS: implementation,
-  fail-closed behavior, crash recovery, and canary gates are on Issue #7; independent review
+  fail-closed behavior, crash recovery, canary gates, exact wheel inventory, copied notices,
+  and an interim SPDX manifest are on Issue #7; independent security and license review
   remains before closure
 - [ ] Linux OS-backed human-presence broker and non-exportable keys: implementation and
   deterministic tests landed; real-host smoke and independent review remain ([issue #3](https://github.com/Oussamoux1234/continuum-memory/issues/3))
@@ -37,7 +38,9 @@
 ## Hardening and release
 
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
-- [ ] SBOM, license/vulnerability policy, deterministic payload, signing rehearsal
+- [ ] Release-grade SBOM, resolved dependency-license policy, vulnerability policy,
+  deterministic payload, and signing rehearsal; Issue #7 has only a verifier-enforced
+  interim wheel inventory and must not be treated as release certification
 - [ ] Linux packaging and independently reviewed security claims ([issue #2](https://github.com/Oussamoux1234/continuum-memory/issues/2))
 - [ ] Hardened macOS approval/filesystem boundary and native CI ([issue #10](https://github.com/Oussamoux1234/continuum-memory/issues/10))
 - [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))

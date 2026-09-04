@@ -1,6 +1,6 @@
 # Verification record
 
-Last run: 2026-09-03.
+Last run: 2026-09-04.
 
 ## Supported command
 
@@ -10,9 +10,12 @@ python3 scripts/verify.py
 
 After the exact hash-pinned SQLCipher and build-tool wheels are acquired and installed as
 documented in `SQLCIPHER_STORAGE.md`, the command parses both JSON schemas, checks source whitespace,
-compiles every Python module, runs the unit/integration suite with resource warnings
+validates the third-party notices, exact upstream license-file hashes, and interim SPDX
+inventory, compiles every Python module, runs the unit/integration suite with resource warnings
 promoted to errors, executes the complete two-client fixture demo, builds a source
-distribution, validates the dependency wheel filenames and digests, installs those wheels
+distribution and project wheel, requires the notices/licenses/SBOM in both built artifacts,
+inspects the selected SQLCipher wheel's metadata, license, native payload, and compiled
+component markers, validates the dependency wheel filenames and digests, installs those wheels
 and the exact source archive offline without build isolation into a temporary virtual
 environment with no checkout `PYTHONPATH`, exercises the installed entry points, and runs
 `git diff --check`.
@@ -25,7 +28,7 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
 3.12, 3.13, and 3.14 by the
 [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 61 unit/integration tests: passed.
+- 68 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -70,6 +73,19 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
   wheel filename/hash validation, offline dependency/archive install without build
   isolation, removed checkout `PYTHONPATH`, and the `continuum`, `memoryd`, `continuum-mcp`, and
   `continuum-polkit-helper` entry points: passed.
+- Third-party inventory regressions: missing notices or copied licenses, component records,
+  wheel hashes, license declarations/text, embedded SQLCipher/SQLite/OpenSSL markers, dependency
+  relationships, unexpected native libraries, and project-wheel compliance payloads all fail
+  closed. All eight hash-pinned macOS arm64 and Linux x86-64 wheel archives passed the portable
+  metadata/license/native-component inspection; the current job repeats it for its selected
+  wheel.
+- Distribution notices: the sdist and project wheel contain `LICENSE`,
+  `THIRD_PARTY_NOTICES.md`, the exact sqlcipher3/SQLCipher/OpenSSL release license files, and
+  `sbom/continuum-memory.spdx.json`. The offline source installation remains the package install
+  test.
+- Focused standard-library trace coverage for the new license-verification paths was 375 of 542
+  executable lines (69.2%) in `scripts.verify` and 257 of 263 (97.7%) in
+  `tests.test_verify`; the complete gate separately exercises the packaging success path.
 - Linux approval regressions: exact request binding, stdin-only broker transport,
   cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
   per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
@@ -93,13 +109,13 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
 | Content-free HMAC audit verification/tamper detection | Passed prototype tests |
 | Default runtime network access | No network code exists; packet-level instrumentation not run |
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
-| Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
+| Linux distribution package | Source archive build/install and pure-Python wheel build/content check passed; signing and release publication not run |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
 | SQLCipher/page/WAL/temp/FTS candidate | Maintained-Python 3.14 local implementation and regression gate passed; the 3.11–3.14 Linux matrix is mandatory; independent review remains before Issue #7 closure or an accepted encryption claim |
 | Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
-| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; SQLCipher wheel filename/version/hash and MIT metadata checked, but broader supply-chain review remains |
+| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Exact eight-wheel content/license inventory, copied upstream notices, and verifier-enforced interim SPDX 2.3 JSON passed; upstream sqlcipher3 metadata/license conflict, external SPDX validation, vulnerability audit, reproducible-build comparison, signatures, and release-payload review remain |
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
 This result supports only the maturity label “experimental local prototype” and an Issue #7

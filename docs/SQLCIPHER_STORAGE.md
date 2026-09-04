@@ -39,6 +39,31 @@ Acquisition requires package-index access. The subsequent installation exercised
 packaging smoke is offline and refuses an unknown filename, wrong digest, missing wheel, or
 multiple candidate wheels.
 
+## Third-party contents and licenses
+
+`THIRD_PARTY_NOTICES.md` is the canonical human-readable inventory for the eight supported
+wheel files. It records their exact PyPI SHA-256 values, archive payloads, statically compiled
+SQLCipher 4.12.0 / SQLite 3.51.1 / OpenSSL 3.6.0 components, and host-supplied dynamic
+libraries. Exact upstream license texts are under `third_party_licenses/`; the interim
+SPDX 2.3 JSON record is `sbom/continuum-memory.spdx.json`.
+
+The Continuum source distribution and pure-Python wheel do not embed a `sqlcipher3` wheel.
+The dependency is installed as a separate distribution, while CI downloads it only into
+ignored test storage. A combined installer, container, application bundle, or offline
+wheelhouse that redistributes the native wheel must ship the recorded notices and be
+reviewed as its own payload.
+
+The upstream binding has a material metadata discrepancy: its project/wheel metadata says
+`MIT`, but its shipped license file contains a different Gerhard Häring three-condition
+text. The inventory preserves both facts and uses a custom SPDX `LicenseRef` instead of
+guessing which declaration should control. PR #12 remains blocked on independent security
+and license review.
+
+The verifier checks exact copied-license hashes, required notice/component records, all
+eight wheel records and dependency relationships, and the wheel used by the current job.
+It also builds a Continuum wheel and requires the notices, licenses, and SPDX file in both
+that wheel and the source archive while preserving the offline source-install smoke.
+
 ## Key creation and storage
 
 `continuum init` generates 32 random bytes with the operating system randomness source. It

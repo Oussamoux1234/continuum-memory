@@ -118,6 +118,13 @@ and an offline wheel installation. This is not yet an accepted encryption guaran
 Issue #7 remains open for independent review, and sensitive production data remains out of
 scope.
 
+The exact reviewed wheel hashes, compiled and linked component inventory, upstream license
+texts, redistribution boundary, and unresolved `sqlcipher3` metadata/license discrepancy
+are recorded in `THIRD_PARTY_NOTICES.md`. An interim SPDX 2.3 JSON inventory is shipped at
+`sbom/continuum-memory.spdx.json`. The verifier requires both records and all copied license
+texts in the source distribution and project wheel; this is engineering evidence, not a
+legal-compliance or independent-review claim.
+
 This is not a complete confidentiality claim. The random storage key is an owner-only file
 beside the vault, so copying the entire vault directory also copies the key. The boundary
 does not resist the owning user, root/admin, malware in that account, process inspection,
@@ -131,6 +138,8 @@ implemented. See `docs/SQLCIPHER_STORAGE.md`.
 - `docs/architecture/` — accepted architecture decisions.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
 - `docs/SQLCIPHER_STORAGE.md` — encrypted-storage runtime, key lifecycle, verification, and limits.
+- `THIRD_PARTY_NOTICES.md` — reviewed SQLCipher wheel contents, licenses, and redistribution boundary.
+- `sbom/continuum-memory.spdx.json` — interim SPDX 2.3 dependency and artifact inventory.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.

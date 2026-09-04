@@ -1,17 +1,27 @@
 import hashlib
 import io
+import json
+import shutil
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from scripts.verify import (
     EXPECTED_DISTRIBUTION,
+    EXPECTED_LICENSE_FILE_DIGESTS,
+    EXPECTED_SQLCIPHER_WHEELS,
     EXPECTED_VERSION,
+    ROOT,
+    find_project_wheel,
     find_sdist,
     find_sqlcipher_wheel,
+    inspect_sqlcipher_wheel,
     require_sdist_files,
+    require_wheel_compliance_files,
     runtime_check,
+    third_party_manifest_check,
 )
 
 
@@ -137,6 +147,188 @@ class SqlcipherWheelDiscoveryTest(unittest.TestCase):
             expected = {first.name: hashlib.sha256(b"expected").hexdigest()}
             with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                 find_sqlcipher_wheel(directory, expected)
+
+
+class SqlcipherWheelInventoryTest(unittest.TestCase):
+    METADATA = (
+        b"Metadata-Version: 2.4\n"
+        b"Name: sqlcipher3\n"
+        b"Version: 0.6.2\n"
+        b"License-Expression: MIT\n"
+        b"Project-URL: Repository, https://github.com/coleifer/sqlcipher3\n"
+        b"License-File: LICENSE\n\n"
+    )
+    LICENSE = b"synthetic upstream license"
+    MARKERS = (b"sqlcipher marker", b"sqlite marker", b"openssl marker")
+
+    def make_wheel(
+        self,
+        directory: Path,
+        metadata: bytes = METADATA,
+        license_payload: bytes = LICENSE,
+        native_payload: bytes = b"sqlcipher marker sqlite marker openssl marker",
+        extra_native: bool = False,
+    ) -> Path:
+        wheel = directory / "sqlcipher3-0.6.2-cp314-cp314-test.whl"
+        with zipfile.ZipFile(str(wheel), mode="w") as bundle:
+            bundle.writestr("sqlcipher3/__init__.py", "")
+            bundle.writestr("sqlcipher3/dbapi2.py", "")
+            bundle.writestr("sqlcipher3/_sqlite3.cpython-314-test.so", native_payload)
+            bundle.writestr("sqlcipher3-0.6.2.dist-info/METADATA", metadata)
+            bundle.writestr(
+                "sqlcipher3-0.6.2.dist-info/licenses/LICENSE",
+                license_payload,
+            )
+            if extra_native:
+                bundle.writestr("sqlcipher3.libs/unrecorded.dylib", b"native")
+        return wheel
+
+    def inspect(self, wheel: Path, metadata: bytes = METADATA, license_payload: bytes = LICENSE):
+        inspect_sqlcipher_wheel(
+            wheel,
+            hashlib.sha256(metadata).hexdigest(),
+            hashlib.sha256(license_payload).hexdigest(),
+            self.MARKERS,
+        )
+
+    def test_accepts_complete_component_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-wheel-inventory-") as temporary:
+            wheel = self.make_wheel(Path(temporary))
+            self.inspect(wheel)
+
+    def test_rejects_license_metadata_payload_and_native_component_drift(self):
+        cases = (
+            ("license", {}, "license digest mismatch"),
+            (
+                "metadata",
+                {"metadata": self.METADATA.replace(b"MIT", b"BSD-3-Clause")},
+                "license declaration changed",
+            ),
+            ("marker", {"native_payload": b"sqlcipher marker sqlite marker"}, "openssl marker"),
+            ("native", {"extra_native": True}, "unrecorded native library"),
+        )
+        for name, changes, expected_error in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory(
+                    prefix="continuum-wheel-inventory-"
+                ) as temporary:
+                    directory = Path(temporary)
+                    if name == "license":
+                        wheel = self.make_wheel(directory, license_payload=b"modified")
+                        with self.assertRaisesRegex(RuntimeError, expected_error):
+                            self.inspect(wheel)
+                    elif name == "metadata":
+                        metadata = changes["metadata"]
+                        wheel = self.make_wheel(directory, metadata=metadata)
+                        with self.assertRaisesRegex(RuntimeError, expected_error):
+                            self.inspect(wheel, metadata=metadata)
+                    else:
+                        wheel = self.make_wheel(directory, **changes)
+                        with self.assertRaisesRegex(RuntimeError, expected_error):
+                            self.inspect(wheel)
+
+
+class ThirdPartyManifestTest(unittest.TestCase):
+    def copy_compliance_tree(self, destination: Path) -> None:
+        required = [
+            "THIRD_PARTY_NOTICES.md",
+            "requirements/sqlcipher-maintained.txt",
+            "sbom/continuum-memory.spdx.json",
+            *EXPECTED_LICENSE_FILE_DIGESTS,
+        ]
+        for relative_path in required:
+            target = destination / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative_path, target)
+
+    def test_repository_inventory_is_complete(self):
+        third_party_manifest_check()
+
+    def test_rejects_missing_notice_and_license_files(self):
+        missing_paths = (
+            "THIRD_PARTY_NOTICES.md",
+            "third_party_licenses/SQLCipher-4.12.0.txt",
+        )
+        for missing_path in missing_paths:
+            with self.subTest(path=missing_path):
+                with tempfile.TemporaryDirectory(
+                    prefix="continuum-license-inventory-"
+                ) as temporary:
+                    root = Path(temporary)
+                    self.copy_compliance_tree(root)
+                    (root / missing_path).unlink()
+                    with self.assertRaisesRegex(RuntimeError, "missing"):
+                        third_party_manifest_check(root)
+
+    def test_rejects_missing_component_and_modified_wheel_hash(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            sbom_path = root / "sbom" / "continuum-memory.spdx.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            sbom["packages"] = [
+                package
+                for package in sbom["packages"]
+                if package["SPDXID"] != "SPDXRef-Package-OpenSSL"
+            ]
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "missing component"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            sbom_path = root / "sbom" / "continuum-memory.spdx.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            wheel_name = next(iter(EXPECTED_SQLCIPHER_WHEELS))
+            wheel = next(package for package in sbom["packages"] if package["name"] == wheel_name)
+            wheel["checksums"][0]["checksumValue"] = "0" * 64
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "wheel checksum mismatch"):
+                third_party_manifest_check(root)
+
+
+class ProjectWheelPackagingTest(unittest.TestCase):
+    def make_wheel(self, directory: Path, include_compliance: bool = True) -> Path:
+        name = "continuum_memory-0.1.0.dev0-py3-none-any.whl"
+        wheel = directory / name
+        stem = "continuum_memory-0.1.0.dev0"
+        dist_info = "%s.dist-info" % stem
+        with zipfile.ZipFile(str(wheel), mode="w") as bundle:
+            bundle.writestr(
+                "%s/METADATA" % dist_info,
+                "Name: %s\nVersion: %s\n\n" % (EXPECTED_DISTRIBUTION, EXPECTED_VERSION),
+            )
+            if include_compliance:
+                for relative_path in (
+                    "LICENSE",
+                    "THIRD_PARTY_NOTICES.md",
+                    "third_party_licenses/OpenSSL-3.6.0.txt",
+                    "third_party_licenses/SQLCipher-4.12.0.txt",
+                    "third_party_licenses/sqlcipher3-0.6.2.txt",
+                ):
+                    bundle.writestr(
+                        "%s/licenses/%s" % (dist_info, relative_path),
+                        (ROOT / relative_path).read_bytes(),
+                    )
+                bundle.writestr(
+                    "%s.data/data/share/continuum-memory/continuum-memory.spdx.json" % stem,
+                    (ROOT / "sbom" / "continuum-memory.spdx.json").read_bytes(),
+                )
+        return wheel
+
+    def test_discovers_wheel_and_requires_compliance_payload(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-project-wheel-") as temporary:
+            directory = Path(temporary)
+            wheel = self.make_wheel(directory)
+            self.assertEqual(find_project_wheel(directory), wheel)
+            require_wheel_compliance_files(wheel)
+
+    def test_rejects_wheel_missing_compliance_payload(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-project-wheel-") as temporary:
+            wheel = self.make_wheel(Path(temporary), include_compliance=False)
+            with self.assertRaisesRegex(RuntimeError, "missing compliance files"):
+                require_wheel_compliance_files(wheel)
 
 
 class SupportedRuntimeTest(unittest.TestCase):
