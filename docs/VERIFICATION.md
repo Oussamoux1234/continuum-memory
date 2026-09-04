@@ -10,15 +10,18 @@ python3 scripts/verify.py
 
 After the exact hash-pinned SQLCipher and build-tool wheels are acquired and installed as
 documented in `SQLCIPHER_STORAGE.md`, the command parses both JSON schemas, checks source whitespace,
-validates the third-party notices, exact upstream license-file hashes, and interim SPDX
-inventory, compiles every Python module, runs the unit/integration suite with resource warnings
-promoted to errors, executes the complete two-client fixture demo, builds a source
-distribution and project wheel, requires the notices/licenses/SBOM in both built artifacts,
+validates the third-party notices, exact upstream license-file hashes, hash-pinned external SPDX
+validator manifest, strict SPDX inventory, and frozen dependency-audit evidence, compiles every
+Python module, runs the unit/integration suite with resource warnings promoted to errors,
+executes the complete two-client fixture demo, independently builds two source distributions and
+two project wheels under a fixed build epoch, requires identical wheel bytes and normalized sdist
+payloads, requires the notices/licenses/SBOM/audit evidence in the built artifacts,
 inspects the selected SQLCipher wheel's metadata, license, native payload, and compiled
 component markers, validates the dependency wheel filenames and digests, installs those wheels
 and the exact source archive offline without build isolation into a temporary virtual
 environment with no checkout `PYTHONPATH`, exercises the installed entry points, and runs
-`git diff --check`.
+`git diff --check`. A separate Actions job installs the hash-pinned `spdx-tools==0.8.5` toolchain
+and performs full external SPDX 2.3 validation.
 
 ## Observed result
 
@@ -28,7 +31,7 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
 3.12, 3.13, and 3.14 by the
 [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
 
-- 68 unit/integration tests: passed.
+- 72 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
   size rejection: passed.
 - Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
@@ -74,17 +77,31 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
   isolation, removed checkout `PYTHONPATH`, and the `continuum`, `memoryd`, `continuum-mcp`, and
   `continuum-polkit-helper` entry points: passed.
 - Third-party inventory regressions: missing notices or copied licenses, component records,
-  wheel hashes, license declarations/text, embedded SQLCipher/SQLite/OpenSSL markers, dependency
-  relationships, unexpected native libraries, and project-wheel compliance payloads all fail
-  closed. All eight hash-pinned macOS arm64 and Linux x86-64 wheel archives passed the portable
-  metadata/license/native-component inspection; the current job repeats it for its selected
-  wheel.
+  wheel hashes, license declarations/text, overstated license conclusions, duplicate JSON keys,
+  changed validator hashes, suppressed audit blockers, embedded SQLCipher/SQLite/OpenSSL markers,
+  dependency relationships, unexpected native libraries, and project-wheel compliance payloads
+  all fail closed. All eight hash-pinned macOS arm64 and Linux x86-64 wheel archives passed the
+  portable metadata/license/native-component inspection; the current job repeats it for its
+  selected wheel.
+- Point-in-time dependency audit: OpenSSL 3.6.0 has 48 vendor-classified findings (2 High,
+  10 Moderate, 36 Low), and SQLite 3.51.1 predates fixes for CVE-2026-11822 and
+  CVE-2026-11824. Exact sqlcipher3 and SQLCipher queries returned no known findings in the
+  queried sources, which is explicitly not treated as proof of safety. The frozen audit keeps
+  the release decision blocked.
+- External SPDX validation: `spdx-tools==0.8.5` under CPython 3.14.6 validated the SPDX 2.3
+  document with exit 0 and no messages. Actions repeats this on Ubuntu 24.04 / Python 3.14 from
+  a complete hash-pinned validator wheel set.
+- Reproducibility regressions: the two project wheels were byte-identical; the two sdists had
+  identical normalized member paths, types, modes, owners, links, sizes, and content hashes.
+  Their raw gzip/tar timestamps varied, so raw sdist byte reproducibility and cross-platform
+  reproducibility are not claimed. Timestamp-only variance is accepted; payload drift fails.
 - Distribution notices: the sdist and project wheel contain `LICENSE`,
   `THIRD_PARTY_NOTICES.md`, the exact sqlcipher3/SQLCipher/OpenSSL release license files, and
-  `sbom/continuum-memory.spdx.json`. The offline source installation remains the package install
-  test.
-- Focused standard-library trace coverage for the new license-verification paths was 375 of 542
-  executable lines (69.2%) in `scripts.verify` and 257 of 263 (97.7%) in
+  `sbom/continuum-memory.spdx.json`; both also contain `security/dependency-audit.json`. The sdist
+  additionally contains the validator lock and release-readiness record. The offline source
+  installation remains the package install test.
+- Focused standard-library trace coverage for the packaging/readiness verification paths was
+  525 of 727 executable lines (72.2%) in `scripts.verify` and 379 of 385 (98.4%) in
   `tests.test_verify`; the complete gate separately exercises the packaging success path.
 - Linux approval regressions: exact request binding, stdin-only broker transport,
   cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
@@ -109,13 +126,13 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
 | Content-free HMAC audit verification/tamper detection | Passed prototype tests |
 | Default runtime network access | No network code exists; packet-level instrumentation not run |
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
-| Linux distribution package | Source archive build/install and pure-Python wheel build/content check passed; signing and release publication not run |
+| Linux distribution package | Two-build wheel byte identity, normalized-sdist payload identity, content inspection, and source archive installation passed; raw sdist timestamps vary; signing and publication not run |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
-| SQLCipher/page/WAL/temp/FTS candidate | Maintained-Python 3.14 local implementation and regression gate passed; the 3.11–3.14 Linux matrix is mandatory; independent review remains before Issue #7 closure or an accepted encryption claim |
+| SQLCipher/page/WAL/temp/FTS candidate | Maintained-Python 3.14 local implementation and regression gate passed; the 3.11–3.14 Linux matrix is mandatory; known OpenSSL/SQLite findings and independent review block Issue #7 closure or an accepted encryption claim |
 | Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
-| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Exact eight-wheel content/license inventory, copied upstream notices, and verifier-enforced interim SPDX 2.3 JSON passed; upstream sqlcipher3 metadata/license conflict, external SPDX validation, vulnerability audit, reproducible-build comparison, signatures, and release-payload review remain |
+| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Exact inventory, copied notices, conservative SPDX `NOASSERTION`, external SPDX validation, point-in-time audit, two-build comparison, and payload inspection passed; known vulnerable embedded versions, unresolved sqlcipher3 metadata/license conflict, raw/cross-platform sdist reproducibility, approved signing identity/workflow, and independent acceptance remain blockers |
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
 This result supports only the maturity label “experimental local prototype” and an Issue #7

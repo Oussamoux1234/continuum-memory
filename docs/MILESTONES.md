@@ -14,8 +14,9 @@
 
 - [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS: implementation,
   fail-closed behavior, crash recovery, canary gates, exact wheel inventory, copied notices,
-  and an interim SPDX manifest are on Issue #7; independent security and license review
-  remains before closure
+  conservative SPDX inventory, external SPDX validation, vulnerability evidence, reproducible
+  build checks, and payload inspection are on Issue #7; known OpenSSL/SQLite findings, the
+  sqlcipher3 license discrepancy, signing, and independent acceptance remain before closure
 - [ ] Linux OS-backed human-presence broker and non-exportable keys: implementation and
   deterministic tests landed; real-host smoke and independent review remain ([issue #3](https://github.com/Oussamoux1234/continuum-memory/issues/3))
 - [ ] Secret/DLP gates, encrypted backup/recovery, deletion revocation anchor
@@ -38,9 +39,10 @@
 ## Hardening and release
 
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
-- [ ] Release-grade SBOM, resolved dependency-license policy, vulnerability policy,
-  deterministic payload, and signing rehearsal; Issue #7 has only a verifier-enforced
-  interim wheel inventory and must not be treated as release certification
+- [ ] Release-grade SBOM, resolved dependency-license policy, patched dependencies,
+  cross-platform reproducibility, and an approved signing/revocation workflow; Issue #7 has a
+  verifier-enforced candidate inventory and readiness evidence, but known findings and unresolved
+  license/signing decisions block release certification
 - [ ] Linux packaging and independently reviewed security claims ([issue #2](https://github.com/Oussamoux1234/continuum-memory/issues/2))
 - [ ] Hardened macOS approval/filesystem boundary and native CI ([issue #10](https://github.com/Oussamoux1234/continuum-memory/issues/10))
 - [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))

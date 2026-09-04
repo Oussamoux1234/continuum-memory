@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  spdx-validation:
+    name: spdx-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+      - name: Acquire hash-pinned SPDX validator
+        run: >-
+          python3 -m pip download --require-hashes --only-binary=:all: --no-deps
+          --dest work/spdx-validation -r requirements/spdx-validation-linux-py314.txt
+      - name: Install hash-pinned SPDX validator
+        run: >-
+          python3 -m pip install --require-hashes --no-index --no-deps
+          --find-links work/spdx-validation -r requirements/spdx-validation-linux-py314.txt
+      - name: Validate installed tool dependencies
+        run: python3 -m pip check
+      - name: Validate SPDX 2.3 inventory
+        run: pyspdxtools --infile sbom/continuum-memory.spdx.json --version SPDX-2.3
+
   linux-maintained-python:
     name: linux-python${{ matrix.python-version }}
     runs-on: ubuntu-24.04

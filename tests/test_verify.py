@@ -14,6 +14,7 @@ from scripts.verify import (
     EXPECTED_SQLCIPHER_WHEELS,
     EXPECTED_VERSION,
     ROOT,
+    compare_reproducible_artifacts,
     find_project_wheel,
     find_sdist,
     find_sqlcipher_wheel,
@@ -233,7 +234,9 @@ class ThirdPartyManifestTest(unittest.TestCase):
         required = [
             "THIRD_PARTY_NOTICES.md",
             "requirements/sqlcipher-maintained.txt",
+            "requirements/spdx-validation-linux-py314.txt",
             "sbom/continuum-memory.spdx.json",
+            "security/dependency-audit.json",
             *EXPECTED_LICENSE_FILE_DIGESTS,
         ]
         for relative_path in required:
@@ -287,6 +290,86 @@ class ThirdPartyManifestTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "wheel checksum mismatch"):
                 third_party_manifest_check(root)
 
+    def test_rejects_duplicate_json_keys_and_overstated_license_conclusion(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            sbom_path = root / "sbom" / "continuum-memory.spdx.json"
+            text = sbom_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"SPDXID": "SPDXRef-DOCUMENT",',
+                '"SPDXID": "SPDXRef-DOCUMENT",\n  "SPDXID": "SPDXRef-DOCUMENT",',
+                1,
+            )
+            sbom_path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "SPDX inventory is missing or invalid"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            sbom_path = root / "sbom" / "continuum-memory.spdx.json"
+            sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+            package = next(
+                item
+                for item in sbom["packages"]
+                if item["SPDXID"] == "SPDXRef-Package-sqlcipher3"
+            )
+            package["licenseConcluded"] = "LicenseRef-sqlcipher3-0.6.2"
+            sbom_path.write_text(json.dumps(sbom), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "component record mismatch"):
+                third_party_manifest_check(root)
+
+    def test_rejects_audit_or_validator_lock_drift(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            audit_path = root / "security" / "dependency-audit.json"
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            audit["releaseDecision"]["status"] = "READY"
+            audit_path.write_text(json.dumps(audit), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "blocked release decision"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            audit_path = root / "security" / "dependency-audit.json"
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            audit["components"]["OpenSSL"]["findings"]["High"].pop()
+            audit_path.write_text(json.dumps(audit), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "OpenSSL finding counts changed"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            audit_path = root / "security" / "dependency-audit.json"
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            low = audit["components"]["OpenSSL"]["findings"]["Low"]
+            low[0] = "CVE-2099-99999"
+            audit_path.write_text(json.dumps(audit), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "OpenSSL finding identifiers changed"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            lock_path = root / "requirements" / "spdx-validation-linux-py314.txt"
+            text = lock_path.read_text(encoding="utf-8")
+            lock_path.write_text(text.replace("d16c9b", "000000", 1), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "SPDX validator hash manifest"):
+                third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            lock_path = root / "requirements" / "spdx-validation-linux-py314.txt"
+            with lock_path.open("a", encoding="utf-8") as handle:
+                handle.write("--extra-index-url https://example.invalid/simple\n")
+            with self.assertRaisesRegex(RuntimeError, "unexpected directive"):
+                third_party_manifest_check(root)
+
 
 class ProjectWheelPackagingTest(unittest.TestCase):
     def make_wheel(self, directory: Path, include_compliance: bool = True) -> Path:
@@ -315,6 +398,10 @@ class ProjectWheelPackagingTest(unittest.TestCase):
                     "%s.data/data/share/continuum-memory/continuum-memory.spdx.json" % stem,
                     (ROOT / "sbom" / "continuum-memory.spdx.json").read_bytes(),
                 )
+                bundle.writestr(
+                    "%s.data/data/share/continuum-memory/dependency-audit.json" % stem,
+                    (ROOT / "security" / "dependency-audit.json").read_bytes(),
+                )
         return wheel
 
     def test_discovers_wheel_and_requires_compliance_payload(self):
@@ -329,6 +416,62 @@ class ProjectWheelPackagingTest(unittest.TestCase):
             wheel = self.make_wheel(Path(temporary), include_compliance=False)
             with self.assertRaisesRegex(RuntimeError, "missing compliance files"):
                 require_wheel_compliance_files(wheel)
+
+
+class ReproducibleBuildTest(unittest.TestCase):
+    def make_sdist(self, path: Path, payload: bytes, mtime: int) -> None:
+        member = tarfile.TarInfo("continuum_memory-0.1.0.dev0/payload.txt")
+        member.size = len(payload)
+        member.mtime = mtime
+        with tarfile.open(str(path), mode="w:gz") as bundle:
+            bundle.addfile(member, io.BytesIO(payload))
+
+    def test_accepts_sdist_timestamp_variance_and_identical_wheels(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-reproducible-") as temporary:
+            root = Path(temporary)
+            first_sdist = root / "first.tar.gz"
+            second_sdist = root / "second.tar.gz"
+            first_wheel = root / "first.whl"
+            second_wheel = root / "second.whl"
+            self.make_sdist(first_sdist, b"same payload", 1)
+            self.make_sdist(second_sdist, b"same payload", 2)
+            first_wheel.write_bytes(b"same wheel")
+            second_wheel.write_bytes(b"same wheel")
+            compare_reproducible_artifacts(
+                first_sdist,
+                second_sdist,
+                first_wheel,
+                second_wheel,
+            )
+
+    def test_rejects_payload_and_wheel_drift(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-reproducible-") as temporary:
+            root = Path(temporary)
+            first_sdist = root / "first.tar.gz"
+            second_sdist = root / "second.tar.gz"
+            first_wheel = root / "first.whl"
+            second_wheel = root / "second.whl"
+            self.make_sdist(first_sdist, b"first payload", 1)
+            self.make_sdist(second_sdist, b"second payload", 2)
+            first_wheel.write_bytes(b"same wheel")
+            second_wheel.write_bytes(b"same wheel")
+            with self.assertRaisesRegex(RuntimeError, "source distributions differ"):
+                compare_reproducible_artifacts(
+                    first_sdist,
+                    second_sdist,
+                    first_wheel,
+                    second_wheel,
+                )
+
+            self.make_sdist(second_sdist, b"first payload", 2)
+            second_wheel.write_bytes(b"different wheel")
+            with self.assertRaisesRegex(RuntimeError, "project wheels are not"):
+                compare_reproducible_artifacts(
+                    first_sdist,
+                    second_sdist,
+                    first_wheel,
+                    second_wheel,
+                )
 
 
 class SupportedRuntimeTest(unittest.TestCase):

@@ -47,6 +47,11 @@ SQLCipher 4.12.0 / SQLite 3.51.1 / OpenSSL 3.6.0 components, and host-supplied d
 libraries. Exact upstream license texts are under `third_party_licenses/`; the interim
 SPDX 2.3 JSON record is `sbom/continuum-memory.spdx.json`.
 
+The 2026-09-04 point-in-time vulnerability findings, external SPDX validation,
+reproducible-build comparison, final payload inspection, and signing blocker are recorded in
+`security/dependency-audit.json` and `docs/RELEASE_READINESS.md`. The embedded OpenSSL and
+SQLite versions have known findings, so this candidate remains blocked from merge or release.
+
 The Continuum source distribution and pure-Python wheel do not embed a `sqlcipher3` wheel.
 The dependency is installed as a separate distribution, while CI downloads it only into
 ignored test storage. A combined installer, container, application bundle, or offline

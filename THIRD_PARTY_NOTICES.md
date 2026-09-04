@@ -60,7 +60,7 @@ rather than inventing a second package or version.
 
 | Component | Evidence in every reviewed wheel | License conclusion | Redistributed inside the wheel |
 | --- | --- | --- | --- |
-| sqlcipher3 Python/C binding 0.6.2 | Package files match tag `0.6.2` commit `14fc2632676b20011e0bba64fdda49763a2dd2ec`; wheel metadata names version 0.6.2 | `LicenseRef-sqlcipher3-0.6.2`; see the unresolved metadata conflict below | Yes |
+| sqlcipher3 Python/C binding 0.6.2 | Package files match tag `0.6.2` commit `14fc2632676b20011e0bba64fdda49763a2dd2ec`; wheel metadata names version 0.6.2 | `NOASSERTION`; the exact shipped text is retained as `LicenseRef-sqlcipher3-0.6.2`, but the declared-versus-shipped conflict is unresolved | Yes |
 | SQLCipher Community Edition 4.12.0 | Native extension contains `4.12.0`; vendored amalgamation at the binding tag contains Zetetic SQLCipher code and reports this runtime version | BSD-3-Clause; exact upstream release text is shipped | Yes, compiled into the native extension |
 | SQLite 3.51.1 | Native extension contains the exact 2025-11-28 source ID; the vendored amalgamation identifies SQLite 3.51.1 and Fossil check-in `281fc0e9afc38674b9b0991943b9e9d1e64c6cbdb133d35f6f5c87ff6af38a88` | `LicenseRef-SQLite-Public-Domain`; SQLite's official copyright page states the deliverable code is public domain | Yes, as the SQLCipher base compiled into the native extension |
 | OpenSSL 3.6.0 | Native extension contains `OpenSSL 3.6.0 1 Oct 2025`; OpenSSL symbols are defined in the extension; upstream binding tag pins Conan `openssl/3.6.0` and links `-lcrypto` | Apache-2.0; exact upstream release text is shipped | Yes, statically linked into the native extension |
@@ -89,9 +89,10 @@ which is not the canonical MIT text. The repository UI classifies that file as Z
 
 Continuum Memory does not hide or resolve this upstream inconsistency. The exact shipped
 text is copied verbatim to `third_party_licenses/sqlcipher3-0.6.2.txt`; the SPDX record keeps
-the upstream declaration as `MIT` but uses `LicenseRef-sqlcipher3-0.6.2` as the concluded
-license. Independent mentor/license review must accept that treatment before PR #12 may be
-merged or Issue #7 may be self-certified.
+the upstream declaration as `MIT`, retains the actual text as the extracted
+`LicenseRef-sqlcipher3-0.6.2`, and uses `NOASSERTION` for the concluded binding and aggregate
+wheel licenses. Independent mentor/license review must decide whether that treatment is
+acceptable before PR #12 may be merged or Issue #7 may be self-certified.
 
 Authoritative sources:
 
@@ -119,6 +120,20 @@ OpenSSL 3.6.0 is licensed under Apache-2.0. The exact tag's license text is copi
 to `third_party_licenses/OpenSSL-3.6.0.txt` from the
 [OpenSSL 3.6.0 release](https://github.com/openssl/openssl/blob/openssl-3.6.0/LICENSE.txt).
 
+## Vulnerability status is blocked
+
+The 2026-09-04 point-in-time audit is recorded in `security/dependency-audit.json` and
+explained in `docs/RELEASE_READINESS.md`. It found 48 OpenSSL vendor advisories applicable
+to the embedded OpenSSL 3.6.0 commit: 2 High, 10 Moderate, and 36 Low. SQLite's official CVE
+page records two FTS5 heap-write issues, CVE-2026-11822 and CVE-2026-11824, fixed after the
+embedded SQLite 3.51.1 version in 3.53.2.
+
+Exact-version/commit OSV queries and the public GitHub advisory endpoints returned no
+entries for sqlcipher3 0.6.2 or SQLCipher 4.12.0. That is only a no-known-finding result in
+those sources at that time, not proof of safety. Likely API non-reachability does not remove
+the vulnerable code from the statically linked extension. The candidate remains blocked
+until patched artifacts are selected and reviewed.
+
 ## Inspection method and limits
 
 The inspection used archive listing and extraction, SHA-256 checks, wheel `METADATA` and
@@ -128,8 +143,10 @@ amalgamation, and authoritative release licenses were cross-checked. The verifie
 the portable archive, metadata, license-hash, native-member, and embedded-version checks
 for the wheel used in each CI job.
 
-This is an interim SPDX 2.3 engineering SBOM. It has not been certified by an external SPDX
-validator, legal counsel, or a reproducible-build comparison. It does not inventory an
+This is an interim SPDX 2.3 engineering SBOM. `spdx-tools==0.8.5` validated its structure
+and semantics, and the verifier compares two builds and their final compliance payloads as
+documented in `docs/RELEASE_READINESS.md`. Neither check is certification by legal counsel,
+a vulnerability-free result, a cross-platform reproducible-build proof, or a review of an
 unknown future OS image, CPython distribution, installer, container, or application bundle.
-Any change to a wheel filename, digest, component version, license file, or packaging path
-must be reviewed and recorded before the verifier will pass.
+Any change to a wheel filename, digest, component version, license file, audit record, or
+packaging path must be reviewed and recorded before the verifier will pass.

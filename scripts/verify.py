@@ -32,14 +32,17 @@ MAX_WHEEL_CONTENT_BYTES = 128 * 1024 * 1024
 REQUIRED_SDIST_FILES = (
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
+    "docs/RELEASE_READINESS.md",
     "docs/SQLCIPHER_STORAGE.md",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",
     "requirements/sqlcipher-maintained.txt",
+    "requirements/spdx-validation-linux-py314.txt",
     "requirements/verification-tools.txt",
     "sbom/continuum-memory.spdx.json",
+    "security/dependency-audit.json",
     "scripts/polkit_smoke.py",
     "src/continuum_memory/approval.py",
     "src/continuum_memory/polkit_helper.py",
@@ -81,6 +84,20 @@ EXPECTED_BUILD_WHEELS = {
         "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
     ),
 }
+EXPECTED_SPDX_VALIDATOR_WHEELS = {
+    "beartype==0.22.9": "d16c9bbc61ea14637596c5f6fbff2ee99cbe3573e46a716401734ef50c3060c2",
+    "boolean.py==5.0": "ef28a70bd43115208441b53a045d1549e2f0ec6e3d08a9d142cbc41c1938e8d9",
+    "click==8.5.0": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+    "license-expression==30.4.4": "421788fdcadb41f049d2dc934ce666626265aeccefddd25e162a26f23bcbf8a4",
+    "ply==3.11": "096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce",
+    "pyparsing==3.3.2": "850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d",
+    "PyYAML==6.0.3": "c458b6d084f9b935061bc36216e8a69a7e293a2f1e68bf956dcd9e6cbcd143f5",
+    "rdflib==7.6.0": "30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd",
+    "semantic-version==2.10.0": "de78a3b8e0feda74cabc54aab2da702113e33ac9d9eb9d2389bcf1f58b7d9177",
+    "spdx-tools==0.8.5": "7c2d5865941be9d2e898f5b084e8d5422dd298dc5a29320ddb198fec304f59c4",
+    "uritools==6.1.3": "136f113e76e53f85bf2d9cce0c3d40ceec775d0409e7d6de9b28f046a7d42838",
+    "xmltodict==1.0.4": "a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a",
+}
 EXPECTED_LICENSE_FILE_DIGESTS = {
     "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "third_party_licenses/OpenSSL-3.6.0.txt": (
@@ -104,7 +121,7 @@ EXPECTED_SBOM_COMPONENTS = {
         "sqlcipher3",
         "0.6.2",
         "MIT",
-        "LicenseRef-sqlcipher3-0.6.2",
+        "NOASSERTION",
     ),
     "SPDXRef-Package-SQLCipher": (
         "SQLCipher Community Edition",
@@ -188,10 +205,25 @@ SQLCIPHER_NATIVE_MARKERS = (
     b"OpenSSL 3.6.0 1 Oct 2025",
     b"2025-11-28 17:28:25 281fc0e9afc38674b9b0991943b9e9d1e64c6cbdb133d35f6f5c87ff6af3alt1",
 )
-WHEEL_LICENSE_EXPRESSION = (
-    "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND "
-    "LicenseRef-SQLite-Public-Domain AND Apache-2.0"
+WHEEL_LICENSE_CONCLUSION = "NOASSERTION"
+EXPECTED_OPENSSL_FINDING_COUNTS = {"High": 2, "Moderate": 10, "Low": 36}
+EXPECTED_OPENSSL_FINDINGS_DIGEST = (
+    "80b07579101a0ad4e10e897a9fa7b6516442f232d5f0186bb76b2e2c07a7cdee"
 )
+EXPECTED_OPENSSL_HIGH_FINDINGS = {"CVE-2025-15467", "CVE-2026-45447"}
+EXPECTED_OPENSSL_MODERATE_FINDINGS = {
+    "CVE-2025-11187",
+    "CVE-2026-18798",
+    "CVE-2026-31790",
+    "CVE-2026-34182",
+    "CVE-2026-34183",
+    "CVE-2026-35188",
+    "CVE-2026-42764",
+    "CVE-2026-45445",
+    "CVE-2026-63072",
+    "CVE-2026-63076",
+}
+REPRODUCIBLE_BUILD_EPOCH = "1700000000"
 
 
 def run(command: List[str], environment: Optional[Dict[str, str]] = None) -> None:
@@ -230,6 +262,57 @@ def whitespace_check() -> None:
                     raise RuntimeError("trailing whitespace: %s:%d" % (path.relative_to(ROOT), number))
 
 
+def load_json_strict(path: Path, label: str):
+    def reject_duplicate_keys(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key: %s" % key)
+            value[key] = item
+        return value
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle, object_pairs_hook=reject_duplicate_keys)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        raise RuntimeError("%s is missing or invalid" % label) from error
+
+
+def hash_manifest_check(path: Path, expected: Dict[str, str], label: str) -> None:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise RuntimeError("%s hash manifest is missing or invalid" % label) from error
+
+    logical_lines = []
+    pending = ""
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        pending = "%s %s" % (pending, line) if pending else line
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        logical_lines.append(pending)
+        pending = ""
+    if pending:
+        raise RuntimeError("%s hash manifest has an incomplete continuation" % label)
+
+    entries = []
+    pattern = re.compile(
+        r"([A-Za-z0-9_.-]+)==([^\s]+)\s+--hash=sha256:([0-9a-f]{64})"
+    )
+    for line in logical_lines:
+        match = pattern.fullmatch(line)
+        if match is None:
+            raise RuntimeError("%s hash manifest contains an unexpected directive" % label)
+        entries.append(match.groups())
+    actual = {"%s==%s" % (name, version): digest for name, version, digest in entries}
+    if len(entries) != len(actual) or actual != expected:
+        raise RuntimeError("%s hash manifest does not match the reviewed wheel set" % label)
+
+
 def third_party_manifest_check(root: Path = ROOT) -> None:
     for relative_path, expected_digest in EXPECTED_LICENSE_FILE_DIGESTS.items():
         path = root / relative_path
@@ -247,6 +330,11 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
     recorded_hashes = set(re.findall(r"--hash=sha256:([0-9a-f]{64})(?:\s|$)", requirements))
     if recorded_hashes != set(EXPECTED_SQLCIPHER_WHEELS.values()):
         raise RuntimeError("SQLCipher hash manifest does not match the supported wheel set")
+    hash_manifest_check(
+        root / "requirements" / "spdx-validation-linux-py314.txt",
+        EXPECTED_SPDX_VALIDATOR_WHEELS,
+        "SPDX validator",
+    )
 
     notice_path = root / "THIRD_PARTY_NOTICES.md"
     if not notice_path.is_file():
@@ -260,6 +348,9 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
         "/usr/lib/libSystem.B.dylib",
         "libc.so.6",
         "not redistributed",
+        "NOASSERTION",
+        "48 OpenSSL vendor advisories",
+        "CVE-2026-11822",
     )
     missing_notice_text = [value for value in required_notice_text if value not in notice]
     if missing_notice_text:
@@ -269,11 +360,7 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
         )
 
     sbom_path = root / "sbom" / "continuum-memory.spdx.json"
-    try:
-        with sbom_path.open("r", encoding="utf-8") as handle:
-            sbom = json.load(handle)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise RuntimeError("SPDX inventory is missing or invalid") from error
+    sbom = load_json_strict(sbom_path, "SPDX inventory")
 
     if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
         raise RuntimeError("SPDX inventory has an unexpected document version or data license")
@@ -323,7 +410,7 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
             raise RuntimeError("SPDX wheel download location mismatch: %s" % filename)
         if package.get("licenseDeclared") != "NOASSERTION":
             raise RuntimeError("SPDX wheel must not overstate its declared aggregate license")
-        if package.get("licenseConcluded") != WHEEL_LICENSE_EXPRESSION:
+        if package.get("licenseConcluded") != WHEEL_LICENSE_CONCLUSION:
             raise RuntimeError("SPDX wheel license conclusion mismatch: %s" % filename)
         if package.get("filesAnalyzed") is not False:
             raise RuntimeError("SPDX wheel must state filesAnalyzed=false: %s" % filename)
@@ -398,7 +485,60 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
     missing_relationships = required_relationships - relationships
     if missing_relationships:
         raise RuntimeError("SPDX inventory is missing required dependency relationships")
-    print("third-party license and SPDX inventory: ok")
+
+    audit = load_json_strict(root / "security" / "dependency-audit.json", "dependency audit")
+    if audit.get("schemaVersion") != 1 or audit.get("auditDate") != "2026-09-04":
+        raise RuntimeError("dependency audit has an unexpected schema or evidence date")
+    release_decision = audit.get("releaseDecision")
+    if not isinstance(release_decision, dict) or release_decision.get("status") != "BLOCKED":
+        raise RuntimeError("dependency audit must preserve the blocked release decision")
+    components = audit.get("components")
+    if not isinstance(components, dict):
+        raise RuntimeError("dependency audit components must be an object")
+    expected_versions = {
+        "sqlcipher3": "0.6.2",
+        "SQLCipher": "4.12.0",
+        "SQLite": "3.51.1",
+        "OpenSSL": "3.6.0",
+    }
+    for name, version in expected_versions.items():
+        component = components.get(name)
+        if not isinstance(component, dict) or component.get("version") != version:
+            raise RuntimeError("dependency audit component mismatch: %s" % name)
+    for name in ("sqlcipher3", "SQLCipher"):
+        component = components[name]
+        status = component.get("status")
+        if (
+            component.get("osvFindingCount") != 0
+            or not isinstance(status, str)
+            or "not-proof-of-safety" not in status
+        ):
+            raise RuntimeError("dependency audit overstates no-known-finding result: %s" % name)
+    sqlite = components["SQLite"]
+    if sqlite.get("findings") != ["CVE-2026-11822", "CVE-2026-11824"]:
+        raise RuntimeError("dependency audit SQLite findings changed")
+    if sqlite.get("fixedVersion") != "3.53.2":
+        raise RuntimeError("dependency audit SQLite fixed version changed")
+    openssl = components["OpenSSL"]
+    findings = openssl.get("findings")
+    if not isinstance(findings, dict):
+        raise RuntimeError("dependency audit OpenSSL findings must be an object")
+    counts = {severity: len(findings.get(severity, [])) for severity in EXPECTED_OPENSSL_FINDING_COUNTS}
+    if counts != EXPECTED_OPENSSL_FINDING_COUNTS or openssl.get("findingCount") != sum(counts.values()):
+        raise RuntimeError("dependency audit OpenSSL finding counts changed")
+    if set(findings["High"]) != EXPECTED_OPENSSL_HIGH_FINDINGS:
+        raise RuntimeError("dependency audit OpenSSL High findings changed")
+    if set(findings["Moderate"]) != EXPECTED_OPENSSL_MODERATE_FINDINGS:
+        raise RuntimeError("dependency audit OpenSSL Moderate findings changed")
+    all_findings = [identifier for values in findings.values() for identifier in values]
+    if len(all_findings) != len(set(all_findings)) or any(
+        re.fullmatch(r"CVE-[0-9]{4}-[0-9]+", identifier) is None for identifier in all_findings
+    ):
+        raise RuntimeError("dependency audit OpenSSL findings are duplicated or malformed")
+    findings_digest = hashlib.sha256("\n".join(sorted(all_findings)).encode("ascii")).hexdigest()
+    if findings_digest != EXPECTED_OPENSSL_FINDINGS_DIGEST:
+        raise RuntimeError("dependency audit OpenSSL finding identifiers changed")
+    print("third-party license, SPDX, and vulnerability inventory: ok")
 
 
 def inspect_sqlcipher_wheel(
@@ -623,6 +763,8 @@ def require_wheel_compliance_files(archive: Path, source_root: Path = ROOT) -> N
         "%s/licenses/third_party_licenses/sqlcipher3-0.6.2.txt" % dist_info,
         "%s.data/data/share/continuum-memory/continuum-memory.spdx.json"
         % distribution_stem,
+        "%s.data/data/share/continuum-memory/dependency-audit.json"
+        % distribution_stem,
     }
     missing = sorted(required - set(names))
     if missing:
@@ -641,6 +783,8 @@ def require_wheel_compliance_files(archive: Path, source_root: Path = ROOT) -> N
         ),
         "%s.data/data/share/continuum-memory/continuum-memory.spdx.json"
         % distribution_stem: "sbom/continuum-memory.spdx.json",
+        "%s.data/data/share/continuum-memory/dependency-audit.json"
+        % distribution_stem: "security/dependency-audit.json",
     }
     try:
         with zipfile.ZipFile(str(archive), mode="r") as bundle:
@@ -696,34 +840,119 @@ def find_build_tool_wheel(wheelhouse: Path) -> Path:
     )
 
 
+def normalized_sdist_manifest(archive: Path):
+    try:
+        with tarfile.open(str(archive), mode="r:gz") as bundle:
+            members = bundle.getmembers()
+            names = [member.name for member in members]
+            if len(names) != len(set(names)):
+                raise RuntimeError("source distribution contains duplicate archive members")
+            manifest = []
+            for member in members:
+                path = PurePosixPath(member.name)
+                if path.is_absolute() or ".." in path.parts:
+                    raise RuntimeError("source distribution contains an unsafe archive path")
+                content_digest = None
+                if member.isfile():
+                    extracted = bundle.extractfile(member)
+                    if extracted is None:
+                        raise RuntimeError("source distribution member could not be read")
+                    content_digest = hashlib.sha256(extracted.read()).hexdigest()
+                stable_pax = tuple(
+                    sorted(
+                        (key, value)
+                        for key, value in member.pax_headers.items()
+                        if key not in {"atime", "ctime", "mtime"}
+                    )
+                )
+                manifest.append(
+                    (
+                        member.name,
+                        member.type,
+                        member.mode,
+                        member.uid,
+                        member.gid,
+                        member.uname,
+                        member.gname,
+                        member.linkname,
+                        member.size,
+                        stable_pax,
+                        content_digest,
+                    )
+                )
+    except (OSError, tarfile.TarError) as error:
+        raise RuntimeError("invalid source distribution: %s" % archive.name) from error
+    return manifest
+
+
+def compare_reproducible_artifacts(
+    first_sdist: Path,
+    second_sdist: Path,
+    first_wheel: Path,
+    second_wheel: Path,
+) -> None:
+    first_wheel_digest = hashlib.sha256(first_wheel.read_bytes()).hexdigest()
+    second_wheel_digest = hashlib.sha256(second_wheel.read_bytes()).hexdigest()
+    if first_wheel_digest != second_wheel_digest:
+        raise RuntimeError("project wheels are not byte-for-byte reproducible")
+
+    first_sdist_digest = hashlib.sha256(first_sdist.read_bytes()).hexdigest()
+    second_sdist_digest = hashlib.sha256(second_sdist.read_bytes()).hexdigest()
+    if normalized_sdist_manifest(first_sdist) != normalized_sdist_manifest(second_sdist):
+        raise RuntimeError("source distributions differ beyond allowed timestamp metadata")
+
+    raw_sdist_status = "byte-identical" if first_sdist_digest == second_sdist_digest else "timestamp-variant"
+    print(
+        "reproducible build: wheel=%s; sdist=normalized-identical (%s)"
+        % (first_wheel_digest, raw_sdist_status)
+    )
+    print(
+        "release payload: sdist=%s; wheel=%s"
+        % (first_sdist_digest, first_wheel_digest)
+    )
+
+
 def packaging_smoke() -> None:
     with tempfile.TemporaryDirectory(prefix="continuum-package-", dir=str(ROOT / "work")) as temp:
-        artifacts = Path(temp) / "dist"
-        artifacts.mkdir()
-        run(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "sdist",
-                "--dist-dir",
-                str(artifacts),
-            ]
-        )
-        run(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "bdist_wheel",
-                "--dist-dir",
-                str(artifacts),
-            ]
-        )
-        archive = find_sdist(artifacts)
+        build_environment = dict(ENV)
+        build_environment["SOURCE_DATE_EPOCH"] = REPRODUCIBLE_BUILD_EPOCH
+        artifact_directories = [Path(temp) / "dist-a", Path(temp) / "dist-b"]
+        for artifacts in artifact_directories:
+            artifacts.mkdir()
+            run(
+                [
+                    sys.executable,
+                    "setup.py",
+                    "--quiet",
+                    "sdist",
+                    "--dist-dir",
+                    str(artifacts),
+                ],
+                build_environment,
+            )
+            run(
+                [
+                    sys.executable,
+                    "setup.py",
+                    "--quiet",
+                    "bdist_wheel",
+                    "--dist-dir",
+                    str(artifacts),
+                ],
+                build_environment,
+            )
+        archive = find_sdist(artifact_directories[0])
+        comparison_archive = find_sdist(artifact_directories[1])
         require_sdist_files(archive)
-        project_wheel = find_project_wheel(artifacts)
+        project_wheel = find_project_wheel(artifact_directories[0])
+        comparison_wheel = find_project_wheel(artifact_directories[1])
         require_wheel_compliance_files(project_wheel)
+        compare_reproducible_artifacts(
+            archive,
+            comparison_archive,
+            project_wheel,
+            comparison_wheel,
+        )
         dependency = find_sqlcipher_wheel(ROOT / "work" / "dependencies")
         inspect_sqlcipher_wheel(dependency)
         build_dependency = find_build_tool_wheel(ROOT / "work" / "build-dependencies")

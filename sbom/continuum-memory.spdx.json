@@ -59,7 +59,7 @@
     },
     {
       "SPDXID": "SPDXRef-Package-sqlcipher3",
-      "comment": "Upstream pyproject and wheel METADATA declare MIT, while the shipped license is a different Gerhard Haring three-condition text. The exact text is retained as a custom LicenseRef pending independent review.",
+      "comment": "Upstream pyproject and wheel METADATA declare MIT, while the shipped license is a different Gerhard Haring three-condition text. The exact text is retained as a custom LicenseRef, but the concluded license remains NOASSERTION pending independent review.",
       "copyrightText": "Copyright (c) 2004-2007 Gerhard Häring",
       "downloadLocation": "https://pypi.org/project/sqlcipher3/0.6.2/",
       "externalRefs": [
@@ -70,7 +70,7 @@
         }
       ],
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "MIT",
       "name": "sqlcipher3",
       "sourceInfo": "Upstream tag 0.6.2, Git commit 14fc2632676b20011e0bba64fdda49763a2dd2ec",
@@ -96,6 +96,7 @@
     },
     {
       "SPDXID": "SPDXRef-Package-SQLite",
+      "comment": "The 2026-09-04 point-in-time audit records two known FTS5 findings fixed in SQLite 3.53.2. See security/dependency-audit.json; this package record does not claim vulnerability-free status.",
       "copyrightText": "NONE",
       "downloadLocation": "https://www.sqlite.org/",
       "filesAnalyzed": false,
@@ -107,6 +108,7 @@
     },
     {
       "SPDXID": "SPDXRef-Package-OpenSSL",
+      "comment": "The 2026-09-04 exact-commit audit records 48 OpenSSL vendor findings for 3.6.0. See security/dependency-audit.json; this package record does not claim vulnerability-free status.",
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://github.com/openssl/openssl/tree/openssl-3.6.0",
       "externalRefs": [
@@ -168,7 +170,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/e5/4c/098cf3dd0af6ce4cfba88fbdeb63a3b156f4b7f0620f6cc5f35ecfb72607/sqlcipher3-0.6.2-cp311-cp311-macosx_11_0_arm64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp311-cp311-macosx_11_0_arm64.whl",
       "versionInfo": "0.6.2"
@@ -184,7 +186,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/72/b0/faa2a8fc9dc3210e0af31e57c5ec86e8a523eaa3d44e854aa8f95ff66d50/sqlcipher3-0.6.2-cp311-cp311-manylinux_2_28_x86_64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp311-cp311-manylinux_2_28_x86_64.whl",
       "versionInfo": "0.6.2"
@@ -200,7 +202,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/2f/b7/b9e897cf9e4740ca148fb03b493fa708a9b729ccc0cd656099f16bc9f2fd/sqlcipher3-0.6.2-cp312-cp312-macosx_11_0_arm64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp312-cp312-macosx_11_0_arm64.whl",
       "versionInfo": "0.6.2"
@@ -216,7 +218,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/f5/03/d55fe69fb380dadb2f5d19b3eac9256218243cced6aa4696ef90d560d223/sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl",
       "versionInfo": "0.6.2"
@@ -232,7 +234,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/56/0d/2cee40de57d47245de09382c64e649c8cc8e86fa549ecba7591633fabf20/sqlcipher3-0.6.2-cp313-cp313-macosx_11_0_arm64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp313-cp313-macosx_11_0_arm64.whl",
       "versionInfo": "0.6.2"
@@ -248,7 +250,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/f4/6b/874f72b6f3c3ebbe889e4279a0d422b7271ef7b3c63e45fae80a4ce16ec7/sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl",
       "versionInfo": "0.6.2"
@@ -264,7 +266,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/f6/01/f3552874b158d83c15fb9d550576020cc42b34019d0daf3291b381fbfb01/sqlcipher3-0.6.2-cp314-cp314-macosx_11_0_arm64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp314-cp314-macosx_11_0_arm64.whl",
       "versionInfo": "0.6.2"
@@ -280,7 +282,7 @@
       "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/ff/12/8d554633c3975f429e07cf07e136fb94ace10b460e1cb86b4c8019b7cdb4/sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl",
       "filesAnalyzed": false,
-      "licenseConcluded": "LicenseRef-sqlcipher3-0.6.2 AND BSD-3-Clause AND LicenseRef-SQLite-Public-Domain AND Apache-2.0",
+      "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "name": "sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl",
       "versionInfo": "0.6.2"
