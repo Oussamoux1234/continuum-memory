@@ -23,24 +23,28 @@ PERL_BUILD_DEPENDENCIES = {
     "IPC-Cmd": {
         "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
         "licenseEvidenceSha256": "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096",
+        "metadataFile": "META.json",
         "modulePath": "lib/IPC/Cmd.pm",
         "version": "1.04",
     },
     "Locale-Maketext-Simple": {
         "license": "MIT",
         "licenseEvidenceSha256": "badee515bc1f166ef8836d343787e455e76d2eb01636f077c70c817c3dab6946",
+        "metadataFile": "META.yml",
         "modulePath": "lib/Locale/Maketext/Simple.pm",
         "version": "0.21",
     },
     "Module-Load-Conditional": {
         "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
         "licenseEvidenceSha256": "3e6ac76b8acc71ce5ab75413a0df8473cd1107a44b015efe57720674536d6256",
+        "metadataFile": "META.json",
         "modulePath": "lib/Module/Load/Conditional.pm",
         "version": "0.74",
     },
     "Params-Check": {
         "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
         "licenseEvidenceSha256": "bdc8e79c471acfebec4a952b5498d7511fd4a9f6f4b72eecceb244e1a7fa3376",
+        "metadataFile": "META.json",
         "modulePath": "lib/Params/Check.pm",
         "version": "0.38",
     },
@@ -109,6 +113,7 @@ def validate_manifest(manifest: object) -> dict:
         reviewed = {
             "license": dependency.get("license"),
             "licenseEvidenceSha256": dependency.get("licenseEvidenceSha256"),
+            "metadataFile": dependency.get("metadataFile"),
             "modulePath": dependency.get("modulePath"),
             "version": dependency.get("version"),
         }
@@ -239,7 +244,7 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
         inspect_tar_source(
             directory / dependency["filename"],
             root,
-            ("META.json", "README", dependency["modulePath"]),
+            (dependency["metadataFile"], "README", dependency["modulePath"]),
         )
         with tarfile.open(directory / dependency["filename"], "r:gz") as archive:
             license_evidence = archive.extractfile(
