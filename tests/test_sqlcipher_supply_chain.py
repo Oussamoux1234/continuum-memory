@@ -268,8 +268,12 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         workflow = (
             ROOT / ".github/workflows/patched-sqlcipher-wheel.yml"
         ).read_text(encoding="utf-8")
+        build_script = (ROOT / "scripts/build_patched_sqlcipher_wheel.sh").read_text(
+            encoding="utf-8"
+        )
         self.assertNotIn("conan", setup_text.lower())
         self.assertIn("extra_objects=[libcrypto]", setup_text)
+        self.assertIn('exit($date->strftime', build_script)
         self.assertGreaterEqual(workflow.count("--network=none"), 5)
         self.assertNotIn("docker.io", workflow)
         self.assertIn("@sha256:53390351", workflow)
