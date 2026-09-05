@@ -23,14 +23,26 @@ EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
 MAX_METADATA_BYTES = 1024 * 1024
 REQUIRED_SDIST_FILES = (
+    "docs/PATCHED_SQLCIPHER_WHEELS.md",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",
+    "packaging/sqlcipher/THIRD_PARTY_NOTICES.md",
+    "packaging/sqlcipher/manifest.json",
+    "packaging/sqlcipher/pyproject.toml",
+    "packaging/sqlcipher/setup_continuum.py",
+    "sbom/patched-sqlcipher-sources.spdx.json",
+    "scripts/build_patched_sqlcipher_wheel.sh",
+    "scripts/fetch_patched_sqlcipher_sources.py",
+    "scripts/inspect_patched_sqlcipher_wheel.py",
     "scripts/polkit_smoke.py",
+    "scripts/test_patched_sqlcipher_runtime.py",
+    "scripts/verify_patched_sqlcipher_inputs.py",
     "src/continuum_memory/approval.py",
     "src/continuum_memory/polkit_helper.py",
     "tests/test_approval.py",
+    "tests/test_sqlcipher_supply_chain.py",
     "tests/test_verify.py",
 )
 
@@ -64,6 +76,30 @@ def whitespace_check() -> None:
             for number, line in enumerate(text.splitlines(), 1):
                 if line.endswith(" ") or line.endswith("\t"):
                     raise RuntimeError("trailing whitespace: %s:%d" % (path.relative_to(ROOT), number))
+
+
+def sqlcipher_supply_chain_check() -> None:
+    try:
+        from scripts.fetch_patched_sqlcipher_sources import load_json_strict, validate_manifest
+    except ModuleNotFoundError:
+        from fetch_patched_sqlcipher_sources import load_json_strict, validate_manifest
+
+    manifest = validate_manifest(
+        load_json_strict(ROOT / "packaging" / "sqlcipher" / "manifest.json")
+    )
+    if manifest["supportedSlice"].get("windowsSupported") is not False:
+        raise RuntimeError("patched SQLCipher wheel must not claim Windows support")
+    sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")
+    if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
+        raise RuntimeError("patched SQLCipher source SBOM is invalid")
+    packages = sbom.get("packages")
+    if not isinstance(packages, list) or len(packages) != 7:
+        raise RuntimeError("patched SQLCipher source SBOM package set changed")
+    by_identifier = {item.get("SPDXID"): item for item in packages if isinstance(item, dict)}
+    binding = by_identifier.get("SPDXRef-Source-sqlcipher3", {})
+    if binding.get("licenseConcluded") != "NOASSERTION":
+        raise RuntimeError("patched SQLCipher source SBOM overstates the binding license")
+    print("patched SQLCipher supply-chain manifest: ok")
 
 
 def normalized_distribution_name(value: str) -> str:
@@ -172,6 +208,7 @@ def packaging_smoke() -> None:
 def main() -> int:
     schema_check()
     whitespace_check()
+    sqlcipher_supply_chain_check()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])
     run([sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests", "-v"])
     run([sys.executable, "-m", "fixtures.demo"])

@@ -1,0 +1,127 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-09-05T00:00:00Z",
+    "creators": [
+      "Organization: Continuum Memory project"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentDescribes": [
+    "SPDXRef-Source-sqlcipher3",
+    "SPDXRef-Source-SQLCipher",
+    "SPDXRef-Source-OpenSSL",
+    "SPDXRef-Builder-manylinux"
+  ],
+  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-05",
+  "name": "Continuum SQLCipher patched-wheel source and builder inventory",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Source-sqlcipher3",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a2b675289ba8889f389625a21f3a01f1ff159a551b5b88fba8fd92da0e02380a"
+        }
+      ],
+      "downloadLocation": "https://files.pythonhosted.org/packages/ae/c1/414003d77549c444bafd636149ab3ace6f4e2cb4666c9955d54ad62096cb/sqlcipher3-0.6.2.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "sqlcipher3 binding source",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Source-SQLCipher",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90"
+        }
+      ],
+      "downloadLocation": "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/sqlcipher-4.18.0.zip",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "name": "SQLCipher Community Edition source",
+      "versionInfo": "4.18.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Source-SQLite",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "SQLite source embedded by SQLCipher",
+      "versionInfo": "3.53.4"
+    },
+    {
+      "SPDXID": "SPDXRef-Source-OpenSSL",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
+        }
+      ],
+      "downloadLocation": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "name": "OpenSSL source",
+      "versionInfo": "3.5.8"
+    },
+    {
+      "SPDXID": "SPDXRef-Builder-manylinux",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
+        }
+      ],
+      "downloadLocation": "https://quay.io/repository/pypa/manylinux_2_28_x86_64",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "pypa manylinux_2_28_x86_64 builder image",
+      "versionInfo": "2026.09.05-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-setuptools",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
+        }
+      ],
+      "downloadLocation": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "setuptools build dependency",
+      "versionInfo": "80.9.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-wheel",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248"
+        }
+      ],
+      "downloadLocation": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "wheel build dependency",
+      "versionInfo": "0.45.1"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Source-SQLite",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Source-SQLCipher"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

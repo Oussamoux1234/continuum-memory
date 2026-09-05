@@ -1,0 +1,128 @@
+{
+  "artifact": {
+    "distribution": "continuum-sqlcipher3",
+    "module": "sqlcipher3",
+    "version": "0.6.2.post1"
+  },
+  "buildDependencies": {
+    "setuptools": {
+      "filename": "setuptools-80.9.0-py3-none-any.whl",
+      "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",
+      "url": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl",
+      "version": "80.9.0"
+    },
+    "wheel": {
+      "filename": "wheel-0.45.1-py3-none-any.whl",
+      "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248",
+      "url": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl",
+      "version": "0.45.1"
+    }
+  },
+  "builder": {
+    "image": "quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c",
+    "imageTag": "2026.09.05-1",
+    "platform": "linux-x86_64",
+    "sourceDateEpoch": 1788285600
+  },
+  "evidenceDate": "2026-09-05",
+  "expectedArtifacts": {
+    "linuxCp314": {
+      "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "sha256": null
+    }
+  },
+  "schemaVersion": 1,
+  "signing": {
+    "artifactSigningStatus": "BLOCKED_IDENTITY_NOT_SELECTED",
+    "requiredDecision": "Select and approve the artifact signing identity, trust root, transparency policy, verification procedure, and revocation procedure before permanent distribution."
+  },
+  "sources": {
+    "OpenSSL": {
+      "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+      "endOfLife": "2030-04-08",
+      "filename": "openssl-3.5.8.tar.gz",
+      "license": "Apache-2.0",
+      "licenseSha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "releaseSeries": "3.5 LTS",
+      "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+      "signature": {
+        "filename": "openssl-3.5.8.tar.gz.asc",
+        "sha256": "f4bfa84a290dfd5ad102a54ebc0f93f9b35359cb36c383769b5c7bc6034f1f65",
+        "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz.asc"
+      },
+      "signingKey": {
+        "filename": "openssl-pubkeys.asc",
+        "primaryFingerprint": "B146647E45A7B33947AB226B2A2C87D161692D40",
+        "sha256": "56e106cd1c44bdb117aec24795f6dfbecaa9bfa0a2901b85331f0059aad16d53",
+        "url": "https://mirror.openssl-library.org/source/pubkeys.asc"
+      },
+      "tag": "openssl-3.5.8",
+      "tagObject": "090eec6d3628aa0520bdf2cf97b063fafc34e7be",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
+      "version": "3.5.8"
+    },
+    "SQLCipher": {
+      "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+      "embeddedSQLiteVersion": "3.53.4",
+      "filename": "sqlcipher-4.18.0.zip",
+      "license": "BSD-3-Clause",
+      "licenseSha256": "2a2826f6acf46fa650730cf42cbb22a642be33a7ef119c9c4f4bf6daf3bef48e",
+      "manifestUuid": "bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+      "sha256": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90",
+      "signature": {
+        "filename": "sqlcipher-4.18.0.zip.sig",
+        "sha256": "bba2c310e7876c6bda126102c5271db0350c08ef61cbe7df7ce9fc9ec79f4a68",
+        "url": "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/sqlcipher-4.18.0.zip.sig"
+      },
+      "signingKey": {
+        "filename": "zetetic-public-key.gpg",
+        "primaryFingerprint": "D83F5F9EB811D6E6B4A0D9C5D1FA3A2A97ED25C2",
+        "sha256": "b5fa10e62b50478db1236f3a8c7157074d71450a1f6a245eb77a71802202eefd",
+        "url": "https://www.zetetic.net/security/support_zetetic_net_public_key.gpg"
+      },
+      "tag": "v4.18.0",
+      "tagObject": "dca3c1ee114fe6bf5d996fc71f3c5380f43cc82c",
+      "url": "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/sqlcipher-4.18.0.zip",
+      "version": "4.18.0"
+    },
+    "SQLite": {
+      "license": "LicenseRef-SQLite-Public-Domain",
+      "licenseSha256": "595e823c2ada6c839679e693bee1f4d7f88e2d34ac99a913ae41e3d43fb10c7d",
+      "version": "3.53.4"
+    },
+    "sqlcipher3": {
+      "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec",
+      "filename": "sqlcipher3-0.6.2.tar.gz",
+      "licenseConcluded": "NOASSERTION",
+      "licenseSha256": "fa23cf250126548e90008fe92de4ee76d485bfbb3592f5be8aa731775892a960",
+      "sha256": "a2b675289ba8889f389625a21f3a01f1ff159a551b5b88fba8fd92da0e02380a",
+      "tag": "0.6.2",
+      "url": "https://files.pythonhosted.org/packages/ae/c1/414003d77549c444bafd636149ab3ace6f4e2cb4666c9955d54ad62096cb/sqlcipher3-0.6.2.tar.gz",
+      "version": "0.6.2"
+    }
+  },
+  "supportedSlice": {
+    "built": [
+      "linux-x86_64/cp314"
+    ],
+    "planned": [
+      "linux-x86_64/cp311",
+      "linux-x86_64/cp312",
+      "linux-x86_64/cp313",
+      "macos-arm64/cp311",
+      "macos-arm64/cp312",
+      "macos-arm64/cp313",
+      "macos-arm64/cp314"
+    ],
+    "windowsSupported": false
+  },
+  "vulnerabilityEvidence": {
+    "findingCounts": {
+      "OpenSSL": 0,
+      "SQLCipher": 0,
+      "sqlcipher3": 0
+    },
+    "method": "Exact-commit OSV queries plus upstream release and security records",
+    "qualification": "No known findings in the queried sources on the evidence date; not proof of safety."
+  }
+}

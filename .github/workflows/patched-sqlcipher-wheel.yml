@@ -1,0 +1,105 @@
+name: patched-sqlcipher-wheel
+
+on:
+  push:
+    paths:
+      - ".github/workflows/patched-sqlcipher-wheel.yml"
+      - "packaging/sqlcipher/**"
+      - "scripts/*patched_sqlcipher*"
+      - "tests/test_sqlcipher_supply_chain.py"
+  pull_request:
+    paths:
+      - ".github/workflows/patched-sqlcipher-wheel.yml"
+      - "packaging/sqlcipher/**"
+      - "scripts/*patched_sqlcipher*"
+      - "tests/test_sqlcipher_supply_chain.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x86-64-cp314:
+    name: linux-x86-64-cp314
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Acquire and verify signed sources
+        run: >-
+          python3 scripts/fetch_patched_sqlcipher_sources.py
+          --destination work/patched-sqlcipher/sources
+      - name: Prepare isolated output directories
+        run: mkdir -p work/patched-sqlcipher/build-a work/patched-sqlcipher/build-b work/patched-sqlcipher/evidence
+      - name: Pull immutable manylinux builder
+        run: >-
+          docker pull
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+      - name: Independent build A
+        run: >-
+          docker run --rm --network=none
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/output"
+          -w /workspace
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          bash scripts/build_patched_sqlcipher_wheel.sh /sources /output
+      - name: Independent build B
+        run: >-
+          docker run --rm --network=none
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-b:/output"
+          -w /workspace
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          bash scripts/build_patched_sqlcipher_wheel.sh /sources /output
+      - name: Compare and inspect native payload
+        run: >-
+          docker run --rm --network=none
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/build-a:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-b:/build-b:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/evidence:/evidence"
+          -w /workspace
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          /opt/python/cp314-cp314/bin/python scripts/inspect_patched_sqlcipher_wheel.py
+          --build-a /build-a --build-b /build-b --evidence-dir /evidence
+          --bootstrap-unlocked-hash
+      - name: Test offline installation and encrypted runtime
+        run: |
+          docker run --rm --network=none \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" \
+            -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/wheelhouse:ro" \
+            -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/evidence:/evidence" \
+            -w /workspace \
+            quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c \
+            bash -ceu '/opt/python/cp314-cp314/bin/python -m venv /tmp/runtime; /tmp/runtime/bin/python -m pip install --no-index --no-deps /wheelhouse/*.whl; /tmp/runtime/bin/python scripts/test_patched_sqlcipher_runtime.py > /evidence/runtime.json; cat /evidence/runtime.json'
+      - name: Capture immutable toolchain evidence
+        run: |
+          docker run --rm --network=none \
+            quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c \
+            bash -ceu '/opt/python/cp314-cp314/bin/python --version; gcc --version | head -n 1; ld --version | head -n 1; make --version | head -n 1; auditwheel --version' \
+            > work/patched-sqlcipher/evidence/toolchain.txt
+          cp work/patched-sqlcipher/sources/source-verification.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/THIRD_PARTY_NOTICES.md work/patched-sqlcipher/evidence/
+      - name: Retain test-only wheel and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: patched-sqlcipher-linux-x86-64-cp314
+          path: |
+            work/patched-sqlcipher/build-a/*.whl
+            work/patched-sqlcipher/evidence/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require locked reviewed wheel hash
+        run: >-
+          docker run --rm --network=none
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/build-a:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-b:/build-b:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/evidence:/evidence"
+          -w /workspace
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          /opt/python/cp314-cp314/bin/python scripts/inspect_patched_sqlcipher_wheel.py
+          --build-a /build-a --build-b /build-b --evidence-dir /evidence
