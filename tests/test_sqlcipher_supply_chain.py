@@ -275,6 +275,7 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         self.assertIn("extra_objects=[libcrypto]", setup_text)
         self.assertIn('exit($date->strftime', build_script)
         self.assertIn("export SOURCE_DATE_EPOCH", build_script)
+        self.assertEqual(build_script.count("SOURCE_DATE_EPOCH"), 2)
         self.assertIn("make sourcetest", build_script)
         self.assertNotIn("make verify-source", build_script)
         self.assertGreaterEqual(workflow.count("--network=none"), 5)

@@ -90,7 +90,6 @@ cp "${BUILD_ROOT}/openssl-3.5.8/LICENSE.txt" \
 
 mkdir "${BUILD_ROOT}/raw-wheel"
 pushd "${BINDING_ROOT}" >/dev/null
-SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
 PYTHONHASHSEED=0 \
 CFLAGS="-O2 -g0 -fPIC -fvisibility=hidden ${PREFIX_MAP}" \
 CONTINUUM_OPENSSL_INCLUDE="${OPENSSL_PREFIX}/include" \
