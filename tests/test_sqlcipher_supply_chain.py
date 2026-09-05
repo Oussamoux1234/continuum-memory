@@ -29,6 +29,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(manifest["sources"]["OpenSSL"]["endOfLife"], "2030-04-08")
         self.assertEqual(manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
         self.assertEqual(manifest["buildDependencies"]["IPC-Cmd"]["version"], "1.04")
+        self.assertEqual(
+            manifest["buildDependencies"]["Locale-Maketext-Simple"]["license"],
+            "MIT",
+        )
         self.assertFalse(manifest["supportedSlice"]["windowsSupported"])
 
         sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")

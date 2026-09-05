@@ -10,9 +10,40 @@
       "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
       "licenseEvidenceFile": "README",
       "licenseEvidenceSha256": "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096",
+      "modulePath": "lib/IPC/Cmd.pm",
       "sha256": "d110a0f60e35c65721454200f0d2f0f8965529a2add9649d1fa6f4f9eccb6430",
       "url": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/IPC-Cmd-1.04.tar.gz",
       "version": "1.04"
+    },
+    "Locale-Maketext-Simple": {
+      "filename": "Locale-Maketext-Simple-0.21.tar.gz",
+      "license": "MIT",
+      "licenseEvidenceFile": "README",
+      "licenseEvidenceSha256": "badee515bc1f166ef8836d343787e455e76d2eb01636f077c70c817c3dab6946",
+      "modulePath": "lib/Locale/Maketext/Simple.pm",
+      "sha256": "b009ff51f4fb108d19961a523e99b4373ccf958d37ca35bf1583215908dca9a9",
+      "url": "https://cpan.metacpan.org/authors/id/J/JE/JESSE/Locale-Maketext-Simple-0.21.tar.gz",
+      "version": "0.21"
+    },
+    "Module-Load-Conditional": {
+      "filename": "Module-Load-Conditional-0.74.tar.gz",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseEvidenceFile": "README",
+      "licenseEvidenceSha256": "3e6ac76b8acc71ce5ab75413a0df8473cd1107a44b015efe57720674536d6256",
+      "modulePath": "lib/Module/Load/Conditional.pm",
+      "sha256": "54c354a9393820f1ebc2a095da084ea0392dcbccb0cb38a187a71831cc60a730",
+      "url": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/Module-Load-Conditional-0.74.tar.gz",
+      "version": "0.74"
+    },
+    "Params-Check": {
+      "filename": "Params-Check-0.38.tar.gz",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseEvidenceFile": "README",
+      "licenseEvidenceSha256": "bdc8e79c471acfebec4a952b5498d7511fd4a9f6f4b72eecceb244e1a7fa3376",
+      "modulePath": "lib/Params/Check.pm",
+      "sha256": "f0c9d33876c36b1bca1475276d26d2efaf449b256d7cc8118fae012e89a26290",
+      "url": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/Params-Check-0.38.tar.gz",
+      "version": "0.38"
     },
     "setuptools": {
       "filename": "setuptools-80.9.0-py3-none-any.whl",

@@ -12,6 +12,9 @@
     "SPDXRef-Source-SQLCipher",
     "SPDXRef-Source-OpenSSL",
     "SPDXRef-Build-IPC-Cmd",
+    "SPDXRef-Build-Locale-Maketext-Simple",
+    "SPDXRef-Build-Module-Load-Conditional",
+    "SPDXRef-Build-Params-Check",
     "SPDXRef-Builder-manylinux"
   ],
   "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-05",
@@ -100,6 +103,51 @@
       "licenseDeclared": "Artistic-1.0-Perl OR GPL-1.0-or-later",
       "name": "IPC-Cmd OpenSSL configure dependency",
       "versionInfo": "1.04"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-Locale-Maketext-Simple",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b009ff51f4fb108d19961a523e99b4373ccf958d37ca35bf1583215908dca9a9"
+        }
+      ],
+      "downloadLocation": "https://cpan.metacpan.org/authors/id/J/JE/JESSE/Locale-Maketext-Simple-0.21.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "Locale-Maketext-Simple IPC-Cmd dependency",
+      "versionInfo": "0.21"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-Module-Load-Conditional",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "54c354a9393820f1ebc2a095da084ea0392dcbccb0cb38a187a71831cc60a730"
+        }
+      ],
+      "downloadLocation": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/Module-Load-Conditional-0.74.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseDeclared": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "name": "Module-Load-Conditional IPC-Cmd dependency",
+      "versionInfo": "0.74"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-Params-Check",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f0c9d33876c36b1bca1475276d26d2efaf449b256d7cc8118fae012e89a26290"
+        }
+      ],
+      "downloadLocation": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/Params-Check-0.38.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseDeclared": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "name": "Params-Check IPC-Cmd dependency",
+      "versionInfo": "0.38"
     },
     {
       "SPDXID": "SPDXRef-Build-setuptools",

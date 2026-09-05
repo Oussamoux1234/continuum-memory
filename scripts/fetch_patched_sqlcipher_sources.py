@@ -19,6 +19,32 @@ DEFAULT_MANIFEST = ROOT / "packaging" / "sqlcipher" / "manifest.json"
 MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024
 HEX_64 = re.compile(r"[0-9a-f]{64}")
 FINGERPRINT = re.compile(r"[0-9A-F]{40}")
+PERL_BUILD_DEPENDENCIES = {
+    "IPC-Cmd": {
+        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+        "licenseEvidenceSha256": "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096",
+        "modulePath": "lib/IPC/Cmd.pm",
+        "version": "1.04",
+    },
+    "Locale-Maketext-Simple": {
+        "license": "MIT",
+        "licenseEvidenceSha256": "badee515bc1f166ef8836d343787e455e76d2eb01636f077c70c817c3dab6946",
+        "modulePath": "lib/Locale/Maketext/Simple.pm",
+        "version": "0.21",
+    },
+    "Module-Load-Conditional": {
+        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+        "licenseEvidenceSha256": "3e6ac76b8acc71ce5ab75413a0df8473cd1107a44b015efe57720674536d6256",
+        "modulePath": "lib/Module/Load/Conditional.pm",
+        "version": "0.74",
+    },
+    "Params-Check": {
+        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+        "licenseEvidenceSha256": "bdc8e79c471acfebec4a952b5498d7511fd4a9f6f4b72eecceb244e1a7fa3376",
+        "modulePath": "lib/Params/Check.pm",
+        "version": "0.38",
+    },
+}
 
 
 def load_json_strict(path: Path):
@@ -76,17 +102,18 @@ def validate_manifest(manifest: object) -> dict:
         raise RuntimeError("manifest sources and build dependencies must be objects")
     for label in ("sqlcipher3", "SQLCipher", "OpenSSL"):
         validate_download(sources.get(label), label)
-    for label in ("IPC-Cmd", "setuptools", "wheel"):
+    for label in (*PERL_BUILD_DEPENDENCIES, "setuptools", "wheel"):
         validate_download(dependencies.get(label), label)
-    ipc_cmd = dependencies["IPC-Cmd"]
-    if (
-        ipc_cmd.get("version") != "1.04"
-        or ipc_cmd.get("license") != "Artistic-1.0-Perl OR GPL-1.0-or-later"
-        or ipc_cmd.get("licenseEvidenceFile") != "README"
-        or ipc_cmd.get("licenseEvidenceSha256")
-        != "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096"
-    ):
-        raise RuntimeError("IPC-Cmd build dependency or license evidence changed")
+    for label, expected in PERL_BUILD_DEPENDENCIES.items():
+        dependency = dependencies[label]
+        reviewed = {
+            "license": dependency.get("license"),
+            "licenseEvidenceSha256": dependency.get("licenseEvidenceSha256"),
+            "modulePath": dependency.get("modulePath"),
+            "version": dependency.get("version"),
+        }
+        if dependency.get("licenseEvidenceFile") != "README" or reviewed != expected:
+            raise RuntimeError("%s build dependency or license evidence changed" % label)
     for label in ("SQLCipher", "OpenSSL"):
         source = sources[label]
         for nested in ("signature", "signingKey"):
@@ -115,7 +142,7 @@ def iter_downloads(manifest: dict):
         if label in ("SQLCipher", "OpenSSL"):
             yield "%s-signature" % label, source["signature"]
             yield "%s-signing-key" % label, source["signingKey"]
-    for label in ("IPC-Cmd", "setuptools", "wheel"):
+    for label in (*PERL_BUILD_DEPENDENCIES, "setuptools", "wheel"):
         yield label, manifest["buildDependencies"][label]
 
 
@@ -195,7 +222,6 @@ def inspect_tar_source(path: Path, root: str, required: tuple[str, ...]) -> None
 
 def inspect_sources(directory: Path, manifest: dict) -> None:
     sources = manifest["sources"]
-    ipc_cmd = manifest["buildDependencies"]["IPC-Cmd"]
     inspect_sqlcipher_source(directory / sources["SQLCipher"]["filename"], sources["SQLCipher"])
     inspect_tar_source(
         directory / sources["OpenSSL"]["filename"],
@@ -207,21 +233,23 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
         "sqlcipher3-%s" % sources["sqlcipher3"]["version"],
         ("LICENSE", "PKG-INFO", "setup.py", "src/module.c", "vendor/sqlite3.c"),
     )
-    inspect_tar_source(
-        directory / ipc_cmd["filename"],
-        "IPC-Cmd-%s" % ipc_cmd["version"],
-        ("META.json", "README", "lib/IPC/Cmd.pm"),
-    )
-    with tarfile.open(directory / ipc_cmd["filename"], "r:gz") as archive:
-        license_evidence = archive.extractfile(
-            "IPC-Cmd-%s/%s"
-            % (ipc_cmd["version"], ipc_cmd["licenseEvidenceFile"])
+    for label in PERL_BUILD_DEPENDENCIES:
+        dependency = manifest["buildDependencies"][label]
+        root = "%s-%s" % (label, dependency["version"])
+        inspect_tar_source(
+            directory / dependency["filename"],
+            root,
+            ("META.json", "README", dependency["modulePath"]),
         )
-        if license_evidence is None:
-            raise RuntimeError("IPC-Cmd license evidence is missing")
-        license_hash = hashlib.sha256(license_evidence.read()).hexdigest()
-    if license_hash != ipc_cmd["licenseEvidenceSha256"]:
-        raise RuntimeError("IPC-Cmd license evidence mismatch")
+        with tarfile.open(directory / dependency["filename"], "r:gz") as archive:
+            license_evidence = archive.extractfile(
+                "%s/%s" % (root, dependency["licenseEvidenceFile"])
+            )
+            if license_evidence is None:
+                raise RuntimeError("%s license evidence is missing" % label)
+            license_hash = hashlib.sha256(license_evidence.read()).hexdigest()
+        if license_hash != dependency["licenseEvidenceSha256"]:
+            raise RuntimeError("%s license evidence mismatch" % label)
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:
