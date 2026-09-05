@@ -23,9 +23,10 @@ expansion targets, not current support claims.
    Each rechecks the signed-source evidence, builds static OpenSSL without modules or shared
    libraries, runs SQLCipher `make verify-source`, generates the amalgamation, replaces the
    reviewed binding amalgamation, and builds/repairs one wheel. The minimal image omits
-   IPC-Cmd; a hash-locked project shim implements only the `can_run` operation used by the
-   reviewed OpenSSL 3.5.8 configure source, rejects empty PATH entries, and is loaded from
-   the read-only checkout.
+   IPC-Cmd and Time-Piece; two hash-locked project shims implement only the `can_run`,
+   local-time, exact release-date parsing, and fixed output-format operations used by the
+   reviewed OpenSSL 3.5.8 configure source. They reject empty PATH entries and unsupported
+   date formats and are loaded from the read-only checkout.
 4. The inspector requires byte-identical builds, the exact ABI/platform filename, one native
    member, no dynamic OpenSSL dependency, only the allowlisted host libraries, one exported
    initializer symbol, exact embedded version markers, exact license payloads, conservative

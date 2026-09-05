@@ -32,10 +32,8 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(manifest["sources"]["OpenSSL"]["version"], "3.5.8")
         self.assertEqual(manifest["sources"]["OpenSSL"]["endOfLife"], "2030-04-08")
         self.assertEqual(manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
-        shim = ROOT / manifest["builder"]["opensslCanRunShim"]["path"]
-        self.assertEqual(
-            sha256(shim), manifest["builder"]["opensslCanRunShim"]["sha256"]
-        )
+        for relative, expected_hash in manifest["builder"]["opensslPerlShims"].items():
+            self.assertEqual(sha256(ROOT / relative), expected_hash)
         self.assertFalse(manifest["supportedSlice"]["windowsSupported"])
 
         sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")
@@ -90,10 +88,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
                 "safe path",
             ),
             (
-                lambda value: value["builder"]["opensslCanRunShim"].update(
-                    {"sha256": "0" * 64}
+                lambda value: value["builder"]["opensslPerlShims"].update(
+                    {"packaging/sqlcipher/perl/IPC/Cmd.pm": "0" * 64}
                 ),
-                "shim",
+                "shims",
             ),
             (
                 lambda value: value["artifact"].update({"distribution": "sqlcipher3"}),
@@ -183,6 +181,42 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
                 cwd=str(directory),
                 env=environment,
             )
+
+    @unittest.skipIf(os.name == "nt", "the first native wheel slice is Linux-only")
+    def test_project_openssl_time_shim_is_strict(self):
+        perl = shutil.which("perl")
+        if perl is None:
+            self.skipTest("Perl is not installed on this host")
+        shim_root = ROOT / "packaging" / "sqlcipher" / "perl"
+        valid = subprocess.run(
+            [
+                perl,
+                "-I%s" % shim_root,
+                "-MTime::Piece",
+                "-e",
+                'my $date = Time::Piece->strptime("25 Aug 2026", "%d %b %Y"); print $date->strftime("%Y-%m-%d")',
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(valid.stdout, "2026-08-25")
+        for value, date_format in (("31 Feb 2026", "%d %b %Y"), ("25 Aug 2026", "%F")):
+            with self.subTest(value=value, date_format=date_format):
+                result = subprocess.run(
+                    [
+                        perl,
+                        "-I%s" % shim_root,
+                        "-MTime::Piece",
+                        "-e",
+                        "Time::Piece->strptime($ARGV[0], $ARGV[1])",
+                        value,
+                        date_format,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertNotEqual(result.returncode, 0)
 
     def test_rejects_unsafe_source_paths_and_ambiguous_wheels(self):
         safe_archive_path("sqlcipher-4.18.0/src/sqliteInt.h", "sqlcipher-4.18.0")

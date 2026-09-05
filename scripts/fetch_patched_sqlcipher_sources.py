@@ -70,11 +70,15 @@ def validate_manifest(manifest: object) -> dict:
         "@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
     ):
         raise RuntimeError("builder image must be immutable and reviewed")
-    if builder.get("opensslCanRunShim") != {
-        "path": "packaging/sqlcipher/perl/IPC/Cmd.pm",
-        "sha256": "899f6a63fef81455c23e9b7c2c5b59568e321a02faf9685d9f63e6416837ba82",
+    if builder.get("opensslPerlShims") != {
+        "packaging/sqlcipher/perl/IPC/Cmd.pm": (
+            "899f6a63fef81455c23e9b7c2c5b59568e321a02faf9685d9f63e6416837ba82"
+        ),
+        "packaging/sqlcipher/perl/Time/Piece.pm": (
+            "91854216b72683d724e76a1ed26e8f90dee87e136dee3db5ac509ce400585f3f"
+        ),
     }:
-        raise RuntimeError("OpenSSL can-run shim must be exact and reviewed")
+        raise RuntimeError("OpenSSL Perl shims must be exact and reviewed")
     sources = manifest.get("sources")
     dependencies = manifest.get("buildDependencies")
     if not isinstance(sources, dict) or not isinstance(dependencies, dict):
@@ -205,10 +209,10 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
 
 
 def inspect_project_inputs(repository_root: Path, manifest: dict) -> None:
-    shim = manifest["builder"]["opensslCanRunShim"]
-    path = repository_root / shim["path"]
-    if path.is_symlink() or not path.is_file() or sha256(path) != shim["sha256"]:
-        raise RuntimeError("OpenSSL can-run shim is missing, linked, or modified")
+    for relative, expected_hash in manifest["builder"]["opensslPerlShims"].items():
+        path = repository_root / relative
+        if path.is_symlink() or not path.is_file() or sha256(path) != expected_hash:
+            raise RuntimeError("OpenSSL Perl shim is missing, linked, or modified: %s" % relative)
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:

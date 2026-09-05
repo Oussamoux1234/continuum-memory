@@ -38,6 +38,7 @@ tar -xzf "${SOURCES_DIR}/sqlcipher3-0.6.2.tar.gz" -C "${BUILD_ROOT}"
 readonly PREFIX_MAP="-ffile-prefix-map=${BUILD_ROOT}=/usr/src/continuum-sqlcipher"
 export PERL5LIB="${REPOSITORY_ROOT}/packaging/sqlcipher/perl"
 perl -MIPC::Cmd -e 'exit IPC::Cmd::can_run("gcc") && !IPC::Cmd::can_run("continuum-command-that-does-not-exist") ? 0 : 1'
+perl -MTime::Piece -e 'my $date = Time::Piece->strptime("25 Aug 2026", "%d %b %Y"); exit $date->strftime("%Y-%m-%d") eq "2026-08-25" ? 0 : 1'
 
 pushd "${BUILD_ROOT}/openssl-3.5.8" >/dev/null
 ./Configure linux-x86_64 no-shared no-tests no-module no-dso no-zlib \
