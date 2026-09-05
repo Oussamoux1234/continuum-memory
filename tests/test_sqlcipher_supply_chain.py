@@ -1,5 +1,8 @@
 import copy
 import json
+import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +11,7 @@ from scripts.fetch_patched_sqlcipher_sources import (
     DEFAULT_MANIFEST,
     load_json_strict,
     safe_archive_path,
+    sha256,
     valid_signature_fingerprints,
     validate_manifest,
 )
@@ -28,10 +32,9 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(manifest["sources"]["OpenSSL"]["version"], "3.5.8")
         self.assertEqual(manifest["sources"]["OpenSSL"]["endOfLife"], "2030-04-08")
         self.assertEqual(manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
-        self.assertEqual(manifest["buildDependencies"]["IPC-Cmd"]["version"], "1.04")
+        shim = ROOT / manifest["builder"]["opensslCanRunShim"]["path"]
         self.assertEqual(
-            manifest["buildDependencies"]["Locale-Maketext-Simple"]["license"],
-            "MIT",
+            sha256(shim), manifest["builder"]["opensslCanRunShim"]["sha256"]
         )
         self.assertFalse(manifest["supportedSlice"]["windowsSupported"])
 
@@ -47,10 +50,6 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(
             packages["SPDXRef-Builder-manylinux"]["checksums"][0]["checksumValue"],
             manifest["builder"]["image"].rsplit(":", 1)[1],
-        )
-        self.assertEqual(
-            packages["SPDXRef-Build-IPC-Cmd"]["checksums"][0]["checksumValue"],
-            manifest["buildDependencies"]["IPC-Cmd"]["sha256"],
         )
 
     def test_rejects_mutable_or_drifted_inputs_and_claims(self):
@@ -91,10 +90,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
                 "safe path",
             ),
             (
-                lambda value: value["buildDependencies"]["IPC-Cmd"].update(
-                    {"licenseEvidenceSha256": "0" * 64}
+                lambda value: value["builder"]["opensslCanRunShim"].update(
+                    {"sha256": "0" * 64}
                 ),
-                "IPC-Cmd",
+                "shim",
             ),
             (
                 lambda value: value["artifact"].update({"distribution": "sqlcipher3"}),
@@ -142,6 +141,49 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
 
 
 class PatchedSqlcipherArtifactTest(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "the first native wheel slice is Linux-only")
+    def test_project_openssl_can_run_shim_rejects_current_directory_path_entry(self):
+        perl = shutil.which("perl")
+        if perl is None:
+            self.skipTest("Perl is not installed on this host")
+        shim_root = ROOT / "packaging" / "sqlcipher" / "perl"
+        with tempfile.TemporaryDirectory(prefix="continuum-can-run-") as temporary:
+            directory = Path(temporary)
+            executable = directory / "reviewed-tool"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+            executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = ":%s" % directory
+            found = subprocess.run(
+                [
+                    perl,
+                    "-I%s" % shim_root,
+                    "-MIPC::Cmd",
+                    "-e",
+                    'print IPC::Cmd::can_run("reviewed-tool") // q{}',
+                ],
+                check=True,
+                cwd=str(ROOT),
+                env=environment,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(found.stdout, str(executable))
+
+            environment["PATH"] = ":"
+            subprocess.run(
+                [
+                    perl,
+                    "-I%s" % shim_root,
+                    "-MIPC::Cmd",
+                    "-e",
+                    'exit defined IPC::Cmd::can_run("reviewed-tool") ? 1 : 0',
+                ],
+                check=True,
+                cwd=str(directory),
+                env=environment,
+            )
+
     def test_rejects_unsafe_source_paths_and_ambiguous_wheels(self):
         safe_archive_path("sqlcipher-4.18.0/src/sqliteInt.h", "sqlcipher-4.18.0")
         for path in ("/absolute", "sqlcipher-4.18.0/../escape", "other/file"):

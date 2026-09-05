@@ -1,5 +1,5 @@
 recursive-include packaging/linux *
-recursive-include packaging/sqlcipher *.json *.md *.py *.toml
+recursive-include packaging/sqlcipher *.json *.md *.pm *.py *.toml
 recursive-include fixtures *.py
 recursive-include sbom *.json
 recursive-include tests *.py

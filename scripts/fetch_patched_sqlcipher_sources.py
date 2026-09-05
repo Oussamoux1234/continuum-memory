@@ -19,36 +19,6 @@ DEFAULT_MANIFEST = ROOT / "packaging" / "sqlcipher" / "manifest.json"
 MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024
 HEX_64 = re.compile(r"[0-9a-f]{64}")
 FINGERPRINT = re.compile(r"[0-9A-F]{40}")
-PERL_BUILD_DEPENDENCIES = {
-    "IPC-Cmd": {
-        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
-        "licenseEvidenceSha256": "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096",
-        "metadataFile": "META.json",
-        "modulePath": "lib/IPC/Cmd.pm",
-        "version": "1.04",
-    },
-    "Locale-Maketext-Simple": {
-        "license": "MIT",
-        "licenseEvidenceSha256": "badee515bc1f166ef8836d343787e455e76d2eb01636f077c70c817c3dab6946",
-        "metadataFile": "META.yml",
-        "modulePath": "lib/Locale/Maketext/Simple.pm",
-        "version": "0.21",
-    },
-    "Module-Load-Conditional": {
-        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
-        "licenseEvidenceSha256": "3e6ac76b8acc71ce5ab75413a0df8473cd1107a44b015efe57720674536d6256",
-        "metadataFile": "META.json",
-        "modulePath": "lib/Module/Load/Conditional.pm",
-        "version": "0.74",
-    },
-    "Params-Check": {
-        "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
-        "licenseEvidenceSha256": "bdc8e79c471acfebec4a952b5498d7511fd4a9f6f4b72eecceb244e1a7fa3376",
-        "metadataFile": "META.json",
-        "modulePath": "lib/Params/Check.pm",
-        "version": "0.38",
-    },
-}
 
 
 def load_json_strict(path: Path):
@@ -100,25 +70,19 @@ def validate_manifest(manifest: object) -> dict:
         "@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
     ):
         raise RuntimeError("builder image must be immutable and reviewed")
+    if builder.get("opensslCanRunShim") != {
+        "path": "packaging/sqlcipher/perl/IPC/Cmd.pm",
+        "sha256": "899f6a63fef81455c23e9b7c2c5b59568e321a02faf9685d9f63e6416837ba82",
+    }:
+        raise RuntimeError("OpenSSL can-run shim must be exact and reviewed")
     sources = manifest.get("sources")
     dependencies = manifest.get("buildDependencies")
     if not isinstance(sources, dict) or not isinstance(dependencies, dict):
         raise RuntimeError("manifest sources and build dependencies must be objects")
     for label in ("sqlcipher3", "SQLCipher", "OpenSSL"):
         validate_download(sources.get(label), label)
-    for label in (*PERL_BUILD_DEPENDENCIES, "setuptools", "wheel"):
+    for label in ("setuptools", "wheel"):
         validate_download(dependencies.get(label), label)
-    for label, expected in PERL_BUILD_DEPENDENCIES.items():
-        dependency = dependencies[label]
-        reviewed = {
-            "license": dependency.get("license"),
-            "licenseEvidenceSha256": dependency.get("licenseEvidenceSha256"),
-            "metadataFile": dependency.get("metadataFile"),
-            "modulePath": dependency.get("modulePath"),
-            "version": dependency.get("version"),
-        }
-        if dependency.get("licenseEvidenceFile") != "README" or reviewed != expected:
-            raise RuntimeError("%s build dependency or license evidence changed" % label)
     for label in ("SQLCipher", "OpenSSL"):
         source = sources[label]
         for nested in ("signature", "signingKey"):
@@ -147,7 +111,7 @@ def iter_downloads(manifest: dict):
         if label in ("SQLCipher", "OpenSSL"):
             yield "%s-signature" % label, source["signature"]
             yield "%s-signing-key" % label, source["signingKey"]
-    for label in (*PERL_BUILD_DEPENDENCIES, "setuptools", "wheel"):
+    for label in ("setuptools", "wheel"):
         yield label, manifest["buildDependencies"][label]
 
 
@@ -238,23 +202,13 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
         "sqlcipher3-%s" % sources["sqlcipher3"]["version"],
         ("LICENSE", "PKG-INFO", "setup.py", "src/module.c", "vendor/sqlite3.c"),
     )
-    for label in PERL_BUILD_DEPENDENCIES:
-        dependency = manifest["buildDependencies"][label]
-        root = "%s-%s" % (label, dependency["version"])
-        inspect_tar_source(
-            directory / dependency["filename"],
-            root,
-            (dependency["metadataFile"], "README", dependency["modulePath"]),
-        )
-        with tarfile.open(directory / dependency["filename"], "r:gz") as archive:
-            license_evidence = archive.extractfile(
-                "%s/%s" % (root, dependency["licenseEvidenceFile"])
-            )
-            if license_evidence is None:
-                raise RuntimeError("%s license evidence is missing" % label)
-            license_hash = hashlib.sha256(license_evidence.read()).hexdigest()
-        if license_hash != dependency["licenseEvidenceSha256"]:
-            raise RuntimeError("%s license evidence mismatch" % label)
+
+
+def inspect_project_inputs(repository_root: Path, manifest: dict) -> None:
+    shim = manifest["builder"]["opensslCanRunShim"]
+    path = repository_root / shim["path"]
+    if path.is_symlink() or not path.is_file() or sha256(path) != shim["sha256"]:
+        raise RuntimeError("OpenSSL can-run shim is missing, linked, or modified")
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:
@@ -342,6 +296,7 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     arguments = parser.parse_args()
     manifest = validate_manifest(load_json_strict(arguments.manifest))
+    inspect_project_inputs(ROOT, manifest)
     destination = arguments.destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     downloads = {}

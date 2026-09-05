@@ -23,11 +23,6 @@ SHA-256 values are enforced by `scripts/inspect_patched_sqlcipher_wheel.py`:
 
 The source and signature hashes, signing-key fingerprints, support windows, immutable
 builder identity, and build-tool hashes are in `packaging/sqlcipher/manifest.json`. The
-build-only inputs include IPC-Cmd 1.04 and its CPAN module dependencies: Params-Check 0.38
-and Module-Load-Conditional 0.74 under the same terms as Perl itself
-(`Artistic-1.0-Perl OR GPL-1.0-or-later`), and Locale-Maketext-Simple 0.21 under MIT.
-Every archive and README license-evidence digest is pinned. These modules are used only
-while configuring OpenSSL and are not included in the wheel. The
 generated CI evidence bundle adds the exact wheel checksum, native dependency and license
 inventory, source-signature verification result, runtime result, build provenance, and
 artifact-specific SPDX 2.3 SBOM.

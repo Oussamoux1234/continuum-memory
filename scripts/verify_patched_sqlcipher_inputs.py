@@ -4,9 +4,13 @@
 import argparse
 from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parents[1]
+
 try:
     from scripts.fetch_patched_sqlcipher_sources import (
         DEFAULT_MANIFEST,
+        inspect_project_inputs,
         inspect_sources,
         iter_downloads,
         load_json_strict,
@@ -16,6 +20,7 @@ try:
 except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.path.
     from fetch_patched_sqlcipher_sources import (
         DEFAULT_MANIFEST,
+        inspect_project_inputs,
         inspect_sources,
         iter_downloads,
         load_json_strict,
@@ -26,6 +31,7 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
 
 def verify_bundle(sources: Path, manifest_path: Path) -> None:
     manifest = validate_manifest(load_json_strict(manifest_path))
+    inspect_project_inputs(ROOT, manifest)
     for label, record in iter_downloads(manifest):
         path = sources / record["filename"]
         if not path.is_file() or sha256(path) != record["sha256"]:
