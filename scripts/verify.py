@@ -34,6 +34,7 @@ REQUIRED_SDIST_FILES = (
     "THIRD_PARTY_NOTICES.md",
     "docs/RELEASE_READINESS.md",
     "docs/SQLCIPHER_STORAGE.md",
+    "docs/architecture/010-encryption-dependency-decision.md",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
@@ -223,6 +224,43 @@ EXPECTED_OPENSSL_MODERATE_FINDINGS = {
     "CVE-2026-63072",
     "CVE-2026-63076",
 }
+EXPECTED_AUDIT_DATE = "2026-09-05"
+EXPECTED_REPLACEMENT_STATUS = "BLOCKED_NO_INSTALLABLE_ARTIFACT"
+EXPECTED_MINIMUM_PATCHED_VERSIONS = {
+    "OpenSSL": "3.6.4",
+    "SQLCipher": "4.17.0",
+    "SQLite": "3.53.2",
+}
+EXPECTED_PREFERRED_REPLACEMENT_VERSIONS = {
+    "OpenSSL": "3.5.8",
+    "SQLCipher": "4.18.0",
+    "SQLite": "3.53.4",
+}
+EXPECTED_REVIEWED_REPLACEMENT_SOURCES = {
+    "OpenSSL": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+        "sourceArchiveSha256": (
+            "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
+        ),
+        "sourceSignatureVerified": False,
+        "version": "3.5.8",
+    },
+    "SQLCipher": {
+        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+        "embeddedSQLiteVersion": "3.53.4",
+        "sourceArchiveSha256": (
+            "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90"
+        ),
+        "sourceSignatureVerified": False,
+        "version": "4.18.0",
+    },
+    "sqlcipher3": {
+        "latestPyPIVersion": "0.6.2",
+        "masterCommit": "dfee7e5fe6a1422d9e5e23edc0727a2e1e2128ed",
+        "masterOpenSSLRequirement": "3.6.0",
+    },
+}
+REPLACEMENT_DECISION_DOCUMENT = "docs/architecture/010-encryption-dependency-decision.md"
 REPRODUCIBLE_BUILD_EPOCH = "1700000000"
 
 
@@ -351,6 +389,7 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
         "NOASSERTION",
         "48 OpenSSL vendor advisories",
         "CVE-2026-11822",
+        "no patched published sqlcipher3 wheel",
     )
     missing_notice_text = [value for value in required_notice_text if value not in notice]
     if missing_notice_text:
@@ -487,11 +526,46 @@ def third_party_manifest_check(root: Path = ROOT) -> None:
         raise RuntimeError("SPDX inventory is missing required dependency relationships")
 
     audit = load_json_strict(root / "security" / "dependency-audit.json", "dependency audit")
-    if audit.get("schemaVersion") != 1 or audit.get("auditDate") != "2026-09-04":
+    if audit.get("schemaVersion") != 1 or audit.get("auditDate") != EXPECTED_AUDIT_DATE:
         raise RuntimeError("dependency audit has an unexpected schema or evidence date")
     release_decision = audit.get("releaseDecision")
     if not isinstance(release_decision, dict) or release_decision.get("status") != "BLOCKED":
         raise RuntimeError("dependency audit must preserve the blocked release decision")
+    replacement = audit.get("replacementAssessment")
+    if not isinstance(replacement, dict):
+        raise RuntimeError("dependency audit replacement assessment is missing")
+    if replacement.get("status") != EXPECTED_REPLACEMENT_STATUS:
+        raise RuntimeError("dependency audit replacement status must fail closed")
+    if replacement.get("selectedInstallableArtifact") is not None:
+        raise RuntimeError("dependency audit must not identify an unreviewed installable artifact")
+    if replacement.get("minimumPatchedVersions") != EXPECTED_MINIMUM_PATCHED_VERSIONS:
+        raise RuntimeError("dependency audit minimum patched versions changed")
+    if replacement.get("preferredReplacementVersions") != EXPECTED_PREFERRED_REPLACEMENT_VERSIONS:
+        raise RuntimeError("dependency audit preferred replacement versions changed")
+    if replacement.get("reviewedSourceCandidates") != EXPECTED_REVIEWED_REPLACEMENT_SOURCES:
+        raise RuntimeError("dependency audit reviewed replacement source evidence changed")
+    if replacement.get("publishedPatchedSqlcipher3WheelAvailable") is not False:
+        raise RuntimeError("dependency audit overstates patched wheel availability")
+    decision_path = root / REPLACEMENT_DECISION_DOCUMENT
+    try:
+        decision = decision_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise RuntimeError("encrypted-storage dependency decision is missing or invalid") from error
+    required_decision_text = (
+        "BLOCKED_NO_INSTALLABLE_ARTIFACT",
+        "SQLCipher 4.18.0",
+        "SQLite 3.53.4",
+        "OpenSSL 3.5.8 LTS",
+        "OpenSSL 3.6.4",
+        "no replacement is selected",
+        "explicit authorization",
+    )
+    missing_decision_text = [value for value in required_decision_text if value not in decision]
+    if missing_decision_text:
+        raise RuntimeError(
+            "encrypted-storage dependency decision is missing required evidence: %s"
+            % ", ".join(missing_decision_text)
+        )
     components = audit.get("components")
     if not isinstance(components, dict):
         raise RuntimeError("dependency audit components must be an object")

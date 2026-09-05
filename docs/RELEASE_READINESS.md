@@ -2,7 +2,7 @@
 
 Status: **blocked; implementation candidate only**
 
-Evidence date: 2026-09-04
+Evidence date: 2026-09-05
 
 Audience: the independent security/license mentor reviewing PR #12
 
@@ -59,6 +59,41 @@ Authoritative inputs:
 - <https://api.osv.dev/v1/query>
 - <https://github.com/coleifer/sqlcipher3/tree/0.6.2>
 - <https://github.com/sqlcipher/sqlcipher/tree/v4.12.0>
+
+### Replacement investigation
+
+The 2026-09-05 investigation established these minimum patched versions: SQLCipher 4.17.0,
+SQLite 3.53.2, and OpenSSL 3.6.4 when using the 3.6 series. The preferred project-build
+baseline is SQLCipher 4.18.0, which embeds SQLite 3.53.4, with OpenSSL 3.5.8 LTS. OpenSSL
+3.5.8 has the longer upstream support window. These version floors do not identify an
+installable artifact by themselves.
+
+No patched published `sqlcipher3` wheel exists. The latest PyPI release remains 0.6.2.
+Current upstream `master` removes the prior MIT declaration but retains version 0.6.2,
+the same binding and SQLCipher amalgamation, and the `openssl/3.6.0` Conan requirement.
+The source build dynamically creates a Conan profile, changes a remote, and builds missing
+dependencies, so the unmodified build is not a pinned or reviewable replacement path.
+
+SQLCipher 4.18.0's official source archive was inspected and hashed, but it is source-only:
+it supplies neither a Python wheel nor the generated amalgamation consumed by `sqlcipher3`.
+A non-publishing local generation probe did not complete; exact evidence and the evaluated
+alternatives are in `docs/architecture/010-encryption-dependency-decision.md`. No source
+signature is claimed as verified because GPG was unavailable on the review host.
+
+`pysqlcipher3`, `sqlcipher3-binary`, system SQLCipher, Zetetic's commercial package, and APSW
+with a custom SQLCipher build do not provide a patched, hashable DB-API wheel for the existing
+maintained matrix without either older dependencies, dynamic host selection, commercial and
+API changes, or a new project-owned native build. The machine-readable outcome is therefore
+`BLOCKED_NO_INSTALLABLE_ARTIFACT`, with `selectedInstallableArtifact` set to `null` in
+`security/dependency-audit.json`.
+
+Authoritative inputs:
+
+- <https://pypi.org/project/sqlcipher3/>
+- <https://github.com/coleifer/sqlcipher3/compare/0.6.2...master>
+- <https://www.zetetic.net/blog/2026/08/18/sqlcipher-4.18.0-release/>
+- <https://www.zetetic.net/sqlcipher/verify/>
+- <https://openssl-library.org/source/>
 
 ### Unresolved binding license conclusion
 
@@ -139,8 +174,11 @@ revocation procedures must be defined before signing or publication.
 
 ## Required next decisions
 
-1. Replace the vulnerable embedded OpenSSL and SQLite versions with reviewed, patched
-   artifacts, or reject this binding and choose another reviewed build path.
+1. Prefer a future upstream wheel that contains at least the recorded minimum patched
+   versions. If schedule requires a project-owned build, explicitly authorize Continuum to
+   own and maintain a native binding fork and wheel supply chain, including the ABI/platform
+   matrix, artifact distribution location, signing identity, trust policy, and revocation
+   procedure.
 2. Obtain independent acceptance or correction of the sqlcipher3 license treatment.
 3. Approve a signing identity, verification policy, and revocation/rollback procedure.
 4. Rerun the live vulnerability queries and the complete verification gate immediately before

@@ -1,6 +1,6 @@
 # Verification record
 
-Last run: 2026-09-04.
+Last run: 2026-09-05.
 
 ## Supported command
 
@@ -88,6 +88,14 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
   CVE-2026-11824. Exact sqlcipher3 and SQLCipher queries returned no known findings in the
   queried sources, which is explicitly not treated as proof of safety. The frozen audit keeps
   the release decision blocked.
+- Replacement-decision regressions: the verifier requires the minimum patched SQLCipher,
+  SQLite, and OpenSSL versions, the preferred LTS baseline, a null selected artifact, explicit
+  patched-wheel unavailability, and the blocked decision record. A stale evidence date,
+  weakened version floor, invented artifact, false wheel-availability claim, or missing
+  decision evidence fails closed. Mutated source hashes, commit identities, build
+  requirements, or overstated signature verification also fail. No dependency lock, native
+  marker, license conclusion, or SPDX component was changed because no reviewed installable
+  replacement exists.
 - External SPDX validation: `spdx-tools==0.8.5` under CPython 3.14.6 validated the SPDX 2.3
   document with exit 0 and no messages. Actions repeats this on Ubuntu 24.04 / Python 3.14 from
   a complete hash-pinned validator wheel set.
@@ -98,7 +106,8 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 across Python 
 - Distribution notices: the sdist and project wheel contain `LICENSE`,
   `THIRD_PARTY_NOTICES.md`, the exact sqlcipher3/SQLCipher/OpenSSL release license files, and
   `sbom/continuum-memory.spdx.json`; both also contain `security/dependency-audit.json`. The sdist
-  additionally contains the validator lock and release-readiness record. The offline source
+  additionally contains the validator lock, release-readiness record, and encrypted-storage
+  dependency decision. The offline source
   installation remains the package install test.
 - Focused standard-library trace coverage for the packaging/readiness verification paths was
   525 of 727 executable lines (72.2%) in `scripts.verify` and 379 of 385 (98.4%) in

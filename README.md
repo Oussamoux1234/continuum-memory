@@ -127,6 +127,10 @@ legal-compliance or independent-review claim.
 The point-in-time vulnerability findings, external SPDX validation, reproducible-build
 limits, payload inspection, signing blocker, and blocked release decision are recorded in
 `docs/RELEASE_READINESS.md` and `security/dependency-audit.json`.
+The 2026-09-05 replacement review found no patched published `sqlcipher3` wheel; the recorded
+minimum versions are not themselves an installable artifact. The alternatives and smallest
+required native supply-chain ownership decision are recorded in
+`docs/architecture/010-encryption-dependency-decision.md`. PR #12 and Issue #7 remain open.
 
 This is not a complete confidentiality claim. The random storage key is an owner-only file
 beside the vault, so copying the entire vault directory also copies the key. The boundary
@@ -142,6 +146,8 @@ implemented. See `docs/SQLCIPHER_STORAGE.md`.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
 - `docs/SQLCIPHER_STORAGE.md` — encrypted-storage runtime, key lifecycle, verification, and limits.
 - `docs/RELEASE_READINESS.md` — dependency, SPDX, reproducibility, payload, and signing evidence.
+- `docs/architecture/010-encryption-dependency-decision.md` — patched-version floor,
+  evaluated replacement paths, and blocked supply-chain decision.
 - `THIRD_PARTY_NOTICES.md` — reviewed SQLCipher wheel contents, licenses, and redistribution boundary.
 - `security/dependency-audit.json` — point-in-time exact-component vulnerability findings.
 - `sbom/continuum-memory.spdx.json` — interim SPDX 2.3 dependency and artifact inventory.

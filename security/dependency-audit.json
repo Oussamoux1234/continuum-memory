@@ -1,5 +1,5 @@
 {
-  "auditDate": "2026-09-04",
+  "auditDate": "2026-09-05",
   "auditMethod": {
     "githubAdvisories": "Public repository security-advisory endpoints",
     "opensslSeverity": "OpenSSL vendor CVE JSON records",
@@ -101,10 +101,47 @@
     "API reachability review is not a substitute for upgrading vulnerable embedded components.",
     "The audit must be rerun immediately before any merge or release decision."
   ],
+  "replacementAssessment": {
+    "minimumPatchedVersions": {
+      "OpenSSL": "3.6.4",
+      "SQLCipher": "4.17.0",
+      "SQLite": "3.53.2"
+    },
+    "preferredReplacementVersions": {
+      "OpenSSL": "3.5.8",
+      "SQLCipher": "4.18.0",
+      "SQLite": "3.53.4"
+    },
+    "publishedPatchedSqlcipher3WheelAvailable": false,
+    "reviewedSourceCandidates": {
+      "OpenSSL": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+        "sourceArchiveSha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+        "sourceSignatureVerified": false,
+        "version": "3.5.8"
+      },
+      "SQLCipher": {
+        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+        "embeddedSQLiteVersion": "3.53.4",
+        "sourceArchiveSha256": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90",
+        "sourceSignatureVerified": false,
+        "version": "4.18.0"
+      },
+      "sqlcipher3": {
+        "latestPyPIVersion": "0.6.2",
+        "masterCommit": "dfee7e5fe6a1422d9e5e23edc0727a2e1e2128ed",
+        "masterOpenSSLRequirement": "3.6.0"
+      }
+    },
+    "requiredDecision": "Explicitly authorize a project-owned native binding fork and wheel supply chain, including platform matrix, artifact host, signing identity, trust policy, and revocation procedure; otherwise wait for a reviewed upstream wheel.",
+    "selectedInstallableArtifact": null,
+    "status": "BLOCKED_NO_INSTALLABLE_ARTIFACT"
+  },
   "releaseDecision": {
     "reasons": [
       "The pinned wheels statically contain OpenSSL 3.6.0 with vendor-confirmed known findings.",
       "The pinned wheels contain SQLite 3.51.1, older than the project's documented 3.53.2 fixes for two FTS5 heap-write CVEs.",
+      "No patched published sqlcipher3 wheel or other reviewed installable artifact satisfies the replacement floor.",
       "The sqlcipher3 declared-versus-shipped license discrepancy still needs independent review."
     ],
     "status": "BLOCKED"
@@ -112,9 +149,13 @@
   "schemaVersion": 1,
   "sources": [
     "https://api.osv.dev/v1/query",
+    "https://openssl-library.org/source/",
     "https://openssl-library.org/news/secjson/",
     "https://openssl-library.org/news/vulnerabilities-3.6/",
     "https://www.sqlite.org/cves.html",
+    "https://www.zetetic.net/blog/2026/08/18/sqlcipher-4.18.0-release/",
+    "https://www.zetetic.net/sqlcipher/verify/",
+    "https://pypi.org/project/sqlcipher3/",
     "https://api.github.com/repos/coleifer/sqlcipher3/security-advisories",
     "https://api.github.com/repos/sqlcipher/sqlcipher/security-advisories"
   ]

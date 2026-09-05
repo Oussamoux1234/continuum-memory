@@ -9,8 +9,13 @@ import zipfile
 from pathlib import Path
 
 from scripts.verify import (
+    EXPECTED_AUDIT_DATE,
     EXPECTED_DISTRIBUTION,
     EXPECTED_LICENSE_FILE_DIGESTS,
+    EXPECTED_MINIMUM_PATCHED_VERSIONS,
+    EXPECTED_PREFERRED_REPLACEMENT_VERSIONS,
+    EXPECTED_REPLACEMENT_STATUS,
+    EXPECTED_REVIEWED_REPLACEMENT_SOURCES,
     EXPECTED_SQLCIPHER_WHEELS,
     EXPECTED_VERSION,
     ROOT,
@@ -233,6 +238,7 @@ class ThirdPartyManifestTest(unittest.TestCase):
     def copy_compliance_tree(self, destination: Path) -> None:
         required = [
             "THIRD_PARTY_NOTICES.md",
+            "docs/architecture/010-encryption-dependency-decision.md",
             "requirements/sqlcipher-maintained.txt",
             "requirements/spdx-validation-linux-py314.txt",
             "sbom/continuum-memory.spdx.json",
@@ -250,6 +256,7 @@ class ThirdPartyManifestTest(unittest.TestCase):
     def test_rejects_missing_notice_and_license_files(self):
         missing_paths = (
             "THIRD_PARTY_NOTICES.md",
+            "docs/architecture/010-encryption-dependency-decision.md",
             "third_party_licenses/SQLCipher-4.12.0.txt",
         )
         for missing_path in missing_paths:
@@ -350,6 +357,111 @@ class ThirdPartyManifestTest(unittest.TestCase):
             low[0] = "CVE-2099-99999"
             audit_path.write_text(json.dumps(audit), encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "OpenSSL finding identifiers changed"):
+                third_party_manifest_check(root)
+
+        assessment_cases = (
+            ("auditDate", "2099-01-01", "evidence date"),
+            (
+                "status",
+                "READY",
+                "replacement status must fail closed",
+            ),
+            (
+                "selectedInstallableArtifact",
+                "unreviewed.whl",
+                "unreviewed installable artifact",
+            ),
+            (
+                "publishedPatchedSqlcipher3WheelAvailable",
+                True,
+                "overstates patched wheel availability",
+            ),
+        )
+        for field, value, expected_error in assessment_cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory(
+                    prefix="continuum-license-inventory-"
+                ) as temporary:
+                    root = Path(temporary)
+                    self.copy_compliance_tree(root)
+                    audit_path = root / "security" / "dependency-audit.json"
+                    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+                    if field == "auditDate":
+                        audit[field] = value
+                    else:
+                        audit["replacementAssessment"][field] = value
+                    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+                    with self.assertRaisesRegex(RuntimeError, expected_error):
+                        third_party_manifest_check(root)
+
+        version_cases = (
+            (
+                "minimumPatchedVersions",
+                EXPECTED_MINIMUM_PATCHED_VERSIONS,
+                "OpenSSL",
+                "3.6.3",
+                "minimum patched versions",
+            ),
+            (
+                "preferredReplacementVersions",
+                EXPECTED_PREFERRED_REPLACEMENT_VERSIONS,
+                "SQLite",
+                "3.53.2",
+                "preferred replacement versions",
+            ),
+        )
+        for field, expected, component, value, expected_error in version_cases:
+            with self.subTest(field=field, component=component):
+                with tempfile.TemporaryDirectory(
+                    prefix="continuum-license-inventory-"
+                ) as temporary:
+                    root = Path(temporary)
+                    self.copy_compliance_tree(root)
+                    audit_path = root / "security" / "dependency-audit.json"
+                    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+                    self.assertEqual(audit["auditDate"], EXPECTED_AUDIT_DATE)
+                    self.assertEqual(audit["replacementAssessment"][field], expected)
+                    audit["replacementAssessment"][field][component] = value
+                    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+                    with self.assertRaisesRegex(RuntimeError, expected_error):
+                        third_party_manifest_check(root)
+
+        source_cases = (
+            ("SQLCipher", "sourceArchiveSha256", "0" * 64),
+            ("OpenSSL", "sourceSignatureVerified", True),
+            ("sqlcipher3", "masterOpenSSLRequirement", "3.5.8"),
+        )
+        for component, field, value in source_cases:
+            with self.subTest(component=component, field=field):
+                with tempfile.TemporaryDirectory(
+                    prefix="continuum-license-inventory-"
+                ) as temporary:
+                    root = Path(temporary)
+                    self.copy_compliance_tree(root)
+                    audit_path = root / "security" / "dependency-audit.json"
+                    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+                    self.assertEqual(
+                        audit["replacementAssessment"]["reviewedSourceCandidates"],
+                        EXPECTED_REVIEWED_REPLACEMENT_SOURCES,
+                    )
+                    audit["replacementAssessment"]["reviewedSourceCandidates"][component][
+                        field
+                    ] = value
+                    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+                    with self.assertRaisesRegex(RuntimeError, "source evidence changed"):
+                        third_party_manifest_check(root)
+
+        with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:
+            root = Path(temporary)
+            self.copy_compliance_tree(root)
+            decision_path = root / "docs/architecture/010-encryption-dependency-decision.md"
+            decision_path.write_text(
+                decision_path.read_text(encoding="utf-8").replace(
+                    EXPECTED_REPLACEMENT_STATUS, "READY", 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "decision is missing required evidence"):
                 third_party_manifest_check(root)
 
         with tempfile.TemporaryDirectory(prefix="continuum-license-inventory-") as temporary:

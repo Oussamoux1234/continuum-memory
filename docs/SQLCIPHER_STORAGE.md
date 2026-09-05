@@ -39,6 +39,14 @@ Acquisition requires package-index access. The subsequent installation exercised
 packaging smoke is offline and refuses an unknown filename, wrong digest, missing wheel, or
 multiple candidate wheels.
 
+The 2026-09-05 replacement investigation found no patched published `sqlcipher3` wheel.
+Minimum acceptable embedded versions are SQLCipher 4.17.0, SQLite 3.53.2, and OpenSSL 3.6.4;
+the preferred project-build baseline is SQLCipher 4.18.0 / SQLite 3.53.4 / OpenSSL 3.5.8 LTS.
+Those source versions are not a reviewed installable Python artifact, so the current lock and
+runtime identity remain unchanged and blocked. Do not use the commands below for sensitive or
+production data. See `docs/architecture/010-encryption-dependency-decision.md` for the rejected
+alternatives and the explicit supply-chain ownership decision required before a native rebuild.
+
 ## Third-party contents and licenses
 
 `THIRD_PARTY_NOTICES.md` is the canonical human-readable inventory for the eight supported
@@ -47,7 +55,7 @@ SQLCipher 4.12.0 / SQLite 3.51.1 / OpenSSL 3.6.0 components, and host-supplied d
 libraries. Exact upstream license texts are under `third_party_licenses/`; the interim
 SPDX 2.3 JSON record is `sbom/continuum-memory.spdx.json`.
 
-The 2026-09-04 point-in-time vulnerability findings, external SPDX validation,
+The 2026-09-05 point-in-time vulnerability and replacement findings, external SPDX validation,
 reproducible-build comparison, final payload inspection, and signing blocker are recorded in
 `security/dependency-audit.json` and `docs/RELEASE_READINESS.md`. The embedded OpenSSL and
 SQLite versions have known findings, so this candidate remains blocked from merge or release.

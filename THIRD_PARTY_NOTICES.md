@@ -134,6 +134,14 @@ those sources at that time, not proof of safety. Likely API non-reachability doe
 the vulnerable code from the statically linked extension. The candidate remains blocked
 until patched artifacts are selected and reviewed.
 
+A follow-up search on 2026-09-05 found no patched published sqlcipher3 wheel. SQLCipher
+4.18.0 embeds SQLite 3.53.4, and OpenSSL 3.6.4 is the minimum fixed 3.6-series release;
+OpenSSL 3.5.8 LTS is the preferred project-build baseline. None of those upstream source
+releases is a reviewed, installable Python artifact for Continuum Memory. No replacement
+hash, license conclusion, SPDX component, or redistribution claim is therefore invented.
+The evaluated paths and smallest required supply-chain ownership decision are recorded in
+`docs/architecture/010-encryption-dependency-decision.md`.
+
 ## Inspection method and limits
 
 The inspection used archive listing and extraction, SHA-256 checks, wheel `METADATA` and

@@ -10,4 +10,5 @@ include THIRD_PARTY_NOTICES.md
 include docs/LINUX_APPROVAL_BROKER.md
 include docs/RELEASE_READINESS.md
 include docs/SQLCIPHER_STORAGE.md
+include docs/architecture/010-encryption-dependency-decision.md
 include scripts/polkit_smoke.py
