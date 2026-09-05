@@ -93,9 +93,21 @@ def sqlcipher_supply_chain_check() -> None:
     if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
         raise RuntimeError("patched SQLCipher source SBOM is invalid")
     packages = sbom.get("packages")
-    if not isinstance(packages, list) or len(packages) != 7:
+    if not isinstance(packages, list):
         raise RuntimeError("patched SQLCipher source SBOM package set changed")
     by_identifier = {item.get("SPDXID"): item for item in packages if isinstance(item, dict)}
+    expected_identifiers = {
+        "SPDXRef-Source-sqlcipher3",
+        "SPDXRef-Source-SQLCipher",
+        "SPDXRef-Source-SQLite",
+        "SPDXRef-Source-OpenSSL",
+        "SPDXRef-Build-IPC-Cmd",
+        "SPDXRef-Builder-manylinux",
+        "SPDXRef-Build-setuptools",
+        "SPDXRef-Build-wheel",
+    }
+    if len(packages) != len(by_identifier) or set(by_identifier) != expected_identifiers:
+        raise RuntimeError("patched SQLCipher source SBOM package set changed")
     binding = by_identifier.get("SPDXRef-Source-sqlcipher3", {})
     if binding.get("licenseConcluded") != "NOASSERTION":
         raise RuntimeError("patched SQLCipher source SBOM overstates the binding license")

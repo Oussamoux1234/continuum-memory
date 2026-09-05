@@ -13,7 +13,8 @@ expansion targets, not current support claims.
 ## Trust and build sequence
 
 1. `scripts/fetch_patched_sqlcipher_sources.py` downloads every source, detached signature,
-   public key, setuptools wheel, and wheel build tool from the exact HTTPS URLs in
+   public key, pinned IPC-Cmd/OpenSSL configure dependency, setuptools wheel, and wheel
+   build tool from the exact HTTPS URLs in
    `packaging/sqlcipher/manifest.json`.
 2. It checks every SHA-256, archive root/path, SQLCipher commit comment, manifest UUID,
    embedded SQLite version, license digest, and signing-key primary fingerprint. GPG must
@@ -21,8 +22,9 @@ expansion targets, not current support claims.
    `source-verification.json`.
 3. Two separate network-disabled containers use the same immutable manylinux image digest.
    Each rechecks the signed-source evidence, builds static OpenSSL without modules or shared
-   libraries, runs SQLCipher `make verify-source`, generates the amalgamation, replaces the
-   reviewed binding amalgamation, and builds/repairs one wheel.
+   libraries (loading IPC-Cmd only from the verified source bundle), runs SQLCipher
+   `make verify-source`, generates the amalgamation, replaces the reviewed binding
+   amalgamation, and builds/repairs one wheel.
 4. The inspector requires byte-identical builds, the exact ABI/platform filename, one native
    member, no dynamic OpenSSL dependency, only the allowlisted host libraries, one exported
    initializer symbol, exact embedded version markers, exact license payloads, conservative

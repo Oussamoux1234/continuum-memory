@@ -76,8 +76,17 @@ def validate_manifest(manifest: object) -> dict:
         raise RuntimeError("manifest sources and build dependencies must be objects")
     for label in ("sqlcipher3", "SQLCipher", "OpenSSL"):
         validate_download(sources.get(label), label)
-    for label in ("setuptools", "wheel"):
+    for label in ("IPC-Cmd", "setuptools", "wheel"):
         validate_download(dependencies.get(label), label)
+    ipc_cmd = dependencies["IPC-Cmd"]
+    if (
+        ipc_cmd.get("version") != "1.04"
+        or ipc_cmd.get("license") != "Artistic-1.0-Perl OR GPL-1.0-or-later"
+        or ipc_cmd.get("licenseEvidenceFile") != "README"
+        or ipc_cmd.get("licenseEvidenceSha256")
+        != "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096"
+    ):
+        raise RuntimeError("IPC-Cmd build dependency or license evidence changed")
     for label in ("SQLCipher", "OpenSSL"):
         source = sources[label]
         for nested in ("signature", "signingKey"):
@@ -106,7 +115,7 @@ def iter_downloads(manifest: dict):
         if label in ("SQLCipher", "OpenSSL"):
             yield "%s-signature" % label, source["signature"]
             yield "%s-signing-key" % label, source["signingKey"]
-    for label in ("setuptools", "wheel"):
+    for label in ("IPC-Cmd", "setuptools", "wheel"):
         yield label, manifest["buildDependencies"][label]
 
 
@@ -186,6 +195,7 @@ def inspect_tar_source(path: Path, root: str, required: tuple[str, ...]) -> None
 
 def inspect_sources(directory: Path, manifest: dict) -> None:
     sources = manifest["sources"]
+    ipc_cmd = manifest["buildDependencies"]["IPC-Cmd"]
     inspect_sqlcipher_source(directory / sources["SQLCipher"]["filename"], sources["SQLCipher"])
     inspect_tar_source(
         directory / sources["OpenSSL"]["filename"],
@@ -197,6 +207,21 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
         "sqlcipher3-%s" % sources["sqlcipher3"]["version"],
         ("LICENSE", "PKG-INFO", "setup.py", "src/module.c", "vendor/sqlite3.c"),
     )
+    inspect_tar_source(
+        directory / ipc_cmd["filename"],
+        "IPC-Cmd-%s" % ipc_cmd["version"],
+        ("META.json", "README", "lib/IPC/Cmd.pm"),
+    )
+    with tarfile.open(directory / ipc_cmd["filename"], "r:gz") as archive:
+        license_evidence = archive.extractfile(
+            "IPC-Cmd-%s/%s"
+            % (ipc_cmd["version"], ipc_cmd["licenseEvidenceFile"])
+        )
+        if license_evidence is None:
+            raise RuntimeError("IPC-Cmd license evidence is missing")
+        license_hash = hashlib.sha256(license_evidence.read()).hexdigest()
+    if license_hash != ipc_cmd["licenseEvidenceSha256"]:
+        raise RuntimeError("IPC-Cmd license evidence mismatch")
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:

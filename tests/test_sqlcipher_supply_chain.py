@@ -28,6 +28,7 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(manifest["sources"]["OpenSSL"]["version"], "3.5.8")
         self.assertEqual(manifest["sources"]["OpenSSL"]["endOfLife"], "2030-04-08")
         self.assertEqual(manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
+        self.assertEqual(manifest["buildDependencies"]["IPC-Cmd"]["version"], "1.04")
         self.assertFalse(manifest["supportedSlice"]["windowsSupported"])
 
         sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")
@@ -42,6 +43,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(
             packages["SPDXRef-Builder-manylinux"]["checksums"][0]["checksumValue"],
             manifest["builder"]["image"].rsplit(":", 1)[1],
+        )
+        self.assertEqual(
+            packages["SPDXRef-Build-IPC-Cmd"]["checksums"][0]["checksumValue"],
+            manifest["buildDependencies"]["IPC-Cmd"]["sha256"],
         )
 
     def test_rejects_mutable_or_drifted_inputs_and_claims(self):
@@ -80,6 +85,12 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
                     {"filename": "../openssl.tar.gz"}
                 ),
                 "safe path",
+            ),
+            (
+                lambda value: value["buildDependencies"]["IPC-Cmd"].update(
+                    {"licenseEvidenceSha256": "0" * 64}
+                ),
+                "IPC-Cmd",
             ),
             (
                 lambda value: value["artifact"].update({"distribution": "sqlcipher3"}),

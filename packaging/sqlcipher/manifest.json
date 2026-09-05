@@ -5,6 +5,15 @@
     "version": "0.6.2.post1"
   },
   "buildDependencies": {
+    "IPC-Cmd": {
+      "filename": "IPC-Cmd-1.04.tar.gz",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseEvidenceFile": "README",
+      "licenseEvidenceSha256": "7d718c638120f281be8d32e6eda14e5cea93acf056bcdc8af933b1d0d82b8096",
+      "sha256": "d110a0f60e35c65721454200f0d2f0f8965529a2add9649d1fa6f4f9eccb6430",
+      "url": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/IPC-Cmd-1.04.tar.gz",
+      "version": "1.04"
+    },
     "setuptools": {
       "filename": "setuptools-80.9.0-py3-none-any.whl",
       "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",

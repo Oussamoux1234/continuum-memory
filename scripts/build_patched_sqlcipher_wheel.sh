@@ -34,8 +34,10 @@ mkdir -p "${BUILD_ROOT}" "${OUTPUT_DIR}"
 tar -xzf "${SOURCES_DIR}/openssl-3.5.8.tar.gz" -C "${BUILD_ROOT}"
 unzip -q "${SOURCES_DIR}/sqlcipher-4.18.0.zip" -d "${BUILD_ROOT}"
 tar -xzf "${SOURCES_DIR}/sqlcipher3-0.6.2.tar.gz" -C "${BUILD_ROOT}"
+tar -xzf "${SOURCES_DIR}/IPC-Cmd-1.04.tar.gz" -C "${BUILD_ROOT}"
 
 readonly PREFIX_MAP="-ffile-prefix-map=${BUILD_ROOT}=/usr/src/continuum-sqlcipher"
+export PERL5LIB="${BUILD_ROOT}/IPC-Cmd-1.04/lib"
 
 pushd "${BUILD_ROOT}/openssl-3.5.8" >/dev/null
 ./Configure linux-x86_64 no-shared no-tests no-module no-dso no-zlib \

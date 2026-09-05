@@ -11,6 +11,7 @@
     "SPDXRef-Source-sqlcipher3",
     "SPDXRef-Source-SQLCipher",
     "SPDXRef-Source-OpenSSL",
+    "SPDXRef-Build-IPC-Cmd",
     "SPDXRef-Builder-manylinux"
   ],
   "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-05",
@@ -84,6 +85,21 @@
       "licenseDeclared": "NOASSERTION",
       "name": "pypa manylinux_2_28_x86_64 builder image",
       "versionInfo": "2026.09.05-1"
+    },
+    {
+      "SPDXID": "SPDXRef-Build-IPC-Cmd",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d110a0f60e35c65721454200f0d2f0f8965529a2add9649d1fa6f4f9eccb6430"
+        }
+      ],
+      "downloadLocation": "https://cpan.metacpan.org/authors/id/B/BI/BINGOS/IPC-Cmd-1.04.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "licenseDeclared": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "name": "IPC-Cmd OpenSSL configure dependency",
+      "versionInfo": "1.04"
     },
     {
       "SPDXID": "SPDXRef-Build-setuptools",
