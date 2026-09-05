@@ -6,9 +6,6 @@ import os
 import tempfile
 from pathlib import Path
 
-from sqlcipher3 import dbapi2
-
-
 CANARY = b"CONTINUUM_PATCHED_SQLCIPHER_CANARY_5c7b41"
 KEY = bytes.fromhex("f1" * 32)
 
@@ -17,11 +14,16 @@ def apply_key(connection, key: bytes = KEY) -> None:
     connection.execute("PRAGMA key = \"x'%s'\"" % key.hex())
 
 
-def open_encrypted(path: Path):
+def open_encrypted(dbapi2, path: Path):
     connection = dbapi2.connect(str(path))
     apply_key(connection)
     connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
     return connection
+
+
+def require_active_cipher(status: object) -> None:
+    if status != "1":
+        raise AssertionError("SQLCipher encryption is not active: %r" % (status,))
 
 
 def assert_no_canary(directory: Path) -> None:
@@ -31,18 +33,19 @@ def assert_no_canary(directory: Path) -> None:
 
 
 def main() -> int:
+    from sqlcipher3 import dbapi2
+
     if dbapi2.sqlite_version != "3.53.4":
         raise AssertionError("unexpected SQLite runtime: %s" % dbapi2.sqlite_version)
     with tempfile.TemporaryDirectory(prefix="continuum-patched-sqlcipher-") as temporary:
         root = Path(temporary)
         os.environ["SQLITE_TMPDIR"] = str(root)
         database = root / "vault.db"
-        connection = open_encrypted(database)
+        connection = open_encrypted(dbapi2, database)
         cipher_version = connection.execute("PRAGMA cipher_version").fetchone()[0]
         if cipher_version != "4.18.0 community":
             raise AssertionError("unexpected SQLCipher runtime: %s" % cipher_version)
-        if connection.execute("PRAGMA cipher_status").fetchone()[0] != 1:
-            raise AssertionError("SQLCipher encryption is not active")
+        require_active_cipher(connection.execute("PRAGMA cipher_status").fetchone()[0])
         options = {row[0] for row in connection.execute("PRAGMA compile_options")}
         if "ENABLE_FTS5" not in options or "TEMP_STORE=2" not in options:
             raise AssertionError("required SQLite compile options are missing")
@@ -88,14 +91,14 @@ def main() -> int:
 
         child = os.fork()
         if child == 0:
-            crashed = open_encrypted(database)
+            crashed = open_encrypted(dbapi2, database)
             crashed.execute("INSERT INTO memory VALUES ('recovery-record')")
             crashed.commit()
             os._exit(0)
         _, status = os.waitpid(child, 0)
         if status != 0:
             raise AssertionError("crash-recovery child failed")
-        recovered = open_encrypted(database)
+        recovered = open_encrypted(dbapi2, database)
         if recovered.execute("SELECT count(*) FROM memory WHERE body='recovery-record'").fetchone()[0] != 1:
             raise AssertionError("committed WAL record did not recover")
         if recovered.execute("PRAGMA integrity_check").fetchone()[0] != "ok":

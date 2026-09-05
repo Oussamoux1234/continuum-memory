@@ -72,9 +72,11 @@ artifacts. No application dependency changes in this PR, so Continuum runtime be
 not change. A future consumer PR must keep the previous reviewed wheel available until the
 new wheel passes install, data-open, integrity, and rollback tests.
 
+The reviewed Linux CPython 3.14 wheel is locked to SHA-256
+`960c2b66f79af488372e6347b06dfbfe0c68f41e69384c8b96cc65eea4708205`.
+
 ## Remaining decisions and gates
 
-- Lock the first verified wheel SHA-256 after two builds and rerun the workflow.
 - Expand the same two-build and runtime gate to Linux CPython 3.11-3.13.
 - Add independently reviewed macOS arm64 builds for CPython 3.11-3.14.
 - Complete independent security and license review, including the binding `NOASSERTION`.

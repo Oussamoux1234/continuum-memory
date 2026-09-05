@@ -21,6 +21,7 @@ from scripts.inspect_patched_sqlcipher_wheel import (
     validate_native_dependencies,
     write_evidence,
 )
+from scripts.test_patched_sqlcipher_runtime import require_active_cipher
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         self.assertEqual(manifest["sources"]["OpenSSL"]["version"], "3.5.8")
         self.assertEqual(manifest["sources"]["OpenSSL"]["endOfLife"], "2030-04-08")
         self.assertEqual(manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
+        self.assertEqual(
+            manifest["expectedArtifacts"]["linuxCp314"]["sha256"],
+            "960c2b66f79af488372e6347b06dfbfe0c68f41e69384c8b96cc65eea4708205",
+        )
         for relative, expected_hash in manifest["builder"]["opensslPerlShims"].items():
             self.assertEqual(sha256(ROOT / relative), expected_hash)
         self.assertFalse(manifest["supportedSlice"]["windowsSupported"])
@@ -101,6 +106,22 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
             (
                 lambda value: value["artifact"].update({"distribution": "sqlcipher3"}),
                 "artifact identity",
+            ),
+            (
+                lambda value: value["expectedArtifacts"]["linuxCp314"].update(
+                    {"sha256": None}
+                ),
+                "must be locked",
+            ),
+            (
+                lambda value: value["expectedArtifacts"]["linuxCp314"].update(
+                    {"filename": "unexpected.whl"}
+                ),
+                "filename is not exact",
+            ),
+            (
+                lambda value: value.update({"expectedArtifacts": []}),
+                "expected artifacts must be an object",
             ),
         )
         for mutation, expected_error in cases:
@@ -255,6 +276,13 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     validate_native_dependencies(expected | {dependency})
 
+    def test_runtime_accepts_only_sqlcipher_text_active_status(self):
+        require_active_cipher("1")
+        for status in (1, True, "0", 0, None):
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(AssertionError, "not active"):
+                    require_active_cipher(status)
+
     def test_generated_provenance_and_sbom_bind_exact_wheel_hash(self):
         manifest = validate_manifest(load_json_strict(DEFAULT_MANIFEST))
         inspection = {
@@ -301,6 +329,7 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         self.assertGreaterEqual(workflow.count("--network=none"), 5)
         self.assertNotIn("docker.io", workflow)
         self.assertIn("@sha256:53390351", workflow)
+        self.assertNotIn("bootstrap-unlocked-hash", workflow)
         self.assertNotIn("release", workflow.lower().replace("source release", ""))
 
 

@@ -64,7 +64,6 @@ jobs:
           quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
           /opt/python/cp314-cp314/bin/python scripts/inspect_patched_sqlcipher_wheel.py
           --build-a /build-a --build-b /build-b --evidence-dir /evidence
-          --bootstrap-unlocked-hash
       - name: Test offline installation and encrypted runtime
         run: |
           docker run --rm --network=none \

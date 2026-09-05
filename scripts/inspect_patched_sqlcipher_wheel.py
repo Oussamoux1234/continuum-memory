@@ -290,7 +290,6 @@ def main() -> int:
     parser.add_argument("--build-b", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--bootstrap-unlocked-hash", action="store_true")
     arguments = parser.parse_args()
     manifest = validate_manifest(load_json_strict(arguments.manifest))
     wheel_a = one_wheel(arguments.build_a)
@@ -299,9 +298,7 @@ def main() -> int:
         raise RuntimeError("independent patched wheel builds are not byte-for-byte identical")
     inspection = inspect_wheel(wheel_a, manifest)
     expected_hash = manifest["expectedArtifacts"]["linuxCp314"]["sha256"]
-    if expected_hash is None and not arguments.bootstrap_unlocked_hash:
-        raise RuntimeError("patched wheel SHA-256 is not locked in the manifest")
-    if expected_hash is not None and inspection["sha256"] != expected_hash:
+    if inspection["sha256"] != expected_hash:
         raise RuntimeError("patched wheel SHA-256 does not match the locked artifact")
     write_evidence(arguments.evidence_dir, inspection, manifest)
     print(json.dumps({key: value for key, value in inspection.items() if not key.startswith("_")}, sort_keys=True))

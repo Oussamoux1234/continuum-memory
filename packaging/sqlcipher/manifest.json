@@ -32,7 +32,7 @@
   "expectedArtifacts": {
     "linuxCp314": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
-      "sha256": null
+      "sha256": "960c2b66f79af488372e6347b06dfbfe0c68f41e69384c8b96cc65eea4708205"
     }
   },
   "schemaVersion": 1,

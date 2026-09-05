@@ -105,6 +105,20 @@ def validate_manifest(manifest: object) -> dict:
         "version": "0.6.2.post1",
     }:
         raise RuntimeError("patched-wheel artifact identity changed")
+    expected_artifacts = manifest.get("expectedArtifacts")
+    if not isinstance(expected_artifacts, dict):
+        raise RuntimeError("patched-wheel expected artifacts must be an object")
+    expected_artifact = expected_artifacts.get("linuxCp314")
+    if not isinstance(expected_artifact, dict) or expected_artifact.get("filename") != (
+        "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl"
+    ):
+        raise RuntimeError("patched-wheel filename is not exact")
+    expected_artifact_hash = expected_artifact.get("sha256")
+    if (
+        not isinstance(expected_artifact_hash, str)
+        or HEX_64.fullmatch(expected_artifact_hash) is None
+    ):
+        raise RuntimeError("patched-wheel SHA-256 must be locked")
     return manifest
 
 
