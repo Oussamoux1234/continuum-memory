@@ -13,6 +13,7 @@ readonly PYTHON_BIN="/opt/python/cp314-cp314/bin/python"
 readonly BUILD_ROOT="/tmp/continuum-sqlcipher-build"
 readonly OPENSSL_PREFIX="/opt/continuum/openssl-3.5.8"
 readonly SOURCE_DATE_EPOCH="1788285600"
+export SOURCE_DATE_EPOCH
 
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo "the first supply-chain slice requires Linux x86-64" >&2
@@ -61,8 +62,13 @@ CFLAGS="-O2 -g0 -fPIC ${PREFIX_MAP}" \
 CPPFLAGS="-I${OPENSSL_PREFIX}/include" \
 LDFLAGS="${LIBCRYPTO} -ldl -pthread" \
   ./configure --with-tempstore=yes --enable-fts5
-make verify-source
 make -j2 sqlite3.c
+# SQLCipher intentionally differs from the SQLite Fossil manifest bundled in
+# its source archive, so SQLite's verify-source target rejects the authentic
+# SQLCipher release. Authenticity is established before extraction by the
+# pinned archive hash, detached signature, release commit, and manifest UUID.
+# This target instead validates the generated amalgamation's source structure.
+make sourcetest
 popd >/dev/null
 
 readonly BINDING_ROOT="${BUILD_ROOT}/sqlcipher3-0.6.2"

@@ -21,8 +21,12 @@ expansion targets, not current support claims.
    `source-verification.json`.
 3. Two separate network-disabled containers use the same immutable manylinux image digest.
    Each rechecks the signed-source evidence, builds static OpenSSL without modules or shared
-   libraries, runs SQLCipher `make verify-source`, generates the amalgamation, replaces the
-   reviewed binding amalgamation, and builds/repairs one wheel. The minimal image omits
+   libraries, generates the SQLCipher amalgamation, runs its `sourcetest` structural check,
+   replaces the reviewed binding amalgamation, and builds/repairs one wheel. SQLCipher
+   intentionally differs from the SQLite Fossil manifest bundled in its release archive, so
+   the inherited SQLite `make verify-source` target is not a valid SQLCipher authenticity
+   check. Authenticity is instead bound to the pinned archive digest, detached signature,
+   release commit, and embedded SQLite manifest UUID before extraction. The minimal image omits
    IPC-Cmd and Time-Piece; two hash-locked project shims implement only the `can_run`,
    local-time, exact release-date parsing, and fixed output-format operations used by the
    reviewed OpenSSL 3.5.8 configure source. They reject empty PATH entries and unsupported
@@ -60,7 +64,8 @@ The container digest pins the manylinux filesystem, CPython, GCC/binutils, audit
 support tools as one immutable input. Their separately reported version strings are evidence,
 not independent download pins. GitHub runner kernel, Docker engine, CPU model/scheduling, and
 the Actions service remain outside that image and cannot be fully pinned. Network access is
-disabled during both builds and all tests.
+disabled during both builds and all tests. `SOURCE_DATE_EPOCH` is exported for the complete
+native build so OpenSSL build metadata and wheel timestamps do not capture wall-clock time.
 
 Rollback before publication means closing the focused PR and deleting its short-lived CI
 artifacts. No application dependency changes in this PR, so Continuum runtime behavior does
