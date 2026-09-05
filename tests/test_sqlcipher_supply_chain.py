@@ -8,6 +8,7 @@ from scripts.fetch_patched_sqlcipher_sources import (
     DEFAULT_MANIFEST,
     load_json_strict,
     safe_archive_path,
+    valid_signature_fingerprints,
     validate_manifest,
 )
 from scripts.inspect_patched_sqlcipher_wheel import one_wheel, write_evidence
@@ -100,6 +101,29 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
             path.write_text(text, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "duplicate key"):
                 load_json_strict(path)
+
+    def test_gpg_status_tolerates_non_utf8_user_ids_but_requires_one_validsig(self):
+        signing = "A" * 40
+        primary = "B" * 40
+        validsig = (
+            "[GNUPG:] VALIDSIG %s 2026-09-05 1788645539 0 4 0 1 10 00 %s\n"
+            % (signing, primary)
+        ).encode("ascii")
+        status = b"[GNUPG:] GOODSIG DEADBEEF name-\xcc\n" + validsig
+        self.assertEqual(
+            valid_signature_fingerprints(status),
+            (signing, primary),
+        )
+
+        for rejected in (
+            b"[GNUPG:] GOODSIG only\n",
+            validsig + validsig,
+            b"[GNUPG:] VALIDSIG \xcc\n",
+            b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" too-short\n",
+        ):
+            with self.subTest(status=rejected):
+                with self.assertRaisesRegex(RuntimeError, "VALIDSIG"):
+                    valid_signature_fingerprints(rejected)
 
 
 class PatchedSqlcipherArtifactTest(unittest.TestCase):

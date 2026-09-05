@@ -214,6 +214,32 @@ def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:
     }
 
 
+def valid_signature_fingerprints(status: bytes) -> tuple[str, str]:
+    """Return the signing and primary fingerprints from one GnuPG VALIDSIG.
+
+    Other status records may contain an unescaped, non-UTF-8 user ID.  Keep the
+    stream binary and decode only the VALIDSIG record, whose fields are ASCII.
+    """
+    prefix = b"[GNUPG:] VALIDSIG "
+    records = [line for line in status.splitlines() if line.startswith(prefix)]
+    if len(records) != 1:
+        raise RuntimeError("GnuPG must emit exactly one VALIDSIG record")
+    try:
+        fields = records[0].decode("ascii").split()
+    except UnicodeDecodeError as error:
+        raise RuntimeError("GnuPG VALIDSIG record is not ASCII") from error
+    if len(fields) not in (11, 12) or fields[:2] != ["[GNUPG:]", "VALIDSIG"]:
+        raise RuntimeError("GnuPG emitted a malformed VALIDSIG record")
+    signing_fingerprint = fields[2]
+    primary_fingerprint = fields[11] if len(fields) == 12 else signing_fingerprint
+    if (
+        FINGERPRINT.fullmatch(signing_fingerprint) is None
+        or FINGERPRINT.fullmatch(primary_fingerprint) is None
+    ):
+        raise RuntimeError("GnuPG VALIDSIG fingerprints are malformed")
+    return signing_fingerprint, primary_fingerprint
+
+
 def verify_signature(directory: Path, label: str, source: dict) -> dict:
     gpg = shutil.which("gpg")
     if gpg is None:
@@ -243,12 +269,11 @@ def verify_signature(directory: Path, label: str, source: dict) -> dict:
             str(directory / source["filename"]),
         ],
         check=True,
-        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    valid = [line.split() for line in result.stdout.splitlines() if "[GNUPG:] VALIDSIG " in line]
-    if len(valid) != 1 or expected not in (valid[0][2], valid[0][-1]):
+    _signing, primary = valid_signature_fingerprints(result.stdout)
+    if primary != expected:
         raise RuntimeError("%s signature is not bound to the reviewed primary key" % label)
     return {"primaryFingerprint": expected, "signatureVerified": True}
 
