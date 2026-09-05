@@ -5,8 +5,9 @@
 [![verify](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml/badge.svg)](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
 
 **Maturity: experimental local prototype.** Continuum Memory is not production-ready,
-encrypted, hardened against same-user malware, or validated with native Codex, Claude
-Code, or Antigravity installations. It is a narrow, offline, Linux-first vertical slice
+independently security-reviewed, hardened against same-user malware, or validated with
+native Codex, Claude Code, or Antigravity installations. It is a narrow, offline,
+Linux-first vertical slice
 that demonstrates the ledger and trust-boundary design with deterministic MCP fixtures.
 
 Continuum Memory is a provider-neutral, user-owned ledger of evidence and versioned
@@ -37,18 +38,34 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
   group/world-accessible modes at the access boundary;
 - two deterministic stdio MCP clients can share approved project memory.
 
-## Five-minute safe quickstart
+## Five-minute reproducible quickstart
 
-Requires Python 3.9+ with SQLite 3.37+ and FTS5. No package download or network service is used.
-Use a temporary directory while evaluating the prototype:
+Requires CPython 3.11–3.14 and the pinned `sqlcipher3==0.6.2` runtime. Linux x86-64 runs
+the complete gate on every declared Python version. The native macOS evidence is limited
+to arm64 with Python 3.14; no broader macOS support is claimed. Artifact acquisition uses
+the package index, but installation and runtime operation use no network service. Use a
+temporary directory while evaluating the prototype:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --no-deps -e .
+python3.14 -m venv .venv
+.venv/bin/python -m pip download --require-hashes --only-binary=:all: --no-deps \
+  --dest work/dependencies -r requirements/sqlcipher-maintained.txt
+.venv/bin/python -m pip download --require-hashes --only-binary=:all: --no-deps \
+  --dest work/build-dependencies -r requirements/verification-tools.txt
+.venv/bin/python -m pip install --no-index --no-deps --find-links work/build-dependencies \
+  setuptools==80.9.0
+.venv/bin/python -m pip install --no-index --no-deps --find-links work/dependencies \
+  sqlcipher3==0.6.2
+.venv/bin/python -m pip install --no-build-isolation --no-index --no-deps -e .
+source .venv/bin/activate
 export CONTINUUM_HOME="$(mktemp -d)"
 continuum init --project-name demo --project-path "$PWD" --providers codex,claude
 memoryd --data-dir "$CONTINUUM_HOME"
 ```
+
+On a verified Linux target, select any Python from 3.11 through 3.14 for the virtual
+environment. A plain `pip install -e .` is only an unverified developer convenience because
+it may resolve artifacts without the repository's reviewed hashes.
 
 In another terminal, using the project ID printed by `init`:
 
@@ -94,19 +111,46 @@ native Codex or Claude Code compatibility.
 
 ## Storage notice
 
-The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 but no
-reproducible SQLCipher binding in this dependency-free slice. File permissions, strict
-date parsing, lifecycle expiry, and deletion semantics are tested, but plaintext can remain
-in filesystem or OS snapshots. The owner-only directory blocks other local accounts; it
-does not resist a malicious process already running as the same user. Do not store secrets
-or sensitive production data. The storage interface is isolated so a reviewed SQLCipher
-implementation can replace it later.
+The Issue #7 implementation candidate routes the canonical database, WAL, and FTS pages
+through SQLCipher 4.12.0 using the pinned `sqlcipher3` 0.6.2 binding. The verifier checks
+plaintext canaries, correct/wrong/missing key behavior, crash recovery, runtime identity,
+and an offline wheel installation. This is not yet an accepted encryption guarantee;
+Issue #7 remains open for independent review, and sensitive production data remains out of
+scope.
+
+The exact reviewed wheel hashes, compiled and linked component inventory, upstream license
+texts, redistribution boundary, and unresolved `sqlcipher3` metadata/license discrepancy
+are recorded in `THIRD_PARTY_NOTICES.md`. An interim SPDX 2.3 JSON inventory is shipped at
+`sbom/continuum-memory.spdx.json`. The verifier requires both records and all copied license
+texts in the source distribution and project wheel; this is engineering evidence, not a
+legal-compliance or independent-review claim.
+The point-in-time vulnerability findings, external SPDX validation, reproducible-build
+limits, payload inspection, signing blocker, and blocked release decision are recorded in
+`docs/RELEASE_READINESS.md` and `security/dependency-audit.json`.
+The 2026-09-05 replacement review found no patched published `sqlcipher3` wheel; the recorded
+minimum versions are not themselves an installable artifact. The alternatives and smallest
+required native supply-chain ownership decision are recorded in
+`docs/architecture/010-encryption-dependency-decision.md`. PR #12 and Issue #7 remain open.
+
+This is not a complete confidentiality claim. The random storage key is an owner-only file
+beside the vault, so copying the entire vault directory also copies the key. The boundary
+does not resist the owning user, root/admin, malware in that account, process inspection,
+OS snapshots, exports, or unmanaged backups. Existing plaintext vaults are rejected and
+are not migrated automatically. Key rotation and explicit plaintext migration are not yet
+implemented. See `docs/SQLCIPHER_STORAGE.md`.
 
 ## Repository map
 
 - `docs/PRODUCT_CONSTITUTION.md` — durable product rules.
 - `docs/architecture/` — accepted architecture decisions.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
+- `docs/SQLCIPHER_STORAGE.md` — encrypted-storage runtime, key lifecycle, verification, and limits.
+- `docs/RELEASE_READINESS.md` — dependency, SPDX, reproducibility, payload, and signing evidence.
+- `docs/architecture/010-encryption-dependency-decision.md` — patched-version floor,
+  evaluated replacement paths, and blocked supply-chain decision.
+- `THIRD_PARTY_NOTICES.md` — reviewed SQLCipher wheel contents, licenses, and redistribution boundary.
+- `security/dependency-audit.json` — point-in-time exact-component vulnerability findings.
+- `sbom/continuum-memory.spdx.json` — interim SPDX 2.3 dependency and artifact inventory.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.

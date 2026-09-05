@@ -156,6 +156,10 @@ class EphemeralHarness:
         self.clients.append(client)
         return client
 
+    def open_store(self) -> Store:
+        """Open a second connection for read-only fixture assertions."""
+        return Store(self.data_dir)
+
     def approve(self, params: Dict[str, Any]) -> Dict[str, Any]:
         # The fake broker is intentionally limited to an ephemeral marked test vault.
         temp_root = Path(tempfile.gettempdir()).resolve()

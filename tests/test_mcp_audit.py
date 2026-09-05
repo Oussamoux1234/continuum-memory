@@ -1,6 +1,5 @@
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -74,12 +73,13 @@ class McpAndAuditTest(unittest.TestCase):
                 data_dir,
                 [{"name": "audit", "path_hint": "/fixture/audit", "providers": ["codex"]}],
             )
-            connection = sqlite3.connect(str(data_dir / "continuum.db"))
+            tamper_store = Store(data_dir)
+            connection = tamper_store.connection
             try:
                 connection.execute("UPDATE audit_events SET operation='tampered' WHERE audit_seq=1")
                 connection.commit()
             finally:
-                connection.close()
+                tamper_store.close()
             store = Store(data_dir)
             try:
                 result = store.verify_audit()

@@ -1,0 +1,434 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-09-04T00:00:00Z",
+    "creators": [
+      "Organization: Continuum Memory contributors",
+      "Tool: scripts/verify.py"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentDescribes": [
+    "SPDXRef-Package-continuum-memory",
+    "SPDXRef-Wheel-cp311-macos-arm64",
+    "SPDXRef-Wheel-cp311-linux-x86-64",
+    "SPDXRef-Wheel-cp312-macos-arm64",
+    "SPDXRef-Wheel-cp312-linux-x86-64",
+    "SPDXRef-Wheel-cp313-macos-arm64",
+    "SPDXRef-Wheel-cp313-linux-x86-64",
+    "SPDXRef-Wheel-cp314-macos-arm64",
+    "SPDXRef-Wheel-cp314-linux-x86-64"
+  ],
+  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/sbom/0.1.0.dev0/sqlcipher3-0.6.2",
+  "hasExtractedLicensingInfos": [
+    {
+      "extractedText": "Copyright (c) 2004-2007 Gerhard Häring\n\nThis software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.\n\nPermission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:\n\n1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.\n\n2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.\n\n3. This notice may not be removed or altered from any source distribution.",
+      "licenseId": "LicenseRef-sqlcipher3-0.6.2",
+      "name": "sqlcipher3 0.6.2 shipped Gerhard Haring notice",
+      "seeAlsos": [
+        "https://github.com/coleifer/sqlcipher3/blob/0.6.2/LICENSE"
+      ]
+    },
+    {
+      "extractedText": "SQLite states that its deliverable code and documentation have been dedicated to the public domain by their authors.",
+      "licenseId": "LicenseRef-SQLite-Public-Domain",
+      "name": "SQLite public-domain dedication",
+      "seeAlsos": [
+        "https://www.sqlite.org/copyright.html"
+      ]
+    }
+  ],
+  "name": "Continuum Memory 0.1.0.dev0 SQLCipher dependency inventory",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-continuum-memory",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://github.com/Oussamoux1234/continuum-memory",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:pypi/continuum-memory@0.1.0.dev0",
+          "referenceType": "purl"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "name": "continuum-memory",
+      "versionInfo": "0.1.0.dev0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-sqlcipher3",
+      "comment": "Upstream pyproject and wheel METADATA declare MIT, while the shipped license is a different Gerhard Haring three-condition text. The exact text is retained as a custom LicenseRef, but the concluded license remains NOASSERTION pending independent review.",
+      "copyrightText": "Copyright (c) 2004-2007 Gerhard Häring",
+      "downloadLocation": "https://pypi.org/project/sqlcipher3/0.6.2/",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:pypi/sqlcipher3@0.6.2",
+          "referenceType": "purl"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "name": "sqlcipher3",
+      "sourceInfo": "Upstream tag 0.6.2, Git commit 14fc2632676b20011e0bba64fdda49763a2dd2ec",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-SQLCipher",
+      "copyrightText": "Copyright (c) 2025, ZETETIC LLC",
+      "downloadLocation": "https://github.com/sqlcipher/sqlcipher/tree/v4.12.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:github/sqlcipher/sqlcipher@v4.12.0",
+          "referenceType": "purl"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "name": "SQLCipher Community Edition",
+      "sourceInfo": "Upstream tag v4.12.0 resolves to Git commit ab223bd801ec225d1497a077da08777d21d1266d",
+      "versionInfo": "4.12.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-SQLite",
+      "comment": "The 2026-09-04 point-in-time audit records two known FTS5 findings fixed in SQLite 3.53.2. See security/dependency-audit.json; this package record does not claim vulnerability-free status.",
+      "copyrightText": "NONE",
+      "downloadLocation": "https://www.sqlite.org/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LicenseRef-SQLite-Public-Domain",
+      "licenseDeclared": "LicenseRef-SQLite-Public-Domain",
+      "name": "SQLite",
+      "sourceInfo": "SQLite Fossil check-in 281fc0e9afc38674b9b0991943b9e9d1e64c6cbdb133d35f6f5c87ff6af38a88; SQLCipher runtime source ID suffix alt1",
+      "versionInfo": "3.51.1"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-OpenSSL",
+      "comment": "The 2026-09-04 exact-commit audit records 48 OpenSSL vendor findings for 3.6.0. See security/dependency-audit.json; this package record does not claim vulnerability-free status.",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://github.com/openssl/openssl/tree/openssl-3.6.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:github/openssl/openssl@openssl-3.6.0",
+          "referenceType": "purl"
+        }
+      ],
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "name": "OpenSSL",
+      "sourceInfo": "Upstream tag openssl-3.6.0 resolves to Git commit 7b371d80d959ec9ab4139d09d78e83c090de9779",
+      "versionInfo": "3.6.0"
+    },
+    {
+      "SPDXID": "SPDXRef-External-CPython",
+      "comment": "External interpreter selected by the wheel ABI tag; not contained in or redistributed by the reviewed wheels.",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "CPython runtime",
+      "versionInfo": "3.11-3.14"
+    },
+    {
+      "SPDXID": "SPDXRef-External-Apple-libSystem",
+      "comment": "Host-supplied /usr/lib/libSystem.B.dylib. The reviewed macOS wheel does not contain this file; its exact runtime version and license are selected by the host OS.",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "Apple libSystem.B.dylib",
+      "supplier": "Organization: Apple Inc.",
+      "versionInfo": "host-provided"
+    },
+    {
+      "SPDXID": "SPDXRef-External-manylinux-system-libraries",
+      "comment": "Host-supplied libc.so.6, libm.so.6, and libpthread.so.0 satisfying the manylinux_2_28 ABI. The reviewed Linux wheel contains none of these files; exact runtime versions and license files are selected by the host OS.",
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "manylinux_2_28 system C libraries",
+      "versionInfo": "host-provided ABI >= 2.28"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp311-macos-arm64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "22e6502c364706fe64695219877f2bb01cdb25450bec81e69c8a08deff8c14ee"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/e5/4c/098cf3dd0af6ce4cfba88fbdeb63a3b156f4b7f0620f6cc5f35ecfb72607/sqlcipher3-0.6.2-cp311-cp311-macosx_11_0_arm64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp311-cp311-macosx_11_0_arm64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp311-linux-x86-64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0f08e5bb5eb1ab93819c444ebec61fa3349e9690c14f5d0276fd4f61c3049fd9"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/72/b0/faa2a8fc9dc3210e0af31e57c5ec86e8a523eaa3d44e854aa8f95ff66d50/sqlcipher3-0.6.2-cp311-cp311-manylinux_2_28_x86_64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp311-cp311-manylinux_2_28_x86_64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp312-macos-arm64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "bc2edd981e65783bc0d4e337704a9eb436871ab91c68af02ed76354876087642"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/2f/b7/b9e897cf9e4740ca148fb03b493fa708a9b729ccc0cd656099f16bc9f2fd/sqlcipher3-0.6.2-cp312-cp312-macosx_11_0_arm64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp312-cp312-macosx_11_0_arm64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp312-linux-x86-64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6b26d28ca844dc2a69b8f74b390e940db47760f0be4c96d93337c57ae8250a48"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/f5/03/d55fe69fb380dadb2f5d19b3eac9256218243cced6aa4696ef90d560d223/sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp313-macos-arm64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8e1ff6079603dfd955d57c26dad5eab14f6baacdc643d8753dd651913ba789cf"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/56/0d/2cee40de57d47245de09382c64e649c8cc8e86fa549ecba7591633fabf20/sqlcipher3-0.6.2-cp313-cp313-macosx_11_0_arm64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp313-cp313-macosx_11_0_arm64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp313-linux-x86-64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "9fb7109981583b631ac795e7e955d4bf78058f64b54c7f334ccc437adc322d4b"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/f4/6b/874f72b6f3c3ebbe889e4279a0d422b7271ef7b3c63e45fae80a4ce16ec7/sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp314-macos-arm64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5c1f4a5805faa418c9c7290e6a556a8c5abae40ea59b04d76e960e33c257e618"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/f6/01/f3552874b158d83c15fb9d550576020cc42b34019d0daf3291b381fbfb01/sqlcipher3-0.6.2-cp314-cp314-macosx_11_0_arm64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp314-cp314-macosx_11_0_arm64.whl",
+      "versionInfo": "0.6.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Wheel-cp314-linux-x86-64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e00988174ecd67ecd4537504c3df55bf8daeb75fce98401f099dff8e22c43ae1"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "downloadLocation": "https://files.pythonhosted.org/packages/ff/12/8d554633c3975f429e07cf07e136fb94ace10b460e1cb86b4c8019b7cdb4/sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "name": "sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "versionInfo": "0.6.2"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-continuum-memory"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-SQLCipher",
+      "relationshipType": "STATIC_LINK",
+      "spdxElementId": "SPDXRef-Package-sqlcipher3"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-SQLite",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Package-SQLCipher"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-OpenSSL",
+      "relationshipType": "STATIC_LINK",
+      "spdxElementId": "SPDXRef-Package-SQLCipher"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp311-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp311-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-Apple-libSystem",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp311-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp311-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp311-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-manylinux-system-libraries",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp311-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp312-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp312-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-Apple-libSystem",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp312-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp312-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp312-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-manylinux-system-libraries",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp312-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp313-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp313-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-Apple-libSystem",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp313-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp313-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp313-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-manylinux-system-libraries",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp313-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp314-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp314-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-Apple-libSystem",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp314-macos-arm64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-sqlcipher3",
+      "relationshipType": "CONTAINS",
+      "spdxElementId": "SPDXRef-Wheel-cp314-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-CPython",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Wheel-cp314-linux-x86-64"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-External-manylinux-system-libraries",
+      "relationshipType": "DYNAMIC_LINK",
+      "spdxElementId": "SPDXRef-Wheel-cp314-linux-x86-64"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

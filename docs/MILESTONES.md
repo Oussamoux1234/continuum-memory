@@ -7,11 +7,16 @@
 - [x] Deterministic cross-agent fixture and lifecycle/isolation tests
 - [x] Strict UTC dates, persisted retention expiry, complete logical forget projections
 - [x] Symlink/hardlink/owner/mode checks for vault files, capabilities, and local socket
-- [x] Run the complete verifier on GitHub-hosted Ubuntu 24.04 x86-64 / Python 3.9
+- [x] Historical prototype verifier on GitHub-hosted Ubuntu 24.04 x86-64 / Python 3.9
+- [x] Require the current verifier on a maintained Python 3.11–3.14 Linux matrix in Actions
 
 ## Trustworthy local v1
 
-- [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS
+- [ ] Reviewed SQLCipher integration covering database, WAL, temp, and FTS: implementation,
+  fail-closed behavior, crash recovery, canary gates, exact wheel inventory, copied notices,
+  conservative SPDX inventory, external SPDX validation, vulnerability evidence, reproducible
+  build checks, and payload inspection are on Issue #7; known OpenSSL/SQLite findings, the
+  sqlcipher3 license discrepancy, signing, and independent acceptance remain before closure
 - [ ] Linux OS-backed human-presence broker and non-exportable keys: implementation and
   deterministic tests landed; real-host smoke and independent review remain ([issue #3](https://github.com/Oussamoux1234/continuum-memory/issues/3))
 - [ ] Secret/DLP gates, encrypted backup/recovery, deletion revocation anchor
@@ -34,7 +39,10 @@
 ## Hardening and release
 
 - [ ] Adversarial, fuzz, performance, accessibility, and incident/repair suites
-- [ ] SBOM, license/vulnerability policy, deterministic payload, signing rehearsal
+- [ ] Release-grade SBOM, resolved dependency-license policy, patched dependencies,
+  cross-platform reproducibility, and an approved signing/revocation workflow; Issue #7 has a
+  verifier-enforced candidate inventory and readiness evidence, but known findings and unresolved
+  license/signing decisions block release certification
 - [ ] Linux packaging and independently reviewed security claims ([issue #2](https://github.com/Oussamoux1234/continuum-memory/issues/2))
 - [ ] Hardened macOS approval/filesystem boundary and native CI ([issue #10](https://github.com/Oussamoux1234/continuum-memory/issues/10))
 - [ ] Trustworthy Windows IPC/filesystem boundary and native CI ([issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1))

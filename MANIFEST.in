@@ -1,5 +1,14 @@
 recursive-include packaging/linux *
 recursive-include fixtures *.py
 recursive-include tests *.py
+recursive-include requirements *.txt
+recursive-include sbom *.json
+recursive-include security *.json
+recursive-include third_party_licenses *.txt
+include LICENSE
+include THIRD_PARTY_NOTICES.md
 include docs/LINUX_APPROVAL_BROKER.md
+include docs/RELEASE_READINESS.md
+include docs/SQLCIPHER_STORAGE.md
+include docs/architecture/010-encryption-dependency-decision.md
 include scripts/polkit_smoke.py

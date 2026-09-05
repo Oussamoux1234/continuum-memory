@@ -1,7 +1,6 @@
 """Policy-enforcing domain kernel. The daemon is its only post-bootstrap caller."""
 
 import json
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -222,7 +221,7 @@ class Kernel:
             "project_bound": project,
             "provider": capability["provider"],
             "projection_watermark": watermark,
-            "storage_mode": "plaintext_prototype",
+            "storage_mode": self.store.storage_mode,
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
         }
@@ -375,7 +374,7 @@ class Kernel:
         return {"status": "ok", "proposals": [self._proposal_view(row) for row in rows]}
 
     @staticmethod
-    def _proposal_view(row: sqlite3.Row) -> Dict[str, Any]:
+    def _proposal_view(row: Any) -> Dict[str, Any]:
         return {
             "proposal_id": row["id"],
             "subject": row["subject"],
@@ -1145,7 +1144,7 @@ class Kernel:
         return [self._card(row, match_reason) for row in rows], watermark
 
     @staticmethod
-    def _card(row: sqlite3.Row, why: str) -> Dict[str, Any]:
+    def _card(row: Any, why: str) -> Dict[str, Any]:
         claim = _truncate_utf8(row["body"], 768)
         return {
             "memory_id": row["thread_id"],
@@ -1523,7 +1522,9 @@ class Kernel:
         require_keys(params, [])
         result = self.store.verify_audit()
         integrity = self.db.execute("PRAGMA integrity_check").fetchone()[0]
+        cipher_findings = [row[0] for row in self.db.execute("PRAGMA cipher_integrity_check")]
         result["sqlite_integrity"] = integrity
+        result["sqlcipher_integrity"] = "ok" if not cipher_findings else "failed"
         result["content_free_event_schema"] = True
         return result
 

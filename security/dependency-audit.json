@@ -1,0 +1,162 @@
+{
+  "auditDate": "2026-09-05",
+  "auditMethod": {
+    "githubAdvisories": "Public repository security-advisory endpoints",
+    "opensslSeverity": "OpenSSL vendor CVE JSON records",
+    "osv": "OSV v1 query API using exact package version or Git commit",
+    "sqlite": "SQLite project's CVE status page"
+  },
+  "components": {
+    "OpenSSL": {
+      "commit": "7b371d80d959ec9ab4139d09d78e83c090de9779",
+      "findings": {
+        "High": [
+          "CVE-2025-15467",
+          "CVE-2026-45447"
+        ],
+        "Low": [
+          "CVE-2025-15468",
+          "CVE-2025-15469",
+          "CVE-2025-66199",
+          "CVE-2025-68160",
+          "CVE-2025-69418",
+          "CVE-2025-69419",
+          "CVE-2025-69420",
+          "CVE-2025-69421",
+          "CVE-2026-14456",
+          "CVE-2026-14457",
+          "CVE-2026-22795",
+          "CVE-2026-22796",
+          "CVE-2026-2673",
+          "CVE-2026-28386",
+          "CVE-2026-28387",
+          "CVE-2026-28388",
+          "CVE-2026-28389",
+          "CVE-2026-28390",
+          "CVE-2026-31789",
+          "CVE-2026-34180",
+          "CVE-2026-34181",
+          "CVE-2026-42765",
+          "CVE-2026-42766",
+          "CVE-2026-42767",
+          "CVE-2026-42768",
+          "CVE-2026-42769",
+          "CVE-2026-42770",
+          "CVE-2026-45446",
+          "CVE-2026-54874",
+          "CVE-2026-54876",
+          "CVE-2026-63073",
+          "CVE-2026-63074",
+          "CVE-2026-63075",
+          "CVE-2026-7383",
+          "CVE-2026-75803",
+          "CVE-2026-9076"
+        ],
+        "Moderate": [
+          "CVE-2025-11187",
+          "CVE-2026-18798",
+          "CVE-2026-31790",
+          "CVE-2026-34182",
+          "CVE-2026-34183",
+          "CVE-2026-35188",
+          "CVE-2026-42764",
+          "CVE-2026-45445",
+          "CVE-2026-63072",
+          "CVE-2026-63076"
+        ]
+      },
+      "findingCount": 48,
+      "status": "known-findings-block-release",
+      "version": "3.6.0"
+    },
+    "SQLCipher": {
+      "commit": "ab223bd801ec225d1497a077da08777d21d1266d",
+      "githubPublishedAdvisoryCount": 0,
+      "osvFindingCount": 0,
+      "status": "no-known-findings-in-queried-sources-not-proof-of-safety",
+      "version": "4.12.0"
+    },
+    "SQLite": {
+      "findings": [
+        "CVE-2026-11822",
+        "CVE-2026-11824"
+      ],
+      "fixedVersion": "3.53.2",
+      "sourceId": "2025-11-28 17:28:25 281fc0e9afc38674b9b0991943b9e9d1e64c6cbdb133d35f6f5c87ff6af38a88",
+      "sourceSeverity": "not assigned by SQLite",
+      "status": "known-findings-block-release",
+      "version": "3.51.1"
+    },
+    "sqlcipher3": {
+      "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec",
+      "githubPublishedAdvisoryCount": 0,
+      "osvFindingCount": 0,
+      "status": "no-known-findings-in-queried-sources-not-proof-of-safety",
+      "version": "0.6.2"
+    }
+  },
+  "limitations": [
+    "Point-in-time database queries can miss unpublished, disputed, or newly disclosed vulnerabilities.",
+    "Version matches identify affected code; they do not prove exploitability through Continuum Memory.",
+    "API reachability review is not a substitute for upgrading vulnerable embedded components.",
+    "The audit must be rerun immediately before any merge or release decision."
+  ],
+  "replacementAssessment": {
+    "minimumPatchedVersions": {
+      "OpenSSL": "3.6.4",
+      "SQLCipher": "4.17.0",
+      "SQLite": "3.53.2"
+    },
+    "preferredReplacementVersions": {
+      "OpenSSL": "3.5.8",
+      "SQLCipher": "4.18.0",
+      "SQLite": "3.53.4"
+    },
+    "publishedPatchedSqlcipher3WheelAvailable": false,
+    "reviewedSourceCandidates": {
+      "OpenSSL": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+        "sourceArchiveSha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+        "sourceSignatureVerified": false,
+        "version": "3.5.8"
+      },
+      "SQLCipher": {
+        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+        "embeddedSQLiteVersion": "3.53.4",
+        "sourceArchiveSha256": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90",
+        "sourceSignatureVerified": false,
+        "version": "4.18.0"
+      },
+      "sqlcipher3": {
+        "latestPyPIVersion": "0.6.2",
+        "masterCommit": "dfee7e5fe6a1422d9e5e23edc0727a2e1e2128ed",
+        "masterOpenSSLRequirement": "3.6.0"
+      }
+    },
+    "requiredDecision": "Explicitly authorize a project-owned native binding fork and wheel supply chain, including platform matrix, artifact host, signing identity, trust policy, and revocation procedure; otherwise wait for a reviewed upstream wheel.",
+    "selectedInstallableArtifact": null,
+    "status": "BLOCKED_NO_INSTALLABLE_ARTIFACT"
+  },
+  "releaseDecision": {
+    "reasons": [
+      "The pinned wheels statically contain OpenSSL 3.6.0 with vendor-confirmed known findings.",
+      "The pinned wheels contain SQLite 3.51.1, older than the project's documented 3.53.2 fixes for two FTS5 heap-write CVEs.",
+      "No patched published sqlcipher3 wheel or other reviewed installable artifact satisfies the replacement floor.",
+      "The sqlcipher3 declared-versus-shipped license discrepancy still needs independent review."
+    ],
+    "status": "BLOCKED"
+  },
+  "schemaVersion": 1,
+  "sources": [
+    "https://api.osv.dev/v1/query",
+    "https://openssl-library.org/source/",
+    "https://openssl-library.org/news/secjson/",
+    "https://openssl-library.org/news/vulnerabilities-3.6/",
+    "https://www.sqlite.org/cves.html",
+    "https://www.zetetic.net/blog/2026/08/18/sqlcipher-4.18.0-release/",
+    "https://www.zetetic.net/sqlcipher/verify/",
+    "https://pypi.org/project/sqlcipher3/",
+    "https://api.github.com/repos/coleifer/sqlcipher3/security-advisories",
+    "https://api.github.com/repos/sqlcipher/sqlcipher/security-advisories"
+  ]
+}

@@ -91,6 +91,40 @@ class FilesystemHardeningTest(unittest.TestCase):
                 Store(data_dir)
             self.assertEqual(linked.exception.code, "unsafe_file")
 
+    def test_storage_key_rejects_missing_symlink_hardlink_and_open_modes(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-fs-key-") as temporary:
+            data_dir = Path(temporary)
+            Store.bootstrap(data_dir, PROJECTS)
+            storage_key = paths(data_dir)["storage_key"]
+            original_key = storage_key.read_bytes()
+
+            storage_key.unlink()
+            with self.assertRaises(MemoryError) as missing:
+                Store(data_dir)
+            self.assertEqual(missing.exception.code, "storage_key_unavailable")
+
+            storage_key.write_bytes(original_key)
+            os.chmod(str(storage_key), 0o600)
+            hardlink = data_dir / "storage-key-hardlink"
+            os.link(str(storage_key), str(hardlink))
+            with self.assertRaises(MemoryError) as hardlinked:
+                Store(data_dir)
+            self.assertEqual(hardlinked.exception.code, "storage_key_unavailable")
+            hardlink.unlink()
+
+            os.chmod(str(storage_key), 0o644)
+            with self.assertRaises(MemoryError) as permissions:
+                Store(data_dir)
+            self.assertEqual(permissions.exception.code, "storage_key_unavailable")
+            os.chmod(str(storage_key), 0o600)
+
+            real_key = data_dir / "storage-key-real"
+            storage_key.rename(real_key)
+            storage_key.symlink_to(real_key.name)
+            with self.assertRaises(MemoryError) as linked:
+                Store(data_dir)
+            self.assertEqual(linked.exception.code, "storage_key_unavailable")
+
     def test_client_and_daemon_reject_socket_symlink(self):
         with tempfile.TemporaryDirectory(prefix="continuum-fs-socket-") as temporary:
             data_dir = Path(temporary)
