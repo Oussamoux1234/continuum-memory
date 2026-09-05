@@ -32,9 +32,9 @@ expansion targets, not current support claims.
    reviewed OpenSSL 3.5.8 configure source. They reject empty PATH entries and unsupported
    date formats and are loaded from the read-only checkout.
 4. The inspector requires byte-identical builds, the exact ABI/platform filename, one native
-   member, no dynamic OpenSSL dependency, only the allowlisted host libraries, one exported
-   initializer symbol, exact embedded version markers, exact license payloads, conservative
-   license metadata, and eventually the locked wheel SHA-256.
+   member, no dynamic OpenSSL dependency, only the allowlisted glibc host libraries and
+   x86-64 ELF loader, one exported initializer symbol, exact embedded version markers, exact
+   license payloads, conservative license metadata, and eventually the locked wheel SHA-256.
 5. A fresh virtual environment installs the wheel with no index or dependencies and tests
    version identity, active encryption, wrong/missing keys, encrypted header/WAL/FTS/temp
    canaries, crash recovery, and SQLite plus SQLCipher integrity.

@@ -15,7 +15,12 @@ from scripts.fetch_patched_sqlcipher_sources import (
     valid_signature_fingerprints,
     validate_manifest,
 )
-from scripts.inspect_patched_sqlcipher_wheel import one_wheel, write_evidence
+from scripts.inspect_patched_sqlcipher_wheel import (
+    ALLOWED_NEEDED,
+    one_wheel,
+    validate_native_dependencies,
+    write_evidence,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -234,6 +239,21 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
             (directory / "two.whl").write_bytes(b"two")
             with self.assertRaisesRegex(RuntimeError, "found 2"):
                 one_wheel(directory)
+
+    def test_native_dependency_allowlist_includes_glibc_loader_and_fails_closed(self):
+        expected = {
+            "ld-linux-x86-64.so.2",
+            "libc.so.6",
+            "libdl.so.2",
+            "libm.so.6",
+            "libpthread.so.0",
+        }
+        self.assertEqual(ALLOWED_NEEDED, expected)
+        validate_native_dependencies(expected)
+        for dependency in ("libcrypto.so.3", "libssl.so.3", "libz.so.1"):
+            with self.subTest(dependency=dependency):
+                with self.assertRaises(RuntimeError):
+                    validate_native_dependencies(expected | {dependency})
 
     def test_generated_provenance_and_sbom_bind_exact_wheel_hash(self):
         manifest = validate_manifest(load_json_strict(DEFAULT_MANIFEST))

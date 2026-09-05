@@ -44,7 +44,13 @@ EXPECTED_LICENSE_HASHES = {
         "595e823c2ada6c839679e693bee1f4d7f88e2d34ac99a913ae41e3d43fb10c7d"
     ),
 }
-ALLOWED_NEEDED = {"libc.so.6", "libdl.so.2", "libm.so.6", "libpthread.so.0"}
+ALLOWED_NEEDED = {
+    "ld-linux-x86-64.so.2",
+    "libc.so.6",
+    "libdl.so.2",
+    "libm.so.6",
+    "libpthread.so.0",
+}
 
 
 def one_wheel(directory: Path) -> Path:
@@ -68,6 +74,13 @@ def command_output(command: list[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     ).stdout
+
+
+def validate_native_dependencies(needed: set[str]) -> None:
+    if not needed.issubset(ALLOWED_NEEDED):
+        raise RuntimeError("wheel has an unreviewed native dependency: %s" % sorted(needed))
+    if any("crypto" in item.lower() or "ssl" in item.lower() for item in needed):
+        raise RuntimeError("OpenSSL must be statically linked")
 
 
 def inspect_wheel(wheel: Path, manifest: dict) -> dict:
@@ -114,10 +127,7 @@ def inspect_wheel(wheel: Path, manifest: dict) -> dict:
         native_path.write_bytes(native_payload)
         dynamic = command_output(["readelf", "-d", str(native_path)])
         needed = set(re.findall(r"\(NEEDED\).*?\[(.*?)\]", dynamic))
-        if not needed.issubset(ALLOWED_NEEDED):
-            raise RuntimeError("wheel has an unreviewed native dependency: %s" % sorted(needed))
-        if any("crypto" in item.lower() or "ssl" in item.lower() for item in needed):
-            raise RuntimeError("OpenSSL must be statically linked")
+        validate_native_dependencies(needed)
         symbols = command_output(["nm", "-D", "--defined-only", str(native_path)])
         exported = {
             line.split()[-1]
