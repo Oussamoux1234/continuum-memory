@@ -23,16 +23,16 @@
     "imageTag": "2026.09.05-1",
     "platform": "linux-x86_64",
     "reviewedProjectFiles": {
-      ".github/workflows/patched-sqlcipher-wheel.yml": "67a3a9740428b8578be76183a67bb126a6e649b317dfb9e008308c26a5cfa571",
+      ".github/workflows/patched-sqlcipher-wheel.yml": "bce8db98699f822eb46c575c1f82363ef4b864aaba5dbe16adcf8a4502537338",
       "packaging/sqlcipher/perl/IPC/Cmd.pm": "e5b04fd40c115bb6ba663a88b0e5d0776f3e7454ddb80fed344ff2713bec6c8a",
       "packaging/sqlcipher/perl/Time/Piece.pm": "2c2da5b01d7206240a7d3dba86a2d1f0bb185ec85b27367c20f439d419818eed",
       "packaging/sqlcipher/osv-evidence-2026-09-07.json": "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
       "packaging/sqlcipher/pyproject.toml": "7a67e414fe5a4938299fe2ee58f6fb3e90b59bbfe722236264edfca29dfd7370",
       "packaging/sqlcipher/setup_continuum.py": "305b7b737b43967e14d5c54e96b7e1deb72b7b71d2ee2fff8e0ca8ea7f8b3f07",
       "scripts/build_patched_sqlcipher_wheel.sh": "689417e8624db054e8da8b51d32d37956e78801b38b214321d89496429304529",
-      "scripts/fetch_patched_sqlcipher_sources.py": "474282788ccf0100bac6a863bcdab4460396cfa2b8ed4bfaa9a0265f27d71521",
-      "scripts/inspect_patched_sqlcipher_wheel.py": "63d01c7f9e243bb6e2b54d1ceb60cbfd9f16d50fde575f0c72ba224375232793",
-      "scripts/test_patched_sqlcipher_install.py": "b87719c7dda47940bedce791eb0547e0ea94b4361ab7ae3e765249c8a660ca27",
+      "scripts/fetch_patched_sqlcipher_sources.py": "0a0985e0ed8bfb426de81ab4e889523ee223b92613c5209a86c74ab658cf3669",
+      "scripts/inspect_patched_sqlcipher_wheel.py": "abdeba6b136d075f3a9d1d0eb911c4164b59200f77b378655e09b014adb93725",
+      "scripts/test_patched_sqlcipher_install.py": "cacf7d540fa79bb77917b91302ea62b1d106305269eebc36be7800e8d3b65f86",
       "scripts/test_patched_sqlcipher_runtime.py": "853bada312ac5de00e778ba828f68cc1f6468628427b335aeb945c534330809a",
       "scripts/verify_patched_sqlcipher_inputs.py": "840cd31fb463373a409a1db72f14ea39c333416a0faecff491a8c2d8ca52eeb0"
     },
@@ -44,25 +44,25 @@
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp311-cp311-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp311-cp311",
       "pythonMinor": "3.11",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "fee55857a7421a218f49d0fe2bc60520585ef3715e39425a6e554506ba47f547"
     },
     "linuxCp312": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp312-cp312-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp312-cp312",
       "pythonMinor": "3.12",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "489219f11724f8402d2ab931da4b74a4f906f7531d701bccda6b002140049563"
     },
     "linuxCp313": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp313-cp313-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp313-cp313",
       "pythonMinor": "3.13",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "235e0ce96f36a7cee715022a80cbd68acc488e7e8f9e20d3a5cea2978b85ba8b"
     },
     "linuxCp314": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp314-cp314",
       "pythonMinor": "3.14",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "57b53b865951dcb6c3fd6de3c19d495de79b2186a7f7344bb6632b0ded6a9389"
     }
   },
   "schemaVersion": 1,

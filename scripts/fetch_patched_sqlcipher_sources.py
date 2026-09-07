@@ -334,6 +334,7 @@ def validate_manifest(manifest: object) -> dict:
         if (
             not isinstance(expected_artifact_hash, str)
             or HEX_64.fullmatch(expected_artifact_hash) is None
+            or expected_artifact_hash == "0" * 64
         ):
             raise RuntimeError("patched-wheel SHA-256 must be locked: %s" % key)
     if manifest.get("signing") != {

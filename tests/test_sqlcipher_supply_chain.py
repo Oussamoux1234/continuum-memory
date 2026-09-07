@@ -190,6 +190,9 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         bad_hash = copy.deepcopy(self.manifest)
         bad_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = "not-a-hash"
         cases.append(bad_hash)
+        zero_hash = copy.deepcopy(self.manifest)
+        zero_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = "0" * 64
+        cases.append(zero_hash)
         bad_abi = copy.deepcopy(self.manifest)
         bad_abi["expectedArtifacts"]["linuxCp313"]["pythonAbi"] = "cp314-cp314"
         cases.append(bad_abi)
@@ -507,10 +510,6 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
             target["sha256"] = "0" * 64
             with self.assertRaisesRegex(RuntimeError, "SHA-256"):
                 require_regular_wheel(directory, target)
-            self.assertEqual(
-                require_regular_wheel(directory, target, allow_unlocked_bootstrap=True),
-                wheel,
-            )
 
     def test_reviewed_drivers_start_under_isolated_python(self):
         environment = dict(os.environ)
@@ -611,20 +610,16 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("if: always()", workflow)
         self.assertNotIn("actions/cache", workflow)
-        self.assertIn("allow-unlocked-bootstrap", workflow)
-        self.assertIn("Report bootstrap digest and fail closed before retention", workflow)
+        self.assertNotIn("allow-unlocked-bootstrap", workflow)
+        self.assertNotIn("Report bootstrap digest", workflow)
         inspector = (ROOT / "scripts/inspect_patched_sqlcipher_wheel.py").read_text(
             encoding="utf-8"
         )
         installer = (ROOT / "scripts/test_patched_sqlcipher_install.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("allow-unlocked-bootstrap", inspector)
-        self.assertIn("allow-unlocked-bootstrap", installer)
-        self.assertLess(
-            workflow.index("Report bootstrap digest and fail closed before retention"),
-            workflow.index("Retain only fully validated"),
-        )
+        self.assertNotIn("allow-unlocked-bootstrap", inspector)
+        self.assertNotIn("allow-unlocked-bootstrap", installer)
         self.assertGreater(
             workflow.index("Retain only fully validated"),
             workflow.index("Test offline installation"),
