@@ -1,6 +1,6 @@
 # Patched SQLCipher wheel third-party notices
 
-Status: CI test artifact only; not published or approved for permanent distribution.
+Status: ephemeral CI test artifact only; not released or approved for permanent distribution.
 
 The `continuum-sqlcipher3` 0.6.2.post1 wheel retains the `sqlcipher3` Python/C binding API
 from upstream 0.6.2 and replaces only its vendored amalgamation and cryptographic provider
@@ -24,8 +24,10 @@ SHA-256 values are enforced by `scripts/inspect_patched_sqlcipher_wheel.py`:
 The source and signature hashes, signing-key fingerprints, support windows, immutable
 builder identity, and build-tool hashes are in `packaging/sqlcipher/manifest.json`. The
 generated CI evidence bundle adds the exact wheel checksum, native dependency and license
-inventory, source-signature verification result, runtime result, build provenance, and
-artifact-specific SPDX 2.3 SBOM.
+inventory, source-signature verification result, runtime result, exact reviewed-recipe
+hashes, producing commit/run identity, build provenance, and artifact-specific SPDX 2.3
+SBOM. The two small OpenSSL compatibility shims are project-controlled Apache-2.0 files;
+their SHA-1/SHA-256 values are inventoried without making a clean-room provenance claim.
 
 The `sqlcipher3` license discrepancy remains unresolved. Retaining the exact text and using
 `NOASSERTION` is an engineering disclosure, not a legal conclusion. Independent license

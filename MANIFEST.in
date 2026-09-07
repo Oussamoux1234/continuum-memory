@@ -9,5 +9,6 @@ include scripts/build_patched_sqlcipher_wheel.sh
 include scripts/fetch_patched_sqlcipher_sources.py
 include scripts/inspect_patched_sqlcipher_wheel.py
 include scripts/polkit_smoke.py
+include scripts/test_patched_sqlcipher_install.py
 include scripts/test_patched_sqlcipher_runtime.py
 include scripts/verify_patched_sqlcipher_inputs.py

@@ -1,7 +1,7 @@
 """Project-controlled build definition for the reviewed sqlcipher3-compatible wheel."""
 
-import glob
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -11,6 +11,18 @@ from setuptools import Extension, setup
 DISTRIBUTION_NAME = "continuum-sqlcipher3"
 MODULE_NAME = "sqlcipher3"
 VERSION = "0.6.2.post1"
+EXPECTED_BINDING_SOURCES = {
+    "src/blob.c",
+    "src/cache.c",
+    "src/connection.c",
+    "src/cursor.c",
+    "src/microprotocols.c",
+    "src/module.c",
+    "src/prepare_protocol.c",
+    "src/row.c",
+    "src/statement.c",
+    "src/util.c",
+}
 
 
 def required_path(name: str, *, directory: bool = False) -> str:
@@ -18,17 +30,31 @@ def required_path(name: str, *, directory: bool = False) -> str:
     if not value:
         raise RuntimeError("%s is required" % name)
     path = Path(value)
-    valid = path.is_dir() if directory else path.is_file()
-    if not path.is_absolute() or not valid:
-        raise RuntimeError("%s must name an existing absolute path" % name)
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as error:
+        raise RuntimeError("%s must name an existing absolute path" % name) from error
+    valid = stat.S_ISDIR(metadata.st_mode) if directory else stat.S_ISREG(metadata.st_mode)
+    if (
+        not path.is_absolute()
+        or path.is_symlink()
+        or not valid
+        or (not directory and metadata.st_nlink != 1)
+    ):
+        raise RuntimeError("%s must name an unlinked absolute path of the expected type" % name)
     return str(path)
 
 
 def build_extension() -> Extension:
     openssl_include = required_path("CONTINUUM_OPENSSL_INCLUDE", directory=True)
     libcrypto = required_path("CONTINUUM_LIBCRYPTO_A")
-    sources = sorted(glob.glob("src/*.c")) + ["vendor/sqlite3.c"]
-    if not sources or not Path("vendor/sqlite3.h").is_file():
+    binding_sources = {str(path) for path in Path("src").glob("*.c")}
+    if binding_sources != EXPECTED_BINDING_SOURCES:
+        raise RuntimeError("reviewed binding C source inventory changed")
+    sources = sorted(binding_sources) + ["vendor/sqlite3.c"]
+    if Path("vendor/sqlite3.c").is_symlink() or Path("vendor/sqlite3.h").is_symlink():
+        raise RuntimeError("SQLCipher amalgamation must not be linked")
+    if not Path("vendor/sqlite3.c").is_file() or not Path("vendor/sqlite3.h").is_file():
         raise RuntimeError("reviewed binding or SQLCipher amalgamation is incomplete")
 
     macros = [
@@ -55,12 +81,29 @@ def build_extension() -> Extension:
         ("SQLITE_DEFAULT_CACHE_SIZE", "-8000"),
         ("inline", "__inline"),
     ]
-    compile_args = ["-O2", "-g0", "-fvisibility=hidden"]
+    compile_args = [
+        "-O2",
+        "-g0",
+        "-fvisibility=hidden",
+        "-fstack-protector-strong",
+        "-U_FORTIFY_SOURCE",
+        "-D_FORTIFY_SOURCE=3",
+    ]
     link_args = ["-lm"]
     if sys.platform == "darwin":
         compile_args.append("-Qunused-arguments")
     elif sys.platform.startswith("linux"):
-        link_args.extend(["-ldl", "-pthread", "-Wl,--exclude-libs,ALL"])
+        link_args.extend(
+            [
+                "-ldl",
+                "-pthread",
+                "-Wl,--as-needed",
+                "-Wl,--exclude-libs,ALL",
+                "-Wl,-z,noexecstack",
+                "-Wl,-z,now",
+                "-Wl,-z,relro",
+            ]
+        )
     else:
         raise RuntimeError("this focused supply-chain gate supports Linux and macOS only")
 

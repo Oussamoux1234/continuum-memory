@@ -1,5 +1,8 @@
 package Time::Piece;
 
+# SPDX-License-Identifier: Apache-2.0
+# Project-controlled minimal compatibility shim for the pinned OpenSSL build.
+
 use strict;
 use warnings;
 

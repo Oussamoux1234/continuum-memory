@@ -12,6 +12,7 @@ try:
         DEFAULT_MANIFEST,
         inspect_project_inputs,
         inspect_sources,
+        is_single_regular_file,
         iter_downloads,
         load_json_strict,
         sha256,
@@ -22,6 +23,7 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
         DEFAULT_MANIFEST,
         inspect_project_inputs,
         inspect_sources,
+        is_single_regular_file,
         iter_downloads,
         load_json_strict,
         sha256,
@@ -34,10 +36,13 @@ def verify_bundle(sources: Path, manifest_path: Path) -> None:
     inspect_project_inputs(ROOT, manifest)
     for label, record in iter_downloads(manifest):
         path = sources / record["filename"]
-        if not path.is_file() or sha256(path) != record["sha256"]:
+        if not is_single_regular_file(path) or sha256(path) != record["sha256"]:
             raise RuntimeError("verified input is missing or modified: %s" % label)
     inspect_sources(sources, manifest)
-    evidence = load_json_strict(sources / "source-verification.json")
+    evidence_path = sources / "source-verification.json"
+    if not is_single_regular_file(evidence_path):
+        raise RuntimeError("source signature evidence is missing, linked, or not regular")
+    evidence = load_json_strict(evidence_path)
     if evidence.get("status") != "VERIFIED" or evidence.get("manifestSha256") != sha256(
         manifest_path
     ):

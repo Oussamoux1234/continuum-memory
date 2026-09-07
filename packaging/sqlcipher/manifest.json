@@ -21,18 +21,47 @@
   "builder": {
     "image": "quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c",
     "imageTag": "2026.09.05-1",
-    "opensslPerlShims": {
-      "packaging/sqlcipher/perl/IPC/Cmd.pm": "899f6a63fef81455c23e9b7c2c5b59568e321a02faf9685d9f63e6416837ba82",
-      "packaging/sqlcipher/perl/Time/Piece.pm": "91854216b72683d724e76a1ed26e8f90dee87e136dee3db5ac509ce400585f3f"
-    },
     "platform": "linux-x86_64",
+    "reviewedProjectFiles": {
+      ".github/workflows/patched-sqlcipher-wheel.yml": "f84a9e3672d00a7edadf3bfa50be2be567281f4f38fe98d7180e4d68f68d78b8",
+      "packaging/sqlcipher/perl/IPC/Cmd.pm": "e5b04fd40c115bb6ba663a88b0e5d0776f3e7454ddb80fed344ff2713bec6c8a",
+      "packaging/sqlcipher/perl/Time/Piece.pm": "2c2da5b01d7206240a7d3dba86a2d1f0bb185ec85b27367c20f439d419818eed",
+      "packaging/sqlcipher/pyproject.toml": "7a67e414fe5a4938299fe2ee58f6fb3e90b59bbfe722236264edfca29dfd7370",
+      "packaging/sqlcipher/setup_continuum.py": "4d0346985712d5ad5bd37f308f57ec1dfd2018f2729f79b3c66d8db393eff7b0",
+      "scripts/build_patched_sqlcipher_wheel.sh": "689417e8624db054e8da8b51d32d37956e78801b38b214321d89496429304529",
+      "scripts/fetch_patched_sqlcipher_sources.py": "0679f3a7c8400d02104626801b01c28b40cf3b3252e8274c3b6212398ba9cd49",
+      "scripts/inspect_patched_sqlcipher_wheel.py": "50cbe46370c590be3a1373b4f66b0fdbe8ae087c8cb7cf1d42d177594ede9b8b",
+      "scripts/test_patched_sqlcipher_install.py": "b87719c7dda47940bedce791eb0547e0ea94b4361ab7ae3e765249c8a660ca27",
+      "scripts/test_patched_sqlcipher_runtime.py": "eda35ea740f45e3125d0c0922b2a18a15d1c1a87b78efa833396c5f8342e1127",
+      "scripts/verify_patched_sqlcipher_inputs.py": "840cd31fb463373a409a1db72f14ea39c333416a0faecff491a8c2d8ca52eeb0"
+    },
     "sourceDateEpoch": 1788285600
   },
-  "evidenceDate": "2026-09-05",
+  "evidenceDate": "2026-09-07",
   "expectedArtifacts": {
+    "linuxCp311": {
+      "filename": "continuum_sqlcipher3-0.6.2.post1-cp311-cp311-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp311-cp311",
+      "pythonMinor": "3.11",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "linuxCp312": {
+      "filename": "continuum_sqlcipher3-0.6.2.post1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp312-cp312",
+      "pythonMinor": "3.12",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "linuxCp313": {
+      "filename": "continuum_sqlcipher3-0.6.2.post1-cp313-cp313-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp313-cp313",
+      "pythonMinor": "3.13",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
     "linuxCp314": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
-      "sha256": "960c2b66f79af488372e6347b06dfbfe0c68f41e69384c8b96cc65eea4708205"
+      "pythonAbi": "cp314-cp314",
+      "pythonMinor": "3.14",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   "schemaVersion": 1,
@@ -107,12 +136,12 @@
   },
   "supportedSlice": {
     "built": [
-      "linux-x86_64/cp314"
-    ],
-    "planned": [
       "linux-x86_64/cp311",
       "linux-x86_64/cp312",
       "linux-x86_64/cp313",
+      "linux-x86_64/cp314"
+    ],
+    "planned": [
       "macos-arm64/cp311",
       "macos-arm64/cp312",
       "macos-arm64/cp313",

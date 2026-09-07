@@ -37,6 +37,7 @@ REQUIRED_SDIST_FILES = (
     "scripts/fetch_patched_sqlcipher_sources.py",
     "scripts/inspect_patched_sqlcipher_wheel.py",
     "scripts/polkit_smoke.py",
+    "scripts/test_patched_sqlcipher_install.py",
     "scripts/test_patched_sqlcipher_runtime.py",
     "scripts/verify_patched_sqlcipher_inputs.py",
     "src/continuum_memory/approval.py",
@@ -80,13 +81,22 @@ def whitespace_check() -> None:
 
 def sqlcipher_supply_chain_check() -> None:
     try:
-        from scripts.fetch_patched_sqlcipher_sources import load_json_strict, validate_manifest
+        from scripts.fetch_patched_sqlcipher_sources import (
+            inspect_project_inputs,
+            load_json_strict,
+            validate_manifest,
+        )
     except ModuleNotFoundError:
-        from fetch_patched_sqlcipher_sources import load_json_strict, validate_manifest
+        from fetch_patched_sqlcipher_sources import (
+            inspect_project_inputs,
+            load_json_strict,
+            validate_manifest,
+        )
 
     manifest = validate_manifest(
         load_json_strict(ROOT / "packaging" / "sqlcipher" / "manifest.json")
     )
+    inspect_project_inputs(ROOT, manifest)
     if manifest["supportedSlice"].get("windowsSupported") is not False:
         raise RuntimeError("patched SQLCipher wheel must not claim Windows support")
     sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")
@@ -110,6 +120,31 @@ def sqlcipher_supply_chain_check() -> None:
     binding = by_identifier.get("SPDXRef-Source-sqlcipher3", {})
     if binding.get("licenseConcluded") != "NOASSERTION":
         raise RuntimeError("patched SQLCipher source SBOM overstates the binding license")
+    files = sbom.get("files")
+    if not isinstance(files, list):
+        raise RuntimeError("patched SQLCipher source SBOM file inventory changed")
+    by_name = {item.get("fileName"): item for item in files if isinstance(item, dict)}
+    expected_shims = {
+        "./packaging/sqlcipher/perl/IPC/Cmd.pm": "packaging/sqlcipher/perl/IPC/Cmd.pm",
+        "./packaging/sqlcipher/perl/Time/Piece.pm": "packaging/sqlcipher/perl/Time/Piece.pm",
+    }
+    if len(files) != len(by_name) or set(by_name) != set(expected_shims):
+        raise RuntimeError("patched SQLCipher source SBOM shim inventory changed")
+    for sbom_name, manifest_name in expected_shims.items():
+        item = by_name[sbom_name]
+        checksums = item.get("checksums")
+        by_algorithm = {
+            checksum.get("algorithm"): checksum.get("checksumValue")
+            for checksum in checksums
+            if isinstance(checksum, dict)
+        } if isinstance(checksums, list) else {}
+        if (
+            item.get("licenseConcluded") != "Apache-2.0"
+            or set(by_algorithm) != {"SHA1", "SHA256"}
+            or by_algorithm["SHA256"]
+            != manifest["builder"]["reviewedProjectFiles"][manifest_name]
+        ):
+            raise RuntimeError("patched SQLCipher source SBOM shim evidence changed")
     print("patched SQLCipher supply-chain manifest: ok")
 
 

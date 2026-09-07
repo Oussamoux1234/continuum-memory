@@ -1,6 +1,6 @@
 # Verification record
 
-Last run: 2026-09-03.
+Prototype baseline recorded 2026-09-03; native supply-chain gate updated 2026-09-07.
 
 ## Supported command
 
@@ -12,9 +12,10 @@ The command parses both JSON schemas, checks source whitespace, compiles every P
 module, runs the unit/integration suite with resource warnings promoted to errors, executes
 the complete two-client fixture demo, builds a source distribution, installs that exact
 archive offline into a temporary virtual environment, exercises its entry points, and runs
-`git diff --check`.
+`git diff --check`. It also validates the checked-in patched-SQLCipher manifest, source SBOM,
+recipe hashes, and negative regression tests. It does not compile native wheels locally.
 
-## Observed result
+## Recorded prototype result
 
 Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
 The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
@@ -55,6 +56,19 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
   provisioning and umask isolation, Unicode-safe preview rendering, isolated installer
   environment, and agent denial: passed without invoking polkit.
 
+## Native SQLCipher artifact gate
+
+The separate `patched-sqlcipher-wheel` workflow targets Linux x86-64 on CPython 3.11-3.14.
+For every matrix entry it performs two clean builds in the same digest-pinned manylinux
+environment, requires byte-for-byte equality and a manifest-locked digest, deeply inspects
+the wheel and ELF payload, installs it offline outside the checkout, and runs the encrypted
+runtime/recovery suite. Only successful test wheels are retained, for seven days.
+
+That workflow validates an ephemeral native test artifact, not the Continuum Memory
+application. It does not change the quickstart dependency, migrate a vault, exercise real key
+management, publish a package, or prove release readiness. macOS arm64 is blocked until an
+immutable builder/toolchain can satisfy the same evidence standard; Windows is not a target.
+
 ## Initial-slice checklist disposition
 
 | Area | Result |
@@ -70,15 +84,16 @@ The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.
 | Content-free HMAC audit verification/tamper detection | Passed prototype tests |
 | Default runtime network access | No network code exists; packet-level instrumentation not run |
 | Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
-| Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
+| Linux distribution package | Application source archive build/install passed; patched SQLCipher wheels are separate ephemeral CI test artifacts, not an application or release package |
 | Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
-| SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
+| SQLCipher/page/WAL/temp encryption | Native Linux artifact harness covers encryption, FTS5, WAL, temp, wrong-key, recovery, integrity, and plaintext canaries; application integration is not implemented and the prototype remains plaintext |
 | Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
 | Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
 | Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
-| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; no third-party runtime dependency, but host Python/SQLite remain supply-chain inputs |
+| Patched SQLCipher supply chain | Linux x86-64 CPython 3.11-3.14 pipeline pins and verifies sources/tools, builds twice, emits SBOM/provenance, and tests offline; independent acceptance, binding `NOASSERTION`, signing, application integration, and permanent distribution remain open |
+| macOS patched SQLCipher artifacts | Blocked: no approved immutable macOS arm64 builder/toolchain currently meets the Linux evidence standard |
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
 This result supports only the maturity label “experimental local prototype.” It is not
-evidence for encryption, production security, native-host compatibility, Linux packaging,
+evidence for application encryption, production security, native-host compatibility, Linux packaging,
 cross-platform behavior, physical erasure, backup revocation, or benchmark-leading recall.

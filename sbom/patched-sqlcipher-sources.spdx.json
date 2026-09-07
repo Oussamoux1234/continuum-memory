@@ -1,7 +1,7 @@
 {
   "SPDXID": "SPDXRef-DOCUMENT",
   "creationInfo": {
-    "created": "2026-09-05T00:00:00Z",
+    "created": "2026-09-07T00:00:00Z",
     "creators": [
       "Organization: Continuum Memory project"
     ]
@@ -11,9 +11,51 @@
     "SPDXRef-Source-sqlcipher3",
     "SPDXRef-Source-SQLCipher",
     "SPDXRef-Source-OpenSSL",
-    "SPDXRef-Builder-manylinux"
+    "SPDXRef-Builder-manylinux",
+    "SPDXRef-File-IPC-Cmd-shim",
+    "SPDXRef-File-Time-Piece-shim"
   ],
-  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-05",
+  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-07",
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-IPC-Cmd-shim",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "87a0b4e0cb101df2babdbdd486194923c7dde98d"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e5b04fd40c115bb6ba663a88b0e5d0776f3e7454ddb80fed344ff2713bec6c8a"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "fileName": "./packaging/sqlcipher/perl/IPC/Cmd.pm",
+      "licenseConcluded": "Apache-2.0",
+      "licenseInfoInFiles": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-Time-Piece-shim",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "1e08f6c8f2b0cdd4c200e15899e13719fe1b1ca7"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2c2da5b01d7206240a7d3dba86a2d1f0bb185ec85b27367c20f439d419818eed"
+        }
+      ],
+      "copyrightText": "NOASSERTION",
+      "fileName": "./packaging/sqlcipher/perl/Time/Piece.pm",
+      "licenseConcluded": "Apache-2.0",
+      "licenseInfoInFiles": [
+        "Apache-2.0"
+      ]
+    }
+  ],
   "name": "Continuum SQLCipher patched-wheel source and builder inventory",
   "packages": [
     {
@@ -24,8 +66,10 @@
           "checksumValue": "a2b675289ba8889f389625a21f3a01f1ff159a551b5b88fba8fd92da0e02380a"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/ae/c1/414003d77549c444bafd636149ab3ace6f4e2cb4666c9955d54ad62096cb/sqlcipher3-0.6.2.tar.gz",
       "filesAnalyzed": false,
+      "licenseComments": "Upstream metadata declares MIT, but the shipped LICENSE has SHA-256 fa23cf250126548e90008fe92de4ee76d485bfbb3592f5be8aa731775892a960 and contains different Gerhard Haring terms; legal reconciliation is pending.",
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "MIT",
       "name": "sqlcipher3 binding source",
@@ -39,6 +83,7 @@
           "checksumValue": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/sqlcipher-4.18.0.zip",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
@@ -48,6 +93,8 @@
     },
     {
       "SPDXID": "SPDXRef-Source-SQLite",
+      "comment": "Contained in the exact signed SQLCipher source archive; no separate archive is used.",
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
@@ -63,6 +110,7 @@
           "checksumValue": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -78,6 +126,7 @@
           "checksumValue": "53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://quay.io/repository/pypa/manylinux_2_28_x86_64",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
@@ -93,6 +142,7 @@
           "checksumValue": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -108,6 +158,7 @@
           "checksumValue": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248"
         }
       ],
+      "copyrightText": "NOASSERTION",
       "downloadLocation": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -121,6 +172,16 @@
       "relatedSpdxElement": "SPDXRef-Source-SQLite",
       "relationshipType": "CONTAINS",
       "spdxElementId": "SPDXRef-Source-SQLCipher"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Source-OpenSSL",
+      "relationshipType": "BUILD_TOOL_OF",
+      "spdxElementId": "SPDXRef-File-IPC-Cmd-shim"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Source-OpenSSL",
+      "relationshipType": "BUILD_TOOL_OF",
+      "spdxElementId": "SPDXRef-File-Time-Piece-shim"
     }
   ],
   "spdxVersion": "SPDX-2.3"

@@ -7,18 +7,161 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "packaging" / "sqlcipher" / "manifest.json"
 MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 10_000
+MAX_EXPANDED_ARCHIVE_BYTES = 512 * 1024 * 1024
 HEX_64 = re.compile(r"[0-9a-f]{64}")
 FINGERPRINT = re.compile(r"[0-9A-F]{40}")
+REVIEWED_DOWNLOAD_HOSTS = {
+    "files.pythonhosted.org": {"files.pythonhosted.org"},
+    "github.com": {"github.com", "release-assets.githubusercontent.com"},
+    "mirror.openssl-library.org": {"mirror.openssl-library.org"},
+    "www.zetetic.net": {"www.zetetic.net"},
+}
+REVIEWED_FINAL_HOSTS = set().union(*REVIEWED_DOWNLOAD_HOSTS.values())
+REVIEWED_BUILDER = {
+    "image": (
+        "quay.io/pypa/manylinux_2_28_x86_64"
+        "@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
+    ),
+    "imageTag": "2026.09.05-1",
+    "platform": "linux-x86_64",
+    "sourceDateEpoch": 1788285600,
+}
+REVIEWED_BUILD_DEPENDENCIES = {
+    "setuptools": {
+        "filename": "setuptools-80.9.0-py3-none-any.whl",
+        "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",
+        "url": (
+            "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/"
+            "setuptools-80.9.0-py3-none-any.whl"
+        ),
+        "version": "80.9.0",
+    },
+    "wheel": {
+        "filename": "wheel-0.45.1-py3-none-any.whl",
+        "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248",
+        "url": (
+            "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/"
+            "wheel-0.45.1-py3-none-any.whl"
+        ),
+        "version": "0.45.1",
+    },
+}
+REVIEWED_SOURCES = {
+    "OpenSSL": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+        "endOfLife": "2030-04-08",
+        "filename": "openssl-3.5.8.tar.gz",
+        "license": "Apache-2.0",
+        "licenseSha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+        "releaseSeries": "3.5 LTS",
+        "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+        "signature": {
+            "filename": "openssl-3.5.8.tar.gz.asc",
+            "sha256": "f4bfa84a290dfd5ad102a54ebc0f93f9b35359cb36c383769b5c7bc6034f1f65",
+            "url": (
+                "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/"
+                "openssl-3.5.8.tar.gz.asc"
+            ),
+        },
+        "signingKey": {
+            "filename": "openssl-pubkeys.asc",
+            "primaryFingerprint": "B146647E45A7B33947AB226B2A2C87D161692D40",
+            "sha256": "56e106cd1c44bdb117aec24795f6dfbecaa9bfa0a2901b85331f0059aad16d53",
+            "url": "https://mirror.openssl-library.org/source/pubkeys.asc",
+        },
+        "tag": "openssl-3.5.8",
+        "tagObject": "090eec6d3628aa0520bdf2cf97b063fafc34e7be",
+        "url": (
+            "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/"
+            "openssl-3.5.8.tar.gz"
+        ),
+        "version": "3.5.8",
+    },
+    "SQLCipher": {
+        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+        "embeddedSQLiteVersion": "3.53.4",
+        "filename": "sqlcipher-4.18.0.zip",
+        "license": "BSD-3-Clause",
+        "licenseSha256": "2a2826f6acf46fa650730cf42cbb22a642be33a7ef119c9c4f4bf6daf3bef48e",
+        "manifestUuid": "bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+        "sha256": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90",
+        "signature": {
+            "filename": "sqlcipher-4.18.0.zip.sig",
+            "sha256": "bba2c310e7876c6bda126102c5271db0350c08ef61cbe7df7ce9fc9ec79f4a68",
+            "url": (
+                "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/"
+                "sqlcipher-4.18.0.zip.sig"
+            ),
+        },
+        "signingKey": {
+            "filename": "zetetic-public-key.gpg",
+            "primaryFingerprint": "D83F5F9EB811D6E6B4A0D9C5D1FA3A2A97ED25C2",
+            "sha256": "b5fa10e62b50478db1236f3a8c7157074d71450a1f6a245eb77a71802202eefd",
+            "url": "https://www.zetetic.net/security/support_zetetic_net_public_key.gpg",
+        },
+        "tag": "v4.18.0",
+        "tagObject": "dca3c1ee114fe6bf5d996fc71f3c5380f43cc82c",
+        "url": (
+            "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/"
+            "sqlcipher-4.18.0.zip"
+        ),
+        "version": "4.18.0",
+    },
+    "SQLite": {
+        "license": "LicenseRef-SQLite-Public-Domain",
+        "licenseSha256": "595e823c2ada6c839679e693bee1f4d7f88e2d34ac99a913ae41e3d43fb10c7d",
+        "version": "3.53.4",
+    },
+    "sqlcipher3": {
+        "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec",
+        "filename": "sqlcipher3-0.6.2.tar.gz",
+        "licenseConcluded": "NOASSERTION",
+        "licenseSha256": "fa23cf250126548e90008fe92de4ee76d485bfbb3592f5be8aa731775892a960",
+        "sha256": "a2b675289ba8889f389625a21f3a01f1ff159a551b5b88fba8fd92da0e02380a",
+        "tag": "0.6.2",
+        "url": (
+            "https://files.pythonhosted.org/packages/ae/c1/414003d77549c444bafd636149ab3ace6f4e2cb4666c9955d54ad62096cb/"
+            "sqlcipher3-0.6.2.tar.gz"
+        ),
+        "version": "0.6.2",
+    },
+}
+REVIEWED_TARGETS = {
+    "linuxCp311": {
+        "filename": "continuum_sqlcipher3-0.6.2.post1-cp311-cp311-manylinux_2_28_x86_64.whl",
+        "pythonAbi": "cp311-cp311",
+        "pythonMinor": "3.11",
+    },
+    "linuxCp312": {
+        "filename": "continuum_sqlcipher3-0.6.2.post1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "pythonAbi": "cp312-cp312",
+        "pythonMinor": "3.12",
+    },
+    "linuxCp313": {
+        "filename": "continuum_sqlcipher3-0.6.2.post1-cp313-cp313-manylinux_2_28_x86_64.whl",
+        "pythonAbi": "cp313-cp313",
+        "pythonMinor": "3.13",
+    },
+    "linuxCp314": {
+        "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
+        "pythonAbi": "cp314-cp314",
+        "pythonMinor": "3.14",
+    },
+}
 
 
 def load_json_strict(path: Path):
@@ -48,13 +191,34 @@ def checked_filename(value: object) -> str:
     return value
 
 
+def validated_https_url(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise RuntimeError("%s URL must use HTTPS" % label)
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as error:
+        raise RuntimeError("%s URL is malformed" % label) from error
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in REVIEWED_FINAL_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.fragment
+        or not parsed.path.startswith("/")
+    ):
+        raise RuntimeError("%s URL must use a reviewed HTTPS origin" % label)
+    return parsed.hostname
+
+
 def validate_download(record: object, label: str) -> None:
     if not isinstance(record, dict):
         raise RuntimeError("%s download record must be an object" % label)
     checked_filename(record.get("filename"))
-    url = record.get("url")
-    if not isinstance(url, str) or not url.startswith("https://"):
-        raise RuntimeError("%s download URL must use HTTPS" % label)
+    host = validated_https_url(record.get("url"), "%s download" % label)
+    if host not in REVIEWED_DOWNLOAD_HOSTS:
+        raise RuntimeError("%s download URL is not a reviewed origin" % label)
     expected_hash = record.get("sha256")
     if not isinstance(expected_hash, str) or HEX_64.fullmatch(expected_hash) is None:
         raise RuntimeError("%s download must have one SHA-256 digest" % label)
@@ -63,26 +227,42 @@ def validate_download(record: object, label: str) -> None:
 def validate_manifest(manifest: object) -> dict:
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
         raise RuntimeError("unsupported patched-wheel manifest schema")
-    if manifest.get("evidenceDate") != "2026-09-05":
+    if manifest.get("evidenceDate") != "2026-09-07":
         raise RuntimeError("patched-wheel manifest evidence is stale")
     builder = manifest.get("builder")
-    if not isinstance(builder, dict) or not str(builder.get("image", "")).endswith(
-        "@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c"
+    if (
+        not isinstance(builder, dict)
+        or set(builder) != set(REVIEWED_BUILDER) | {"reviewedProjectFiles"}
+        or any(builder.get(key) != value for key, value in REVIEWED_BUILDER.items())
     ):
-        raise RuntimeError("builder image must be immutable and reviewed")
-    if builder.get("opensslPerlShims") != {
-        "packaging/sqlcipher/perl/IPC/Cmd.pm": (
-            "899f6a63fef81455c23e9b7c2c5b59568e321a02faf9685d9f63e6416837ba82"
-        ),
-        "packaging/sqlcipher/perl/Time/Piece.pm": (
-            "91854216b72683d724e76a1ed26e8f90dee87e136dee3db5ac509ce400585f3f"
-        ),
-    }:
-        raise RuntimeError("OpenSSL Perl shims must be exact and reviewed")
+        raise RuntimeError("builder identity must be immutable and reviewed")
+    reviewed_project_files = builder.get("reviewedProjectFiles")
+    expected_project_files = {
+        ".github/workflows/patched-sqlcipher-wheel.yml",
+        "packaging/sqlcipher/perl/IPC/Cmd.pm",
+        "packaging/sqlcipher/perl/Time/Piece.pm",
+        "packaging/sqlcipher/pyproject.toml",
+        "packaging/sqlcipher/setup_continuum.py",
+        "scripts/build_patched_sqlcipher_wheel.sh",
+        "scripts/fetch_patched_sqlcipher_sources.py",
+        "scripts/inspect_patched_sqlcipher_wheel.py",
+        "scripts/test_patched_sqlcipher_install.py",
+        "scripts/test_patched_sqlcipher_runtime.py",
+        "scripts/verify_patched_sqlcipher_inputs.py",
+    }
+    if (
+        not isinstance(reviewed_project_files, dict)
+        or set(reviewed_project_files) != expected_project_files
+        or any(
+            not isinstance(value, str) or HEX_64.fullmatch(value) is None
+            for value in reviewed_project_files.values()
+        )
+    ):
+        raise RuntimeError("reviewed project build inputs must be exact and locked")
     sources = manifest.get("sources")
     dependencies = manifest.get("buildDependencies")
-    if not isinstance(sources, dict) or not isinstance(dependencies, dict):
-        raise RuntimeError("manifest sources and build dependencies must be objects")
+    if sources != REVIEWED_SOURCES or dependencies != REVIEWED_BUILD_DEPENDENCIES:
+        raise RuntimeError("reviewed sources or build dependencies changed")
     for label in ("sqlcipher3", "SQLCipher", "OpenSSL"):
         validate_download(sources.get(label), label)
     for label in ("setuptools", "wheel"):
@@ -94,10 +274,6 @@ def validate_manifest(manifest: object) -> dict:
         fingerprint = source["signingKey"].get("primaryFingerprint")
         if not isinstance(fingerprint, str) or FINGERPRINT.fullmatch(fingerprint) is None:
             raise RuntimeError("%s signing fingerprint is invalid" % label)
-    if sources["SQLCipher"].get("embeddedSQLiteVersion") != "3.53.4":
-        raise RuntimeError("unexpected SQLCipher SQLite baseline")
-    if sources["OpenSSL"].get("releaseSeries") != "3.5 LTS":
-        raise RuntimeError("OpenSSL must remain on the reviewed LTS series")
     artifact = manifest.get("artifact")
     if artifact != {
         "distribution": "continuum-sqlcipher3",
@@ -106,20 +282,63 @@ def validate_manifest(manifest: object) -> dict:
     }:
         raise RuntimeError("patched-wheel artifact identity changed")
     expected_artifacts = manifest.get("expectedArtifacts")
-    if not isinstance(expected_artifacts, dict):
+    if not isinstance(expected_artifacts, dict) or set(expected_artifacts) != set(
+        REVIEWED_TARGETS
+    ):
         raise RuntimeError("patched-wheel expected artifacts must be an object")
-    expected_artifact = expected_artifacts.get("linuxCp314")
-    if not isinstance(expected_artifact, dict) or expected_artifact.get("filename") != (
-        "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl"
-    ):
-        raise RuntimeError("patched-wheel filename is not exact")
-    expected_artifact_hash = expected_artifact.get("sha256")
-    if (
-        not isinstance(expected_artifact_hash, str)
-        or HEX_64.fullmatch(expected_artifact_hash) is None
-    ):
-        raise RuntimeError("patched-wheel SHA-256 must be locked")
+    for key, target in REVIEWED_TARGETS.items():
+        expected_artifact = expected_artifacts.get(key)
+        if not isinstance(expected_artifact, dict) or {
+            name: expected_artifact.get(name) for name in target
+        } != target:
+            raise RuntimeError("patched-wheel target identity is not exact: %s" % key)
+        if set(expected_artifact) != set(target) | {"sha256"}:
+            raise RuntimeError("patched-wheel target fields changed: %s" % key)
+        expected_artifact_hash = expected_artifact.get("sha256")
+        if (
+            not isinstance(expected_artifact_hash, str)
+            or HEX_64.fullmatch(expected_artifact_hash) is None
+        ):
+            raise RuntimeError("patched-wheel SHA-256 must be locked: %s" % key)
+    if manifest.get("signing") != {
+        "artifactSigningStatus": "BLOCKED_IDENTITY_NOT_SELECTED",
+        "requiredDecision": (
+            "Select and approve the artifact signing identity, trust root, transparency policy, "
+            "verification procedure, and revocation procedure before permanent distribution."
+        ),
+    }:
+        raise RuntimeError("artifact signing status changed without review")
+    if manifest.get("supportedSlice") != {
+        "built": [
+            "linux-x86_64/cp311",
+            "linux-x86_64/cp312",
+            "linux-x86_64/cp313",
+            "linux-x86_64/cp314",
+        ],
+        "planned": [
+            "macos-arm64/cp311",
+            "macos-arm64/cp312",
+            "macos-arm64/cp313",
+            "macos-arm64/cp314",
+        ],
+        "windowsSupported": False,
+    }:
+        raise RuntimeError("supported platform status changed without evidence")
+    if manifest.get("vulnerabilityEvidence") != {
+        "findingCounts": {"OpenSSL": 0, "SQLCipher": 0, "sqlcipher3": 0},
+        "method": "Exact-commit OSV queries plus upstream release and security records",
+        "qualification": (
+            "No known findings in the queried sources on the evidence date; not proof of safety."
+        ),
+    }:
+        raise RuntimeError("vulnerability evidence changed without review")
     return manifest
+
+
+def artifact_target(manifest: dict, key: str) -> dict:
+    if key not in REVIEWED_TARGETS:
+        raise RuntimeError("unknown patched-wheel target: %s" % key)
+    return manifest["expectedArtifacts"][key]
 
 
 def iter_downloads(manifest: dict):
@@ -133,21 +352,65 @@ def iter_downloads(manifest: dict):
         yield label, manifest["buildDependencies"][label]
 
 
+def is_single_regular_file(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+
+
+def require_real_directory(path: Path, label: str) -> None:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as error:
+        raise RuntimeError("%s directory is missing" % label) from error
+    if not stat.S_ISDIR(metadata.st_mode) or path.is_symlink():
+        raise RuntimeError("%s must be a real directory" % label)
+
+
+def validate_download_response(configured_url: str, response) -> None:
+    configured_host = validated_https_url(configured_url, "configured download")
+    final_host = validated_https_url(response.geturl(), "final download")
+    if final_host not in REVIEWED_DOWNLOAD_HOSTS[configured_host]:
+        raise RuntimeError("download redirected to an unreviewed host")
+    if getattr(response, "status", 200) != 200:
+        raise RuntimeError("download did not return HTTP 200")
+    content_encoding = response.headers.get("Content-Encoding")
+    if content_encoding not in (None, "identity"):
+        raise RuntimeError("download returned an unexpected content encoding")
+
+
 def download(record: dict, destination: Path) -> Path:
+    require_real_directory(destination, "download destination")
     filename = checked_filename(record["filename"])
     target = destination / filename
-    if target.is_file() and sha256(target) == record["sha256"]:
+    if target.exists() or target.is_symlink():
+        if not is_single_regular_file(target):
+            raise RuntimeError("download target is linked or not a regular file: %s" % filename)
+        if sha256(target) != record["sha256"]:
+            raise RuntimeError("existing download SHA-256 mismatch: %s" % filename)
         return target
-    temporary = destination / (filename + ".partial")
-    if temporary.exists():
-        temporary.unlink()
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=str(destination), prefix=".%s." % filename, suffix=".partial"
+    )
+    temporary = Path(temporary_name)
     request = urllib.request.Request(record["url"], headers={"User-Agent": "continuum-memory/0.1"})
     total = 0
     try:
-        with urllib.request.urlopen(request, timeout=60) as response, temporary.open("xb") as output:
+        with urllib.request.urlopen(request, timeout=60) as response, os.fdopen(
+            descriptor, "wb"
+        ) as output:
+            descriptor = -1
+            validate_download_response(record["url"], response)
             length = response.headers.get("Content-Length")
-            if length is not None and int(length) > MAX_DOWNLOAD_BYTES:
-                raise RuntimeError("download exceeds size limit: %s" % filename)
+            if length is not None:
+                try:
+                    declared_length = int(length)
+                except ValueError as error:
+                    raise RuntimeError("download has an invalid size: %s" % filename) from error
+                if declared_length < 0 or declared_length > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError("download exceeds size limit: %s" % filename)
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
@@ -160,17 +423,65 @@ def download(record: dict, destination: Path) -> Path:
             os.fsync(output.fileno())
         if sha256(temporary) != record["sha256"]:
             raise RuntimeError("download SHA-256 mismatch: %s" % filename)
-        temporary.replace(target)
+        os.chmod(temporary, 0o644)
+        try:
+            os.link(temporary, target, follow_symlinks=False)
+        except FileExistsError as error:
+            raise RuntimeError("download target appeared during acquisition: %s" % filename) from error
+        temporary.unlink()
+        directory_descriptor = os.open(str(destination), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
     finally:
+        if descriptor >= 0:
+            os.close(descriptor)
         if temporary.exists():
             temporary.unlink()
+    if not is_single_regular_file(target):
+        raise RuntimeError("download target is linked or not a regular file: %s" % filename)
     return target
 
 
 def safe_archive_path(name: str, expected_root: str) -> None:
-    path = PurePosixPath(name)
-    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != expected_root:
+    if not isinstance(name, str) or not name or "\0" in name or "\\" in name:
         raise RuntimeError("archive contains an unsafe or unexpected path: %s" % name)
+    path = PurePosixPath(name)
+    comparable = name[:-1] if name.endswith("/") else name
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or not path.parts
+        or path.parts[0] != expected_root
+        or comparable != str(path)
+    ):
+        raise RuntimeError("archive contains an unsafe or unexpected path: %s" % name)
+
+
+def inspect_zip_members(archive: zipfile.ZipFile, expected_root: str) -> dict[str, zipfile.ZipInfo]:
+    members = archive.infolist()
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise RuntimeError("source archive contains too many members")
+    if sum(member.file_size for member in members) > MAX_EXPANDED_ARCHIVE_BYTES:
+        raise RuntimeError("source archive expands beyond the size limit")
+    result = {}
+    for member in members:
+        safe_archive_path(member.filename, expected_root)
+        normalized_name = member.filename[:-1] if member.filename.endswith("/") else member.filename
+        if normalized_name in result:
+            raise RuntimeError("source archive contains duplicate members")
+        if member.flag_bits & 0x1:
+            raise RuntimeError("source archive contains an encrypted member")
+        mode = (member.external_attr >> 16) & 0xFFFF
+        file_type = stat.S_IFMT(mode)
+        if member.is_dir():
+            if file_type not in (0, stat.S_IFDIR):
+                raise RuntimeError("source archive contains a special member")
+        elif file_type not in (0, stat.S_IFREG):
+            raise RuntimeError("source archive contains a link or special member")
+        result[normalized_name] = member
+    return result
 
 
 def inspect_sqlcipher_source(path: Path, source: dict) -> None:
@@ -178,8 +489,12 @@ def inspect_sqlcipher_source(path: Path, source: dict) -> None:
     with zipfile.ZipFile(path) as archive:
         if archive.comment.decode("ascii") != source["commit"]:
             raise RuntimeError("SQLCipher archive commit comment mismatch")
-        for name in archive.namelist():
-            safe_archive_path(name, root)
+        members = inspect_zip_members(archive, root)
+        required = ("manifest.uuid", "VERSION", "LICENSE.txt", "SQLITE_LICENSE.md")
+        for relative in required:
+            member = members.get("%s/%s" % (root, relative))
+            if member is None or member.is_dir():
+                raise RuntimeError("SQLCipher archive is missing a required regular file")
         manifest_uuid = archive.read("%s/manifest.uuid" % root).decode("ascii").strip()
         version = archive.read("%s/VERSION" % root).decode("ascii").strip()
         license_hash = hashlib.sha256(archive.read("%s/LICENSE.txt" % root)).hexdigest()
@@ -198,11 +513,26 @@ def inspect_sqlcipher_source(path: Path, source: dict) -> None:
 
 def inspect_tar_source(path: Path, root: str, required: tuple[str, ...]) -> None:
     with tarfile.open(path, "r:gz") as archive:
-        names = set()
-        for member in archive.getmembers():
+        members = archive.getmembers()
+        if len(members) > MAX_ARCHIVE_MEMBERS:
+            raise RuntimeError("source archive contains too many members")
+        if sum(member.size for member in members) > MAX_EXPANDED_ARCHIVE_BYTES:
+            raise RuntimeError("source archive expands beyond the size limit")
+        names = {}
+        for member in members:
             safe_archive_path(member.name, root)
-            names.add(member.name)
-        missing = ["%s/%s" % (root, item) for item in required if "%s/%s" % (root, item) not in names]
+            normalized_name = member.name[:-1] if member.name.endswith("/") else member.name
+            if normalized_name in names:
+                raise RuntimeError("source archive contains duplicate members")
+            if not (member.isfile() or member.isdir()):
+                raise RuntimeError("source archive contains a link or special member")
+            names[normalized_name] = member
+        missing = [
+            "%s/%s" % (root, item)
+            for item in required
+            if "%s/%s" % (root, item) not in names
+            or not names["%s/%s" % (root, item)].isfile()
+        ]
         if missing:
             raise RuntimeError("source archive is missing: %s" % ", ".join(missing))
 
@@ -223,20 +553,34 @@ def inspect_sources(directory: Path, manifest: dict) -> None:
 
 
 def inspect_project_inputs(repository_root: Path, manifest: dict) -> None:
-    for relative, expected_hash in manifest["builder"]["opensslPerlShims"].items():
+    for relative, expected_hash in manifest["builder"]["reviewedProjectFiles"].items():
         path = repository_root / relative
-        if path.is_symlink() or not path.is_file() or sha256(path) != expected_hash:
-            raise RuntimeError("OpenSSL Perl shim is missing, linked, or modified: %s" % relative)
+        if not is_single_regular_file(path) or sha256(path) != expected_hash:
+            raise RuntimeError("reviewed project input is missing, linked, or modified: %s" % relative)
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:
-    result = subprocess.run(
-        [gpg, "--batch", "--with-colons", "--show-keys", "--fingerprint", str(key_file)],
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    with tempfile.TemporaryDirectory(
+        dir=str(key_file.parent), prefix=".continuum-gpg-show-"
+    ) as home:
+        os.chmod(home, 0o700)
+        result = subprocess.run(
+            [
+                gpg,
+                "--batch",
+                "--no-options",
+                "--homedir",
+                home,
+                "--with-colons",
+                "--show-keys",
+                "--fingerprint",
+                str(key_file),
+            ],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     return {
         fields[9]
         for line in result.stdout.splitlines()
@@ -250,6 +594,21 @@ def valid_signature_fingerprints(status: bytes) -> tuple[str, str]:
     Other status records may contain an unescaped, non-UTF-8 user ID.  Keep the
     stream binary and decode only the VALIDSIG record, whose fields are ASCII.
     """
+    adverse_records = (
+        b"[GNUPG:] BADSIG ",
+        b"[GNUPG:] ERRSIG ",
+        b"[GNUPG:] EXPSIG ",
+        b"[GNUPG:] EXPKEYSIG ",
+        b"[GNUPG:] REVKEYSIG ",
+        b"[GNUPG:] KEYREVOKED",
+        b"[GNUPG:] NO_PUBKEY ",
+    )
+    if any(
+        line.startswith(adverse)
+        for line in status.splitlines()
+        for adverse in adverse_records
+    ):
+        raise RuntimeError("GnuPG emitted an adverse signature status")
     prefix = b"[GNUPG:] VALIDSIG "
     records = [line for line in status.splitlines() if line.startswith(prefix)]
     if len(records) != 1:
@@ -278,30 +637,33 @@ def verify_signature(directory: Path, label: str, source: dict) -> dict:
     expected = source["signingKey"]["primaryFingerprint"]
     if expected not in gpg_fingerprints(gpg, key_file):
         raise RuntimeError("%s signing key fingerprint mismatch" % label)
-    home = directory / (".%s-gnupg" % label.lower())
-    home.mkdir(mode=0o700)
-    subprocess.run(
-        [gpg, "--batch", "--homedir", str(home), "--import", str(key_file)],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    result = subprocess.run(
-        [
-            gpg,
-            "--batch",
-            "--no-tty",
-            "--homedir",
-            str(home),
-            "--status-fd=1",
-            "--verify",
-            str(directory / source["signature"]["filename"]),
-            str(directory / source["filename"]),
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    with tempfile.TemporaryDirectory(
+        dir=str(directory), prefix=".%s-gnupg-" % label.lower()
+    ) as home:
+        os.chmod(home, 0o700)
+        subprocess.run(
+            [gpg, "--batch", "--no-options", "--homedir", home, "--import", str(key_file)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        result = subprocess.run(
+            [
+                gpg,
+                "--batch",
+                "--no-options",
+                "--no-tty",
+                "--homedir",
+                home,
+                "--status-fd=1",
+                "--verify",
+                str(directory / source["signature"]["filename"]),
+                str(directory / source["filename"]),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     _signing, primary = valid_signature_fingerprints(result.stdout)
     if primary != expected:
         raise RuntimeError("%s signature is not bound to the reviewed primary key" % label)
@@ -315,8 +677,9 @@ def main() -> int:
     arguments = parser.parse_args()
     manifest = validate_manifest(load_json_strict(arguments.manifest))
     inspect_project_inputs(ROOT, manifest)
-    destination = arguments.destination.resolve()
+    destination = arguments.destination.absolute()
     destination.mkdir(parents=True, exist_ok=True)
+    require_real_directory(destination, "download destination")
     downloads = {}
     for label, record in iter_downloads(manifest):
         path = download(record, destination)
