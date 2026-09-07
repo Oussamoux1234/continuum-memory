@@ -114,7 +114,6 @@ jobs:
           "$BUILDER_IMAGE"
           "/opt/python/${PYTHON_ABI}/bin/python" -I
           scripts/inspect_patched_sqlcipher_wheel.py
-          --allow-unlocked-bootstrap
           --artifact-key "$ARTIFACT_KEY"
           --build-a /build-a --build-b /build-b --evidence-dir /evidence
           --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF"
@@ -134,7 +133,6 @@ jobs:
           "$BUILDER_IMAGE"
           "/opt/python/${PYTHON_ABI}/bin/python" -I
           /workspace/scripts/test_patched_sqlcipher_install.py
-          --allow-unlocked-bootstrap
           --artifact-key "$ARTIFACT_KEY" --wheelhouse /wheelhouse
           > "work/patched-sqlcipher/evidence/runtime.json"
       - name: Capture immutable toolchain and reviewed material evidence
@@ -167,13 +165,9 @@ jobs:
             > "work/patched-sqlcipher/evidence/toolchain.txt"
           cp work/patched-sqlcipher/sources/source-verification.json work/patched-sqlcipher/evidence/
           cp packaging/sqlcipher/manifest.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/osv-evidence-2026-09-07.json work/patched-sqlcipher/evidence/
           cp packaging/sqlcipher/THIRD_PARTY_NOTICES.md work/patched-sqlcipher/evidence/
           cp sbom/patched-sqlcipher-sources.spdx.json work/patched-sqlcipher/evidence/
-      - name: Report bootstrap digest and fail closed before retention
-        run: |
-          sha256sum work/patched-sqlcipher/build-a/*.whl
-          echo "Bootstrap only: lock the digest and remove this step before retaining an artifact." >&2
-          exit 1
       - name: Retain only fully validated ephemeral test wheel and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

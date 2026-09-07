@@ -23,16 +23,17 @@
     "imageTag": "2026.09.05-1",
     "platform": "linux-x86_64",
     "reviewedProjectFiles": {
-      ".github/workflows/patched-sqlcipher-wheel.yml": "f84a9e3672d00a7edadf3bfa50be2be567281f4f38fe98d7180e4d68f68d78b8",
+      ".github/workflows/patched-sqlcipher-wheel.yml": "bce8db98699f822eb46c575c1f82363ef4b864aaba5dbe16adcf8a4502537338",
       "packaging/sqlcipher/perl/IPC/Cmd.pm": "e5b04fd40c115bb6ba663a88b0e5d0776f3e7454ddb80fed344ff2713bec6c8a",
       "packaging/sqlcipher/perl/Time/Piece.pm": "2c2da5b01d7206240a7d3dba86a2d1f0bb185ec85b27367c20f439d419818eed",
+      "packaging/sqlcipher/osv-evidence-2026-09-07.json": "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
       "packaging/sqlcipher/pyproject.toml": "7a67e414fe5a4938299fe2ee58f6fb3e90b59bbfe722236264edfca29dfd7370",
       "packaging/sqlcipher/setup_continuum.py": "4d0346985712d5ad5bd37f308f57ec1dfd2018f2729f79b3c66d8db393eff7b0",
       "scripts/build_patched_sqlcipher_wheel.sh": "689417e8624db054e8da8b51d32d37956e78801b38b214321d89496429304529",
-      "scripts/fetch_patched_sqlcipher_sources.py": "0679f3a7c8400d02104626801b01c28b40cf3b3252e8274c3b6212398ba9cd49",
-      "scripts/inspect_patched_sqlcipher_wheel.py": "50cbe46370c590be3a1373b4f66b0fdbe8ae087c8cb7cf1d42d177594ede9b8b",
-      "scripts/test_patched_sqlcipher_install.py": "b87719c7dda47940bedce791eb0547e0ea94b4361ab7ae3e765249c8a660ca27",
-      "scripts/test_patched_sqlcipher_runtime.py": "eda35ea740f45e3125d0c0922b2a18a15d1c1a87b78efa833396c5f8342e1127",
+      "scripts/fetch_patched_sqlcipher_sources.py": "0a0985e0ed8bfb426de81ab4e889523ee223b92613c5209a86c74ab658cf3669",
+      "scripts/inspect_patched_sqlcipher_wheel.py": "abdeba6b136d075f3a9d1d0eb911c4164b59200f77b378655e09b014adb93725",
+      "scripts/test_patched_sqlcipher_install.py": "cacf7d540fa79bb77917b91302ea62b1d106305269eebc36be7800e8d3b65f86",
+      "scripts/test_patched_sqlcipher_runtime.py": "853bada312ac5de00e778ba828f68cc1f6468628427b335aeb945c534330809a",
       "scripts/verify_patched_sqlcipher_inputs.py": "840cd31fb463373a409a1db72f14ea39c333416a0faecff491a8c2d8ca52eeb0"
     },
     "sourceDateEpoch": 1788285600
@@ -43,25 +44,25 @@
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp311-cp311-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp311-cp311",
       "pythonMinor": "3.11",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "c2d5d2f4e0938a85a0618f7275768fec38b1e10d5f4aac18a5ea80723b239357"
     },
     "linuxCp312": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp312-cp312-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp312-cp312",
       "pythonMinor": "3.12",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "fb992386d23c730e961f99c55ed4cd9eb44a98d09887af4036e5595e289f2e86"
     },
     "linuxCp313": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp313-cp313-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp313-cp313",
       "pythonMinor": "3.13",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "7c0649dd4edc0f2b95b75f7017f315f497d95bce2445199abd0f476340042eff"
     },
     "linuxCp314": {
       "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
       "pythonAbi": "cp314-cp314",
       "pythonMinor": "3.14",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "sha256": "7fa968ecb53802e46041dda69320eb6089c8ffc07822d8e325e6429413be566a"
     }
   },
   "schemaVersion": 1,
@@ -150,12 +151,14 @@
     "windowsSupported": false
   },
   "vulnerabilityEvidence": {
+    "evidenceFile": "packaging/sqlcipher/osv-evidence-2026-09-07.json",
+    "evidenceSha256": "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
     "findingCounts": {
       "OpenSSL": 0,
       "SQLCipher": 0,
       "sqlcipher3": 0
     },
-    "method": "Exact-commit OSV queries plus upstream release and security records",
+    "method": "Retained exact-commit OSV API query responses",
     "qualification": "No known findings in the queried sources on the evidence date; not proof of safety."
   }
 }

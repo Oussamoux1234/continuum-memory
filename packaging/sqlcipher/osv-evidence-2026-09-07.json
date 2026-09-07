@@ -1,0 +1,31 @@
+{
+  "endpoint": "https://api.osv.dev/v1/query",
+  "evidenceDate": "2026-09-07",
+  "qualification": "Empty exact-commit query responses mean no known OSV findings at query time; they are not proof of safety.",
+  "queriedAt": "2026-09-07T14:55:24Z",
+  "queries": [
+    {
+      "component": "OpenSSL",
+      "request": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca"
+      },
+      "response": {}
+    },
+    {
+      "component": "SQLCipher",
+      "request": {
+        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b"
+      },
+      "response": {}
+    },
+    {
+      "component": "sqlcipher3",
+      "request": {
+        "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec"
+      },
+      "response": {}
+    }
+  ],
+  "requestContentType": "application/json",
+  "schemaVersion": 1
+}

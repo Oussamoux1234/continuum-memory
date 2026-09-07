@@ -54,8 +54,10 @@ macOS runner label is not sufficient evidence for the same reproducibility claim
    It tests interpreter/ABI and import origin, active encryption, wrong/missing keys, encrypted
    header/WAL/FTS/temp canaries, crash recovery, and SQLite plus SQLCipher integrity.
 6. Evidence binds the wheel to its producing commit/run context, raw source-verification
-   record, exact recipe hashes, native inspection, licenses, and artifact-specific SPDX 2.3
-   SBOM. The unresolved binding license remains `NOASSERTION`.
+   record, retained dated exact-commit OSV responses, exact recipe hashes, native inspection,
+   licenses, and artifact-specific SPDX 2.3 SBOM. An empty OSV response means no known
+   finding at query time, not proof of safety. The unresolved binding license remains
+   `NOASSERTION`.
 
 Only a fully validated wheel and its evidence are uploaded. A failed build, comparison,
 inspection, or runtime test cannot retain a wheel under the normal artifact name. Successful

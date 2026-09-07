@@ -77,6 +77,15 @@ def main() -> int:
             raise AssertionError("in-memory temp storage was not activated")
         if connection.execute("PRAGMA secure_delete").fetchone()[0] != 1:
             raise AssertionError("secure_delete was not activated")
+        try:
+            connection.load_extension(str(root / "continuum-extension-must-not-load.so"))
+        except dbapi2.OperationalError as error:
+            if "not authorized" not in str(error).lower():
+                raise AssertionError(
+                    "extension loading reached the filesystem before explicit enablement"
+                ) from error
+        else:
+            raise AssertionError("extension loading was enabled by default")
         connection.enable_load_extension(False)
         connection.execute("CREATE TABLE memory(body TEXT NOT NULL)")
         connection.execute("CREATE VIRTUAL TABLE memory_fts USING fts5(body)")
@@ -146,6 +155,7 @@ def main() -> int:
                 "cipherVersion": cipher_version,
                 "cacheTag": sys.implementation.cache_tag,
                 "crashRecovery": "passed",
+                "extensionLoadingDefault": "denied",
                 "fts5": "passed",
                 "integrity": "passed",
                 "journalMode": journal_mode,

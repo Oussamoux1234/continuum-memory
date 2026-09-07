@@ -185,6 +185,41 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def publish_bytes_exclusive(path: Path, payload: bytes) -> None:
+    """Atomically publish one new regular file without following or replacing links."""
+    require_real_directory(path.parent, "evidence parent")
+    if path.exists() or path.is_symlink():
+        raise RuntimeError("evidence output already exists or is linked: %s" % path.name)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=".%s." % path.name, suffix=".partial"
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            descriptor = -1
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, 0o600)
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError as error:
+            raise RuntimeError("evidence output appeared during publication: %s" % path.name) from error
+        temporary.unlink()
+        directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary.exists():
+            temporary.unlink()
+    if not is_single_regular_file(path):
+        raise RuntimeError("evidence output is linked or not regular: %s" % path.name)
+
+
 def checked_filename(value: object) -> str:
     if not isinstance(value, str) or not value or Path(value).name != value:
         raise RuntimeError("download filename must be a single safe path component")
@@ -241,6 +276,7 @@ def validate_manifest(manifest: object) -> dict:
         ".github/workflows/patched-sqlcipher-wheel.yml",
         "packaging/sqlcipher/perl/IPC/Cmd.pm",
         "packaging/sqlcipher/perl/Time/Piece.pm",
+        "packaging/sqlcipher/osv-evidence-2026-09-07.json",
         "packaging/sqlcipher/pyproject.toml",
         "packaging/sqlcipher/setup_continuum.py",
         "scripts/build_patched_sqlcipher_wheel.sh",
@@ -298,6 +334,7 @@ def validate_manifest(manifest: object) -> dict:
         if (
             not isinstance(expected_artifact_hash, str)
             or HEX_64.fullmatch(expected_artifact_hash) is None
+            or expected_artifact_hash == "0" * 64
         ):
             raise RuntimeError("patched-wheel SHA-256 must be locked: %s" % key)
     if manifest.get("signing") != {
@@ -325,8 +362,10 @@ def validate_manifest(manifest: object) -> dict:
     }:
         raise RuntimeError("supported platform status changed without evidence")
     if manifest.get("vulnerabilityEvidence") != {
+        "evidenceFile": "packaging/sqlcipher/osv-evidence-2026-09-07.json",
+        "evidenceSha256": "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
         "findingCounts": {"OpenSSL": 0, "SQLCipher": 0, "sqlcipher3": 0},
-        "method": "Exact-commit OSV queries plus upstream release and security records",
+        "method": "Retained exact-commit OSV API query responses",
         "qualification": (
             "No known findings in the queried sources on the evidence date; not proof of safety."
         ),
@@ -557,6 +596,25 @@ def inspect_project_inputs(repository_root: Path, manifest: dict) -> None:
         path = repository_root / relative
         if not is_single_regular_file(path) or sha256(path) != expected_hash:
             raise RuntimeError("reviewed project input is missing, linked, or modified: %s" % relative)
+    evidence_path = repository_root / manifest["vulnerabilityEvidence"]["evidenceFile"]
+    evidence = load_json_strict(evidence_path)
+    expected_queries = [
+        {"component": label, "request": {"commit": REVIEWED_SOURCES[label]["commit"]}, "response": {}}
+        for label in ("OpenSSL", "SQLCipher", "sqlcipher3")
+    ]
+    if evidence != {
+        "endpoint": "https://api.osv.dev/v1/query",
+        "evidenceDate": "2026-09-07",
+        "qualification": (
+            "Empty exact-commit query responses mean no known OSV findings at query time; "
+            "they are not proof of safety."
+        ),
+        "queriedAt": "2026-09-07T14:55:24Z",
+        "queries": expected_queries,
+        "requestContentType": "application/json",
+        "schemaVersion": 1,
+    }:
+        raise RuntimeError("retained OSV evidence changed or is malformed")
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:
@@ -601,7 +659,11 @@ def valid_signature_fingerprints(status: bytes) -> tuple[str, str]:
         b"[GNUPG:] EXPKEYSIG ",
         b"[GNUPG:] REVKEYSIG ",
         b"[GNUPG:] KEYREVOKED",
+        b"[GNUPG:] KEYEXPIRED ",
+        b"[GNUPG:] SIGEXPIRED ",
         b"[GNUPG:] NO_PUBKEY ",
+        b"[GNUPG:] NODATA ",
+        b"[GNUPG:] FAILURE ",
     )
     if any(
         line.startswith(adverse)
@@ -696,7 +758,10 @@ def main() -> int:
         "status": "VERIFIED",
     }
     evidence_path = destination / "source-verification.json"
-    evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    publish_bytes_exclusive(
+        evidence_path,
+        (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
     print(str(evidence_path))
     return 0
 

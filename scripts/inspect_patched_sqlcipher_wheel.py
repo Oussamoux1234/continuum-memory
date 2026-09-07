@@ -29,6 +29,8 @@ from scripts.fetch_patched_sqlcipher_sources import (  # noqa: E402
     is_single_regular_file,
     iter_downloads,
     load_json_strict,
+    publish_bytes_exclusive,
+    require_real_directory,
     sha256,
     validate_manifest,
 )
@@ -572,6 +574,7 @@ def write_evidence(
     source_evidence_sha256: str,
 ) -> None:
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    require_real_directory(evidence_dir, "artifact evidence")
     if evidence_dir.is_symlink() or not evidence_dir.is_dir():
         raise RuntimeError("evidence destination must be a real directory")
     context = validate_workflow_context(context)
@@ -616,8 +619,9 @@ def write_evidence(
             ),
         },
     }
-    (evidence_dir / "artifact-provenance.json").write_text(
-        json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    publish_bytes_exclusive(
+        evidence_dir / "artifact-provenance.json",
+        (json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
 
     wheel_package = {
@@ -719,19 +723,22 @@ def write_evidence(
         "relationships": relationships,
         "spdxVersion": "SPDX-2.3",
     }
-    (evidence_dir / "patched-wheel.spdx.json").write_text(
-        json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    publish_bytes_exclusive(
+        evidence_dir / "patched-wheel.spdx.json",
+        (json.dumps(sbom, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
-    (evidence_dir / "wheel.sha256").write_text(
-        "%s  %s\n" % (inspection["sha256"], inspection["filename"]), encoding="ascii"
+    publish_bytes_exclusive(
+        evidence_dir / "wheel.sha256",
+        ("%s  %s\n" % (inspection["sha256"], inspection["filename"])).encode("ascii"),
     )
-    (evidence_dir / "auditwheel.txt").write_text(auditwheel_text, encoding="utf-8")
+    publish_bytes_exclusive(
+        evidence_dir / "auditwheel.txt", auditwheel_text.encode("utf-8")
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-key", required=True)
-    parser.add_argument("--allow-unlocked-bootstrap", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--build-a", type=Path, required=True)
     parser.add_argument("--build-b", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
@@ -754,10 +761,7 @@ def main() -> int:
         raise RuntimeError("independent patched wheel builds are not byte-for-byte identical")
     inspection = inspect_wheel(wheel_a, manifest, arguments.artifact_key)
     expected_hash = artifact_target(manifest, arguments.artifact_key)["sha256"]
-    bootstrap_hash = "0" * 64
-    if inspection["sha256"] != expected_hash and not (
-        arguments.allow_unlocked_bootstrap and expected_hash == bootstrap_hash
-    ):
+    if inspection["sha256"] != expected_hash:
         raise RuntimeError("patched wheel SHA-256 does not match the locked artifact")
     source_evidence_path = arguments.source_evidence.absolute()
     source_evidence = validate_source_evidence(source_evidence_path, manifest, manifest_path)

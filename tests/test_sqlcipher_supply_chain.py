@@ -28,6 +28,7 @@ from scripts.fetch_patched_sqlcipher_sources import (
     inspect_tar_source,
     inspect_zip_members,
     load_json_strict,
+    publish_bytes_exclusive,
     safe_archive_path,
     sha256,
     valid_signature_fingerprints,
@@ -189,6 +190,9 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         bad_hash = copy.deepcopy(self.manifest)
         bad_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = "not-a-hash"
         cases.append(bad_hash)
+        zero_hash = copy.deepcopy(self.manifest)
+        zero_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = "0" * 64
+        cases.append(zero_hash)
         bad_abi = copy.deepcopy(self.manifest)
         bad_abi["expectedArtifacts"]["linuxCp313"]["pythonAbi"] = "cp314-cp314"
         cases.append(bad_abi)
@@ -225,6 +229,10 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
             b"[GNUPG:] REVKEYSIG dead revoked\n" + validsig,
             b"[GNUPG:] EXPKEYSIG dead expired\n" + validsig,
             b"[GNUPG:] BADSIG dead bad\n" + validsig,
+            b"[GNUPG:] KEYEXPIRED 1788645539\n" + validsig,
+            b"[GNUPG:] SIGEXPIRED deprecated\n" + validsig,
+            b"[GNUPG:] NODATA 1\n" + validsig,
+            b"[GNUPG:] FAILURE verify 1\n" + validsig,
         ):
             with self.subTest(status=rejected):
                 with self.assertRaises(RuntimeError):
@@ -282,6 +290,23 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
             }
             with self.assertRaisesRegex(RuntimeError, "linked"):
                 download(record, directory)
+
+    def test_evidence_publication_is_exclusive_and_rejects_links(self):
+        with tempfile.TemporaryDirectory(prefix="continuum-evidence-output-") as temporary:
+            directory = Path(temporary)
+            victim = directory / "victim"
+            victim.write_bytes(b"unchanged")
+            linked = directory / "evidence.json"
+            linked.symlink_to(victim)
+            with self.assertRaisesRegex(RuntimeError, "exists or is linked"):
+                publish_bytes_exclusive(linked, b"replacement")
+            self.assertEqual(victim.read_bytes(), b"unchanged")
+            linked.unlink()
+            publish_bytes_exclusive(linked, b"evidence")
+            self.assertEqual(linked.read_bytes(), b"evidence")
+            self.assertEqual(linked.stat().st_nlink, 1)
+            with self.assertRaisesRegex(RuntimeError, "already exists"):
+                publish_bytes_exclusive(linked, b"replacement")
 
     def test_source_archives_reject_unsafe_paths_duplicates_links_and_special_types(self):
         safe_archive_path("sqlcipher-4.18.0/src/sqliteInt.h", "sqlcipher-4.18.0")
@@ -585,6 +610,16 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertNotIn("if: always()", workflow)
         self.assertNotIn("actions/cache", workflow)
+        self.assertNotIn("allow-unlocked-bootstrap", workflow)
+        self.assertNotIn("Report bootstrap digest", workflow)
+        inspector = (ROOT / "scripts/inspect_patched_sqlcipher_wheel.py").read_text(
+            encoding="utf-8"
+        )
+        installer = (ROOT / "scripts/test_patched_sqlcipher_install.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("allow-unlocked-bootstrap", inspector)
+        self.assertNotIn("allow-unlocked-bootstrap", installer)
         self.assertGreater(
             workflow.index("Retain only fully validated"),
             workflow.index("Test offline installation"),
