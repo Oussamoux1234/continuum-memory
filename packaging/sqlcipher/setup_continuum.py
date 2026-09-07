@@ -64,7 +64,6 @@ def build_extension() -> Extension:
         ("SQLITE_ENABLE_FTS4", "1"),
         ("SQLITE_ENABLE_FTS5", "1"),
         ("SQLITE_ENABLE_JSON1", "1"),
-        ("SQLITE_ENABLE_LOAD_EXTENSION", "1"),
         ("SQLITE_ENABLE_RTREE", "1"),
         ("SQLITE_ENABLE_STAT4", "1"),
         ("SQLITE_ENABLE_UPDATE_DELETE_LIMIT", "1"),

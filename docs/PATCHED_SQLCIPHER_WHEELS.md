@@ -51,8 +51,9 @@ macOS runner label is not sufficient evidence for the same reproducibility claim
    initializer, and exact embedded component versions.
 5. A fresh virtual environment outside the checkout installs the wheel with isolated pip,
    no index, cache, dependency resolution, bytecode compilation, user site, or `PYTHONPATH`.
-   It tests interpreter/ABI and import origin, active encryption, wrong/missing keys, encrypted
-   header/WAL/FTS/temp canaries, crash recovery, and SQLite plus SQLCipher integrity.
+   It tests interpreter/ABI and import origin, active encryption, default denial of loadable
+   extensions, wrong/missing keys, encrypted header/WAL/FTS/temp canaries, crash recovery, and
+   SQLite plus SQLCipher integrity.
 6. Evidence binds the wheel to its producing commit/run context, raw source-verification
    record, retained dated exact-commit OSV responses, exact recipe hashes, native inspection,
    licenses, and artifact-specific SPDX 2.3 SBOM. An empty OSV response means no known

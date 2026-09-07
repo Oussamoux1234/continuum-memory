@@ -62,7 +62,8 @@ The separate `patched-sqlcipher-wheel` workflow targets Linux x86-64 on CPython 
 For every matrix entry it performs two clean builds in the same digest-pinned manylinux
 environment, requires byte-for-byte equality and a manifest-locked digest, deeply inspects
 the wheel and ELF payload, installs it offline outside the checkout, and runs the encrypted
-runtime/recovery suite. Only successful test wheels are retained, for seven days.
+runtime/recovery suite, including default denial of loadable extensions. Only successful test
+wheels are retained, for seven days.
 
 That workflow validates an ephemeral native test artifact, not the Continuum Memory
 application. It does not change the quickstart dependency, migrate a vault, exercise real key
