@@ -99,7 +99,8 @@ after stale apply, and dependent writes through a separate SQLite connection.
 checks forward migration, preserved records, old receipt invalidation, fault rollback,
 retry, reopen, integrity and unsupported-version rejection.
 
-[F4 proposal erasure/retry resurrection](https://github.com/Oussamoux1234/continuum-memory/issues/16),
+F4 proposal erasure/retry protection is addressed by the later
+[v4 proposal lifecycle contract](PROPOSAL_ERASURE.md).
 [F5 result categories and applicability](https://github.com/Oussamoux1234/continuum-memory/issues/17),
 [F7/F9 transport hardening](https://github.com/Oussamoux1234/continuum-memory/issues/18) and
 [F8 post-commit result ambiguity](https://github.com/Oussamoux1234/continuum-memory/issues/8)
