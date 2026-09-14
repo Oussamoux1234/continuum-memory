@@ -16,6 +16,10 @@ from .approval import (
     verify_payload,
 )
 from .errors import MemoryError, NOT_FOUND, invalid
+from .forget import forget_scope
+from .projection import (
+    ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, record_audience_change,
+)
 from .security import (
     GRANT_TTL_SECONDS,
     MAX_BODY_BYTES,
@@ -189,6 +193,7 @@ class Kernel:
                     continue
                 expired += 1
                 latest_sequence = sequence
+                record_audience_change(self.db, project, sequence, [row["id"]])
                 self.store.append_audit(
                     sequence,
                     "retention_policy",
@@ -216,12 +221,13 @@ class Kernel:
         require_keys(params, ["project"] if capability["project_id"] is None else [])
         project = self._project(capability, params)
         self._expire_due(project)
-        watermark = int(self.db.execute("SELECT value FROM sequence WHERE singleton=1").fetchone()[0])
+        watermark = self._watermark(self._eligibility(project, capability["provider"]))
         return {
             "status": "available",
             "project_bound": project,
             "provider": capability["provider"],
             "projection_watermark": watermark,
+            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
             "storage_mode": "plaintext_prototype",
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
@@ -594,16 +600,16 @@ class Kernel:
         ).fetchone()
         if not row:
             raise NOT_FOUND
-        count = int(
-            self.db.execute("SELECT count(*) FROM assertion_versions WHERE thread_id=?", (row["id"],)).fetchone()[0]
-        )
+        scope = forget_scope(self.store, project, row["id"])
         return {
             "schema_version": 1,
             "operation": "forget",
             "project_id": project,
             "thread_id": row["id"],
             "subject": row["subject"],
-            "version_count": count,
+            "version_count": len(scope["affected_set"]["versions"]),
+            "affected_set": scope["affected_set"],
+            "state_digest": scope["state_digest"],
             "effects": [
                 "canonical_assertions",
                 "owned_evidence",
@@ -876,7 +882,6 @@ class Kernel:
                 sequence,
             ),
         )
-        conflict_id = None
         if supersedes_id:
             self.db.execute(
                 "UPDATE assertion_versions SET lifecycle='superseded',retired_at=?,retired_seq=? WHERE id=?",
@@ -887,43 +892,11 @@ class Kernel:
                 "VALUES (?,?,?,?,?,?)",
                 (random_id("rel"), project, assertion_id, supersedes_id, "supersedes", sequence),
             )
-            for conflict in self.db.execute(
-                "SELECT conflict_id FROM conflict_members WHERE assertion_id=?", (supersedes_id,)
-            ).fetchall():
-                self.db.execute(
-                    "DELETE FROM conflict_members WHERE conflict_id=? AND assertion_id=?",
-                    (conflict["conflict_id"], supersedes_id),
-                )
-                self.db.execute(
-                    "INSERT OR IGNORE INTO conflict_members(conflict_id,assertion_id) VALUES (?,?)",
-                    (conflict["conflict_id"], assertion_id),
-                )
-        elif active_rows:
-            conflict = self.db.execute(
-                "SELECT id FROM conflicts WHERE thread_id=? AND status='open'", (thread_id,)
-            ).fetchone()
-            if conflict:
-                conflict_id = conflict["id"]
-            else:
-                conflict_id = random_id("cnf")
-                self.db.execute(
-                    "INSERT INTO conflicts(id,project_id,thread_id,status,created_seq) VALUES (?,?,?,'open',?)",
-                    (conflict_id, project, thread_id, sequence),
-                )
-            for active in active_rows:
-                self.db.execute(
-                    "INSERT OR IGNORE INTO conflict_members(conflict_id,assertion_id) VALUES (?,?)",
-                    (conflict_id, active["id"]),
-                )
-                self.db.execute(
-                    "INSERT INTO relations(id,project_id,from_assertion_id,to_assertion_id,kind,created_seq) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (random_id("rel"), project, assertion_id, active["id"], "contradicts", sequence),
-                )
-            self.db.execute(
-                "INSERT OR IGNORE INTO conflict_members(conflict_id,assertion_id) VALUES (?,?)",
-                (conflict_id, assertion_id),
-            )
+        record_audience_change(self.db, project, sequence,
+                               [assertion_id] + ([supersedes_id] if supersedes_id else []))
+        eligibility = self._eligibility(project, "user_control")
+        membership, _ = self._conflict_projection(eligibility, [thread_id])
+        conflict_id = membership.get(assertion_id)
         operation = "assertion_corrected" if supersedes_id else "assertion_accepted"
         self.store.append_audit(sequence, "user_control", operation, project, assertion_id)
         return {
@@ -938,6 +911,16 @@ class Kernel:
     def _forget_apply(self, preview: Dict[str, Any]) -> Dict[str, Any]:
         project = preview["project_id"]
         thread_id = preview["thread_id"]
+        # admin_apply already holds BEGIN IMMEDIATE. Recheck before any deletion;
+        # all challenge and deletion writes roll back together on a stale scope.
+        try:
+            scope = forget_scope(self.store, project, thread_id)
+        except MemoryError as exc:
+            if exc.code != "not_found":
+                raise
+            scope = None
+        if scope is None or any(preview.get(key) != scope[key] for key in ("affected_set", "state_digest")):
+            raise MemoryError("stale_preview", "The affected state changed. Request and approve a new forget preview.")
         thread = self.db.execute(
             "SELECT subject_key FROM claim_threads WHERE id=? AND project_id=?", (thread_id, project)
         ).fetchone()
@@ -949,7 +932,8 @@ class Kernel:
         evidence = [
             row["evidence_id"]
             for row in self.db.execute(
-                "SELECT DISTINCT evidence_id FROM assertion_versions WHERE thread_id=? AND evidence_id IS NOT NULL",
+                "SELECT DISTINCT evidence_id FROM evidence_refs WHERE assertion_id IN "
+                "(SELECT id FROM assertion_versions WHERE thread_id=?)",
                 (thread_id,),
             )
         ]
@@ -961,6 +945,8 @@ class Kernel:
             )
         ]
         assertion_ids = set(assertions)
+        sequence = self.store.next_sequence()
+        record_audience_change(self.db, project, sequence, assertions)
         feedback_deleted = 0
         recalls_pruned = 0
         if assertion_ids:
@@ -970,7 +956,7 @@ class Kernel:
                     (assertion_id,),
                 ).rowcount
             for recall in self.db.execute(
-                "SELECT id,result_ids_json FROM recalls ORDER BY id"
+                "SELECT id,result_ids_json FROM recalls WHERE project_id=? ORDER BY id", (project,)
             ).fetchall():
                 try:
                     result_ids = json.loads(recall["result_ids_json"])
@@ -1006,7 +992,6 @@ class Kernel:
                 "(SELECT 1 FROM evidence_refs WHERE evidence_id=?)",
                 (evidence_id, evidence_id),
             )
-        sequence = self.store.next_sequence()
         receipt_id = random_id("del")
         now = self._now_iso()
         projections = [
@@ -1056,15 +1041,9 @@ class Kernel:
         if as_of_valid is not None:
             as_of_valid = bounded_text(as_of_valid, "as_of_valid", 64)
             as_of_valid = canonical_utc(as_of_valid, "as_of_valid")
-        cards, watermark = self._query_cards(
-            project,
-            capability["provider"],
-            query,
-            limit,
-            temporal_mode,
-            as_of_recorded,
-            as_of_valid,
-        )
+        eligibility = self._eligibility(project, capability["provider"], temporal_mode, as_of_recorded, as_of_valid)
+        cards, _ = self._query_cards(eligibility, query, limit)
+        watermark = self._watermark(eligibility)
         recall_id = self._record_recall(
             project,
             capability["provider"],
@@ -1072,6 +1051,8 @@ class Kernel:
             cards,
             watermark,
             allows_historical=temporal_mode == "history" or as_of_recorded is not None,
+            eligibility=eligibility,
+            snapshot_recorded=eligibility.recorded if as_of_recorded is not None else None,
         )
         return {
             "status": "ok" if cards else "no_matches",
@@ -1079,73 +1060,81 @@ class Kernel:
             "cards": cards,
             "recall_id": recall_id,
             "projection_watermark": watermark,
+            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
         }
 
-    def _query_cards(
-        self,
-        project: str,
-        provider: str,
-        query: str,
-        limit: int,
-        temporal_mode: str,
-        as_of_recorded: Optional[int],
-        as_of_valid: Optional[str],
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        watermark = int(self.db.execute("SELECT value FROM sequence WHERE singleton=1").fetchone()[0])
-        recorded = watermark if as_of_recorded is None else as_of_recorded
-        conditions = ["a.project_id=?"]
-        args: List[Any] = [project]
-        if provider != "user_control":
-            conditions.append(
-                "EXISTS (SELECT 1 FROM assertion_disclosures ad WHERE ad.assertion_id=a.id "
-                "AND ad.provider IN (?, '*'))"
-            )
-            args.append(provider)
-        if temporal_mode == "current":
-            conditions.append("a.ingest_seq<=? AND (a.retired_seq IS NULL OR a.retired_seq>?)")
-            args.extend([recorded, recorded])
-        else:
-            conditions.append("a.ingest_seq<=?")
-            args.append(recorded)
-        if as_of_valid is not None:
-            conditions.append(
-                "a.valid_precision!='unknown' AND (a.valid_from IS NULL OR a.valid_from<=?) "
-                "AND (a.valid_to IS NULL OR a.valid_to>=?)"
-            )
-            args.extend([as_of_valid, as_of_valid])
-        base_select = (
-            "SELECT a.*,t.subject,e.locator AS evidence_locator,e.observed_at,e.trust_tier,e.source_agent,"
-            "(SELECT c.id FROM conflicts c JOIN conflict_members cm ON cm.conflict_id=c.id "
-            "WHERE cm.assertion_id=a.id AND c.status='open' LIMIT 1) AS conflict_id"
-        )
+    def _eligibility(self, project, provider, mode="current", recorded=None, valid=None,
+                     internal_recorded=False):
+        latest = int(self.db.execute("SELECT value FROM sequence WHERE singleton=1").fetchone()[0])
+        if recorded is None:
+            recorded = latest
+        elif provider != "user_control" and not internal_recorded:
+            row = self.db.execute(
+                "SELECT max(recorded_seq) FROM audience_sequences "
+                "WHERE project_id=? AND provider=? AND local_seq<=?",
+                (project, provider, recorded)).fetchone()
+            recorded = row[0] or 0
+        return Eligibility(project, provider, min(recorded, latest), mode, valid)
+
+    def _watermark(self, eligibility):
+        if eligibility.provider == "user_control":
+            return eligibility.recorded
+        return self.db.execute(
+            "SELECT coalesce(max(local_seq),0) FROM audience_sequences "
+            "WHERE project_id=? AND provider=? AND recorded_seq<=?",
+            (eligibility.project, eligibility.provider, eligibility.recorded)).fetchone()[0]
+
+    def _visible_sequence(self, eligibility, recorded):
+        if recorded is None or eligibility.provider == "user_control":
+            return recorded
+        row = self.db.execute(
+            "SELECT local_seq FROM audience_sequences WHERE project_id=? AND provider=? AND recorded_seq=?",
+            (eligibility.project, eligibility.provider, recorded)).fetchone()
+        if row is None:
+            raise MemoryError("integrity_error", "The audience timeline is unavailable.")
+        return row[0]
+
+    def _conflict_projection(self, eligibility, thread_ids):
+        if not thread_ids:
+            return {}, {}
+        rows = eligibility.rows(self.db, "a.thread_id IN (%s)" % ",".join("?" for _ in thread_ids), thread_ids)
+        threads = {}
+        for row in rows:
+            threads.setdefault(row["thread_id"], []).append(row)
+        groups = {}
+        for members in threads.values():
+            groups.update(conflict_groups(members))
+        membership = {row["id"]: conflict_id for conflict_id, members in groups.items() for row in members}
+        return membership, groups
+
+    def _query_cards(self, eligibility, query, limit):
+        conditions, args = eligibility.sql()
         exact = self.db.execute(
-            base_select
-            + " FROM assertion_versions a JOIN claim_threads t ON t.id=a.thread_id "
-            + "LEFT JOIN evidence e ON e.id=a.evidence_id WHERE a.id=? AND "
-            + " AND ".join(conditions)
-            + " LIMIT ?",
-            [query] + args + [limit],
-        ).fetchall()
+            ASSERTION_SELECT + " FROM assertion_versions a" + ASSERTION_JOINS
+            + "WHERE a.id=? AND " + conditions, [query] + args).fetchall()
         if exact:
             rows = exact
-            match_reason = "exact_identifier"
+            reason = "exact_identifier"
         else:
-            fts_query = fts_literal_query(query)
+            # FTS only selects candidates. The score counts this document's
+            # matched spans (subject weight 2, body weight 1); no corpus statistics.
             rows = self.db.execute(
-                base_select
-                + ",bm25(assertion_fts) AS lexical_rank FROM assertion_fts "
-                + "JOIN assertion_versions a ON a.id=assertion_fts.assertion_id "
-                + "JOIN claim_threads t ON t.id=a.thread_id LEFT JOIN evidence e ON e.id=a.evidence_id "
-                + "WHERE assertion_fts MATCH ? AND "
-                + " AND ".join(conditions)
-                + " ORDER BY lexical_rank,a.ingest_seq DESC LIMIT ?",
-                [fts_query] + args + [limit],
-            ).fetchall()
-            match_reason = "fts5_bm25"
-        return [self._card(row, match_reason) for row in rows], watermark
+                ASSERTION_SELECT
+                + ",(2*(length(highlight(assertion_fts,2,char(1),''))-length(assertion_fts.subject))"
+                + "+length(highlight(assertion_fts,3,char(1),''))-length(assertion_fts.body)) AS lexical_score"
+                + " FROM assertion_fts JOIN assertion_versions a ON a.id=assertion_fts.assertion_id"
+                + ASSERTION_JOINS + "WHERE assertion_fts MATCH ? AND " + conditions
+                + " ORDER BY lexical_score DESC,a.ingest_seq DESC,a.id LIMIT ?",
+                [fts_literal_query(query)] + args + [limit]).fetchall()
+            reason = "fts5_document_matches"
+        membership, groups = self._conflict_projection(eligibility, sorted({row["thread_id"] for row in rows}))
+        cards = [self._card(row, reason, eligibility, membership.get(row["id"])) for row in rows]
+        selected_groups = {card["conflict_id"] for card in cards if card["conflict_id"]}
+        conflicts = [self._conflict_view(eligibility, cid, groups[cid]) for cid in sorted(selected_groups)]
+        return cards, conflicts
 
-    @staticmethod
-    def _card(row: sqlite3.Row, why: str) -> Dict[str, Any]:
+    def _card(self, row, why, eligibility, conflict_id=None) -> Dict[str, Any]:
+        row = eligibility.at_snapshot(row)
         claim = _truncate_utf8(row["body"], 768)
         return {
             "memory_id": row["thread_id"],
@@ -1164,12 +1153,12 @@ class Kernel:
                 "to": row["valid_to"],
             },
             "recorded_interval": {
-                "from_seq": row["ingest_seq"],
-                "to_seq": row["retired_seq"],
+                "from_seq": self._visible_sequence(eligibility, row["ingest_seq"]),
+                "to_seq": self._visible_sequence(eligibility, row["retired_seq"]),
                 "recorded_at": row["recorded_at"],
                 "retired_at": row["retired_at"],
             },
-            "conflict_id": row["conflict_id"],
+            "conflict_id": conflict_id,
             "provenance": {
                 "evidence_id": row["evidence_id"],
                 "source_handle": row["evidence_locator"],
@@ -1189,6 +1178,8 @@ class Kernel:
         cards: Sequence[Dict[str, Any]],
         watermark: int,
         allows_historical: bool,
+        eligibility: Eligibility,
+        snapshot_recorded: Optional[int],
         recall_id: Optional[str] = None,
     ) -> str:
         recall_id = recall_id or random_id("rcl")
@@ -1196,7 +1187,7 @@ class Kernel:
         try:
             self.db.execute(
                 "INSERT INTO recalls(id,project_id,provider,query_digest,result_ids_json,watermark,"
-                "allows_historical,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                "allows_historical,created_at,temporal_mode,as_of_recorded,as_of_valid) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     recall_id,
                     project,
@@ -1206,6 +1197,9 @@ class Kernel:
                     watermark,
                     1 if allows_historical else 0,
                     self._now_iso(),
+                    eligibility.mode,
+                    snapshot_recorded,
+                    eligibility.valid,
                 ),
             )
             self.store.commit()
@@ -1238,12 +1232,10 @@ class Kernel:
         if valid is not None:
             valid = bounded_text(valid, "as_of_valid", 64)
             valid = canonical_utc(valid, "as_of_valid")
-        cards, watermark = self._query_cards(
-            project, capability["provider"], query, MAX_RESULTS, temporal_mode, recorded, valid
-        )
+        eligibility = self._eligibility(project, capability["provider"], temporal_mode, recorded, valid)
+        cards, conflicts = self._query_cards(eligibility, query, MAX_RESULTS)
+        watermark = self._watermark(eligibility)
         current = [card for card in cards if not card["conflict_id"]]
-        conflict_ids = sorted({card["conflict_id"] for card in cards if card["conflict_id"]})
-        conflicts = [self._conflict_view(project, capability["provider"], conflict_id) for conflict_id in conflict_ids]
         recall_id = random_id("rcl")
         capsule: Dict[str, Any] = {
             "memory_contract": MEMORY_CONTRACT,
@@ -1252,6 +1244,7 @@ class Kernel:
             "verified_current": current,
             "open_conflicts": conflicts,
             "projection_watermark": watermark,
+            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
             "recall_id": recall_id,
             "byte_budget": budget,
             "omitted_items": 0,
@@ -1277,34 +1270,18 @@ class Kernel:
             recall_cards,
             watermark,
             allows_historical=temporal_mode == "history" or recorded is not None,
+            eligibility=eligibility,
+            snapshot_recorded=eligibility.recorded if recorded is not None else None,
             recall_id=recall_id,
         )
         return capsule
 
-    def _conflict_view(self, project: str, provider: str, conflict_id: str) -> Dict[str, Any]:
-        args: List[Any] = [conflict_id, project]
-        disclosure = ""
-        if provider != "user_control":
-            disclosure = (
-                " AND EXISTS (SELECT 1 FROM assertion_disclosures ad WHERE ad.assertion_id=a.id "
-                "AND ad.provider IN (?, '*'))"
-            )
-            args.append(provider)
-        rows = self.db.execute(
-            "SELECT a.*,t.subject,e.locator AS evidence_locator,e.observed_at,e.trust_tier,e.source_agent,"
-            "c.id AS conflict_id FROM conflicts c JOIN conflict_members cm ON cm.conflict_id=c.id "
-            "JOIN assertion_versions a ON a.id=cm.assertion_id JOIN claim_threads t ON t.id=a.thread_id "
-            "LEFT JOIN evidence e ON e.id=a.evidence_id WHERE c.id=? AND c.project_id=? AND c.status='open' "
-            "AND a.lifecycle='active' AND a.retired_seq IS NULL"
-            + disclosure
-            + " ORDER BY a.ingest_seq LIMIT 25",
-            args,
-        ).fetchall()
+    def _conflict_view(self, eligibility, conflict_id, rows):
         return {
             "conflict_id": conflict_id,
-            "status": "open",
+            "status": "historical" if eligibility.mode == "history" else "open",
             "resolution": "user_review_required",
-            "members": [self._card(row, "open_conflict") for row in rows],
+            "members": [self._card(row, "open_conflict", eligibility, conflict_id) for row in rows],
         }
 
     def get(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1318,7 +1295,7 @@ class Kernel:
             raise invalid("Get accepts one to five IDs.", "ids")
         ids = [bounded_id(item, "ids") for item in ids]
         recall = self.db.execute(
-            "SELECT result_ids_json,allows_historical FROM recalls WHERE id=? AND project_id=? AND provider=?",
+            "SELECT * FROM recalls WHERE id=? AND project_id=? AND provider=?",
             (recall_id, project, capability["provider"]),
         ).fetchone()
         if not recall:
@@ -1333,7 +1310,8 @@ class Kernel:
                 capability["provider"],
                 assertion_id,
                 include_evidence=True,
-                current_only=not bool(recall["allows_historical"]),
+                eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
+                                              recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
             )
             if record is None:
                 raise NOT_FOUND
@@ -1404,29 +1382,15 @@ class Kernel:
         assertion_id: str,
         include_evidence: bool,
         current_only: bool = False,
+        eligibility: Optional[Eligibility] = None,
     ) -> Optional[Dict[str, Any]]:
-        args: List[Any] = [assertion_id, project]
-        disclosure = ""
-        if provider != "user_control":
-            disclosure = (
-                " AND EXISTS (SELECT 1 FROM assertion_disclosures ad WHERE ad.assertion_id=a.id "
-                "AND ad.provider IN (?, '*'))"
-            )
-            args.append(provider)
-        current = " AND a.lifecycle='active' AND a.retired_seq IS NULL" if current_only else ""
-        row = self.db.execute(
-            "SELECT a.*,t.subject,e.body AS evidence_body,e.locator AS evidence_locator,e.observed_at,"
-            "e.trust_tier,e.source_agent,(SELECT c.id FROM conflicts c JOIN conflict_members cm "
-            "ON cm.conflict_id=c.id WHERE cm.assertion_id=a.id AND c.status='open' LIMIT 1) AS conflict_id "
-            "FROM assertion_versions a JOIN claim_threads t ON t.id=a.thread_id "
-            "LEFT JOIN evidence e ON e.id=a.evidence_id WHERE a.id=? AND a.project_id=?"
-            + disclosure
-            + current,
-            args,
-        ).fetchone()
-        if not row:
+        eligibility = eligibility or self._eligibility(project, provider, "current" if current_only else "history")
+        rows = eligibility.rows(self.db, "a.id=?", [assertion_id])
+        if not rows:
             return None
-        card = self._card(row, "explicit_get")
+        row = rows[0]
+        membership, _ = self._conflict_projection(eligibility, [row["thread_id"]])
+        card = self._card(row, "explicit_get", eligibility, membership.get(assertion_id))
         card["claim"] = row["body"]
         card["claim_truncated"] = False
         card["retention"] = row["retention"]
@@ -1452,6 +1416,7 @@ class Kernel:
                 (assertion_id,),
             )
         ]
+        card["supersedes"] = self._visible_inputs(eligibility, card["supersedes"])
         card["provenance_activities"] = [
             {
                 "id": item["id"],
@@ -1459,8 +1424,8 @@ class Kernel:
                 "actor": item["actor"],
                 "tool_name": item["tool_name"],
                 "tool_version": item["tool_version"],
-                "input_ids": json.loads(item["input_ids_json"]),
-                "created_seq": item["created_seq"],
+                "input_ids": self._visible_inputs(eligibility, json.loads(item["input_ids_json"])),
+                "created_seq": self._visible_sequence(eligibility, item["created_seq"]),
             }
             for item in self.db.execute(
                 "SELECT id,activity_type,actor,tool_name,tool_version,input_ids_json,created_seq "
@@ -1469,6 +1434,14 @@ class Kernel:
             )
         ]
         return card
+
+    def _visible_inputs(self, eligibility, identifiers):
+        if eligibility.provider == "user_control" or not identifiers:
+            return identifiers
+        references = Eligibility(eligibility.project, eligibility.provider, eligibility.recorded, "history")
+        visible = {row["id"] for row in references.rows(
+            self.db, "a.id IN (%s)" % ",".join("?" for _ in identifiers), identifiers)}
+        return [identifier for identifier in identifiers if identifier in visible]
 
     def feedback(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         self._require_permission(capability, "read")
@@ -1483,13 +1456,15 @@ class Kernel:
         reason = bounded_text(params.get("reason", ""), "reason", MAX_REASON_BYTES, allow_empty=True)
         reject_obvious_secrets([reason])
         recall = self.db.execute(
-            "SELECT result_ids_json,allows_historical FROM recalls WHERE id=? AND project_id=? AND provider=?",
+            "SELECT * FROM recalls WHERE id=? AND project_id=? AND provider=?",
             (recall_id, project, capability["provider"]),
         ).fetchone()
         if not recall or item_id not in set(json.loads(recall["result_ids_json"])):
             raise NOT_FOUND
-        if not recall["allows_historical"] and self._get_assertion(
-            project, capability["provider"], item_id, include_evidence=False, current_only=True
+        if self._get_assertion(
+            project, capability["provider"], item_id, include_evidence=False,
+            eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
+                                          recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
         ) is None:
             raise NOT_FOUND
         feedback_id = random_id("fbk")

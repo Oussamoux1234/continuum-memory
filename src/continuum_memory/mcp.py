@@ -18,7 +18,10 @@ LEGACY_PROTOCOLS = {"2025-11-25"}
 QUERY_PROPERTIES = {
     "query": {"type": "string", "minLength": 1, "maxLength": 256},
     "temporal_mode": {"type": "string", "enum": ["current", "history"]},
-    "as_of_recorded": {"type": "integer", "minimum": 0},
+    "as_of_recorded": {
+        "type": "integer", "minimum": 0,
+        "description": "Use a recorded sequence or projection watermark returned to this project/provider; owner sequences differ.",
+    },
     "as_of_valid": {"type": "string", "maxLength": 64},
 }
 

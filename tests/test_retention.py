@@ -93,7 +93,7 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(row["retention"], "2027-01-02T00:00:00.000000Z")
         self.assertEqual(row["retired_at"], "2027-01-02T00:00:00.000000Z")
         self.assertGreater(row["retired_seq"], accepted["recorded_seq"])
-        self.assertEqual(status["projection_watermark"], row["retired_seq"])
+        self.assertEqual(status["projection_watermark"], current["projection_watermark"] + 1)
         self.assertEqual(
             self.harness.store.connection.execute(
                 "SELECT count(*) FROM audit_events WHERE operation='assertion_expired' AND target_id=?",

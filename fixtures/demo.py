@@ -89,7 +89,7 @@ def run_demo() -> Dict[str, Any]:
             "memory_get",
             {"recall_id": search_b["recall_id"], "ids": [accepted["assertion_id"]]},
         )["records"][0]
-        old_seq = accepted["recorded_seq"]
+        old_seq = search_b["cards"][0]["recorded_interval"]["from_seq"]
         corrected = harness.approve(
             {
                 "operation": "correct",

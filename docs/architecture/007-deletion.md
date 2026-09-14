@@ -21,3 +21,8 @@ and user exports remain outside the promise. The serialized writer makes the log
 deletion atomic, but no unbounded-latency claim is made for pruning a large recall table.
 Future encrypted storage adds per-object key
 destruction and an externally anchored deletion manifest before backup support.
+
+Schema v3 previews bind the exact affected identifiers and a keyed dependent-state
+digest. Apply rechecks that scope under the deletion transaction's writer lock. Changed
+versions, dependencies or evidence ownership return `stale_preview` and delete nothing;
+a new preview and approval are required. See [the exact-scope contract](../SNAPSHOT_AND_FORGET.md).
