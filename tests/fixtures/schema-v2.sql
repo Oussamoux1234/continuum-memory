@@ -1,20 +1,5 @@
-"""Forward-only schema for the prototype canonical ledger."""
+-- Immutable v2 schema from main 9dc86b4f4d29d7ee06b58852488f181f0bbaa25c.
 
-SCHEMA_VERSION = 3
-
-AUDIENCE_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS audience_sequences (
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    local_seq INTEGER NOT NULL,
-    recorded_seq INTEGER NOT NULL,
-    PRIMARY KEY(project_id, provider, local_seq),
-    UNIQUE(project_id, provider, recorded_seq)
-) STRICT;
-"""
-PROJECTION_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_assertions_thread_recorded ON assertion_versions(thread_id,ingest_seq,retired_seq);"
-
-SCHEMA_SQL = r"""
 PRAGMA application_id = 1129143636;
 
 CREATE TABLE IF NOT EXISTS metadata (
@@ -240,9 +225,6 @@ CREATE TABLE IF NOT EXISTS recalls (
     result_ids_json TEXT NOT NULL,
     watermark INTEGER NOT NULL,
     allows_historical INTEGER NOT NULL CHECK (allows_historical IN (0,1)),
-    temporal_mode TEXT NOT NULL DEFAULT 'current' CHECK (temporal_mode IN ('current','history')),
-    as_of_recorded INTEGER,
-    as_of_valid TEXT,
     created_at TEXT NOT NULL
 ) STRICT;
 
@@ -300,48 +282,3 @@ CREATE INDEX IF NOT EXISTS idx_conflicts_open
 ON conflicts(project_id, status, thread_id);
 CREATE INDEX IF NOT EXISTS idx_provenance_target
 ON provenance_activities(project_id, target_id, created_seq);
-""" + AUDIENCE_SCHEMA_SQL + PROJECTION_INDEX_SQL
-
-
-def migrate(connection, version):
-    """Atomic v2 -> v3 upgrade; unsupported versions remain fail closed."""
-    if version != 2:
-        return version
-    connection.execute("BEGIN IMMEDIATE")
-    try:
-        # Another opener may have completed the upgrade while we waited for the
-        # writer lock. Check the version again inside the transaction.
-        locked_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if locked_version != 2:
-            connection.commit()
-            return locked_version
-        connection.execute(AUDIENCE_SCHEMA_SQL)
-        connection.execute(PROJECTION_INDEX_SQL)
-        connection.execute("ALTER TABLE recalls ADD COLUMN temporal_mode TEXT NOT NULL DEFAULT 'current' "
-                           "CHECK (temporal_mode IN ('current','history'))")
-        connection.execute("ALTER TABLE recalls ADD COLUMN as_of_recorded INTEGER")
-        connection.execute("ALTER TABLE recalls ADD COLUMN as_of_valid TEXT")
-        # v2 did not retain exact temporal intent. Invalidate those receipts,
-        # preserving their IDs for feedback/forget cleanup; require a fresh recall.
-        connection.execute("UPDATE recalls SET result_ids_json='[]'")
-        connection.execute("""
-            INSERT INTO audience_sequences(project_id,provider,local_seq,recorded_seq)
-            SELECT project_id,provider,row_number() OVER (
-                PARTITION BY project_id,provider ORDER BY recorded_seq),recorded_seq
-            FROM (
-                SELECT DISTINCT a.project_id,c.provider,a.ingest_seq AS recorded_seq
-                FROM assertion_versions a JOIN assertion_disclosures ad ON ad.assertion_id=a.id
-                JOIN capabilities c ON c.project_id=a.project_id AND (ad.provider='*' OR ad.provider=c.provider)
-                UNION
-                SELECT DISTINCT a.project_id,c.provider,a.retired_seq AS recorded_seq
-                FROM assertion_versions a JOIN assertion_disclosures ad ON ad.assertion_id=a.id
-                JOIN capabilities c ON c.project_id=a.project_id AND (ad.provider='*' OR ad.provider=c.provider)
-                WHERE a.retired_seq IS NOT NULL
-            )
-        """)
-        connection.execute("PRAGMA user_version=3")
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    return 3

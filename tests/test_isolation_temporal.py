@@ -72,7 +72,8 @@ class IsolationAndTemporalTest(unittest.TestCase):
         )
         before_recording = client.call(
             "memory_search",
-            {"query": "supported", "limit": 5, "as_of_recorded": accepted["recorded_seq"] - 1},
+            {"query": "supported", "limit": 5,
+             "as_of_recorded": during["cards"][0]["recorded_interval"]["from_seq"] - 1},
         )
         self.assertEqual(during["status"], "ok")
         self.assertEqual(after["status"], "no_matches")

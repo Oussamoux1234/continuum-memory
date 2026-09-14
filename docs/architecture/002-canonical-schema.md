@@ -8,6 +8,11 @@ Canonical state consists of opaque projects/scopes, minimal evidence, stable cla
 immutable assertion-version bodies, admission/review state, attestations, consent receipts,
 typed relations, explicit conflicts, feedback, audit events, and deletion receipts.
 
+From schema v3, conflict sets are projections of canonical assertion intervals and
+audience visibility. Legacy conflict tables are retained for compatibility and deletion,
+not read as current or historical truth. Audience sequence mappings and temporal recall
+receipts support scoped snapshot reads; see [the migration contract](../SNAPSHOT_AND_FORGET.md).
+
 The canonical ledger never stores embeddings or treats FTS as truth. Every derived row has
 lineage to an assertion/version and can be rebuilt. Assertions separate admission,
 epistemic state, lifecycle, authority, classification, retention, applicability, and

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .errors import MemoryError
-from .migrations import SCHEMA_SQL, SCHEMA_VERSION
+from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
 from .security import (
     MAX_BODY_BYTES,
     MAX_SUBJECT_BYTES,
@@ -106,6 +106,11 @@ class Store:
         audit_key = read_private(self.files["audit_key"], 128)
         self.connection = _connect(self.files["db"])
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
+        try:
+            version = migrate(self.connection, version)
+        except Exception:
+            self.connection.close()
+            raise
         if version != SCHEMA_VERSION:
             self.connection.close()
             raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")

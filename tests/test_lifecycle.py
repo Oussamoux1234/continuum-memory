@@ -106,7 +106,7 @@ class LifecycleIntegrationTest(unittest.TestCase):
                 "query": "SQLite",
                 "limit": 5,
                 "temporal_mode": "current",
-                "as_of_recorded": accepted["recorded_seq"],
+                "as_of_recorded": recalled["cards"][0]["recorded_interval"]["from_seq"],
             },
         )
         self.assertEqual(as_recorded["cards"][0]["version_id"], old_version)

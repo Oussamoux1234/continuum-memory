@@ -32,3 +32,9 @@ Without a semantic model, the prototype uses a conservative deterministic rule: 
 different active bodies under the same normalized user-reviewed subject are incompatible
 unless one explicitly supersedes the other. This can over-report conflicts, but it cannot
 silently hide one. Smarter contradiction suggestions remain non-canonical roadmap work.
+
+Schema v3 derives conflicts from the eligible versions instead of the mutable conflict
+cache. Read paths share recorded/valid and audience eligibility; later retirements cannot
+alter an earlier snapshot. Agent sequences are project/provider scoped, while owner
+sequences remain vault scoped. See [snapshot semantics and migration](../SNAPSHOT_AND_FORGET.md)
+for interval boundaries, historical conflicts, receipt compatibility and ranking.
