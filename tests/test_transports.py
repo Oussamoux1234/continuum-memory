@@ -256,6 +256,14 @@ class DaemonTransportTests(unittest.TestCase):
         self.addCleanup(sock.close)
         return sock
 
+    def assert_closed(self, sock):
+        try:
+            self.assertEqual(sock.recv(1), b"")
+        except ConnectionResetError:
+            # Linux may reset a socket closed while a trickled byte is unread;
+            # both reset and EOF release the peer. Timeouts still fail the test.
+            pass
+
     def request(self, method="status", **overrides):
         request = {"id": 1, "method": method, "auth": {"token": self.harness.control.capability["token"]},
                    "params": {"project": self.harness.projects["alpha"]["id"]}}
@@ -282,7 +290,7 @@ class DaemonTransportTests(unittest.TestCase):
         bad = self.connect()
         bad.sendall(b'{"id":')
         self.healthy()
-        self.assertEqual(bad.recv(1), b"")
+        self.assert_closed(bad)
         self.healthy()
 
     def test_trickle_deadline_is_absolute(self):
@@ -300,7 +308,7 @@ class DaemonTransportTests(unittest.TestCase):
         sender.start()
         try:
             self.healthy()
-            self.assertEqual(bad.recv(1), b"")
+            self.assert_closed(bad)
             self.assertLess(time.monotonic() - started, 1.3)
         finally:
             stopped.set()
@@ -313,9 +321,9 @@ class DaemonTransportTests(unittest.TestCase):
             sock.sendall(b"{")
         time.sleep(0.08)
         excess = self.connect()
-        self.assertEqual(excess.recv(1), b"")
+        self.assert_closed(excess)
         for sock in holders:
-            self.assertEqual(sock.recv(1), b"")
+            self.assert_closed(sock)
         self.healthy()
 
     def test_stalled_readers_and_disconnects_do_not_block_dispatch(self):
