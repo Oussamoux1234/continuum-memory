@@ -15,7 +15,7 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 | Prompt injection or poisoning | proposals quarantined; memory labeled data; no action tools; conflicts stay explicit | Generic host may act on text; adversarial-memory test |
 | Cross-project/provider disclosure | bound capability; authorization predicates inside exact/FTS/get queries; non-revealing errors | Shared canonical/FTS DB is not physically sharded and leaks access timing/size locally; isolation tests cover results/counts only |
 | SQL/FTS injection | parameterized SQL; literal-token FTS query builder; bounded strings | SQLite/parser defects; injection tests |
-| Oversized/malformed JSON | 64 KiB frames; strict keys/types/ranges; shallow expected objects | Resource exhaustion below OS boundary; malformed MCP tests |
+| Oversized/malformed JSON or stalled local peer | Acquisition and response frames capped at 64 KiB; strict envelopes; 2-second absolute read/write deadlines; 16 daemon connections; serialized dispatch and bounded pipe queues | Continuous same-UID admission floods and slow kernel work can still deny service; actual socket/subprocess malformed, trickle, blocked-output, saturation, and recovery tests |
 | Replay/duplicate delivery | scoped idempotency table; nonce-bound single-use grants; packaged runtime rejects HMAC grants | Prototype HMAC exists only in an explicitly injected temporary test daemon; replay/cross-challenge tests |
 | Crash or corruption | one writer, WAL, FULL sync, transactions, integrity check | No full power-loss/fault matrix yet; integrity tests only |
 | Audit tamper/truncation | content-free HMAC chain and external head file | Same-UID attacker may alter DB and key/head; tamper/tail tests |

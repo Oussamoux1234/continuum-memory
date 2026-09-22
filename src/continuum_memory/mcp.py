@@ -1,7 +1,6 @@
 """Strict, project-bound stdio MCP bridge with no administrative capabilities."""
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,7 +9,9 @@ from . import __version__
 from .client import DaemonClient
 from .daemon import _default_home
 from .errors import MemoryError, invalid
-from .security import MAX_FRAME_BYTES, absolute_path, canonical_json, require_keys
+from .security import absolute_path, canonical_json, require_keys
+from .stdio import FrameFailure, StdioTransport
+from .transport import decode_frame, encode_frame, valid_id, valid_method
 
 MODERN_PROTOCOL = "2026-07-28"
 LEGACY_PROTOCOLS = {"2025-11-25"}
@@ -151,16 +152,19 @@ class McpServer:
         if not isinstance(request, dict):
             return self._rpc_error(None, -32600, "Invalid Request")
         request_id = request.get("id")
+        if "id" in request and not valid_id(request_id):
+            return self._rpc_error(None, -32600, "Invalid Request")
+        if (request.get("jsonrpc") != "2.0" or not valid_method(request.get("method"))
+                or set(request) - {"jsonrpc", "id", "method", "params"}):
+            return self._rpc_error(request_id, -32600, "Invalid Request")
+        # Notifications never dispatch tools or change protocol state.
+        if "id" not in request:
+            return None
         try:
-            require_keys(request, ["jsonrpc", "id", "method", "params"], ["jsonrpc", "method"])
-            if request["jsonrpc"] != "2.0" or not isinstance(request["method"], str):
-                raise MemoryError("invalid_request", "Invalid JSON-RPC envelope.")
             method = request["method"]
             params = request.get("params", {})
-            if request_id is None:
-                if method == "notifications/initialized" and self.legacy_protocol:
-                    return None
-                return None
+            if not isinstance(params, dict):
+                raise invalid("Parameters must be an object.")
             if method == "server/discover":
                 self._validate_modern_meta(params)
                 return self._result(request_id, self._discovery())
@@ -181,7 +185,7 @@ class McpServer:
                 require_keys(params, ["name", "arguments", "_meta"], ["name", "arguments"])
                 name = params["name"]
                 arguments = params["arguments"]
-                if name not in TOOL_MAP:
+                if not isinstance(name, str) or name not in TOOL_MAP:
                     return self._rpc_error(request_id, -32602, "Unknown tool")
                 self._validate_tool_input(TOOL_MAP[name]["inputSchema"], arguments)
                 try:
@@ -191,7 +195,7 @@ class McpServer:
                         {"content": [{"type": "text", "text": canonical_json(result)}], "structuredContent": result},
                     )
                 except MemoryError as exc:
-                    error_value = {"error": exc.as_dict()}
+                    error_value = {"error": {"code": exc.code, "message": exc.message}}
                     return self._result(
                         request_id,
                         {
@@ -202,7 +206,9 @@ class McpServer:
                     )
             return self._rpc_error(request_id, -32601, "Method not found")
         except MemoryError as exc:
-            return self._rpc_error(request_id, -32602, exc.message, exc.as_dict())
+            return self._rpc_error(request_id, -32602, "Invalid params", {"code": exc.code})
+        except Exception:
+            return self._rpc_error(request_id, -32603, "Internal error")
 
     def _discovery(self) -> Dict[str, Any]:
         return {
@@ -215,7 +221,7 @@ class McpServer:
     def _initialize(self, params: Any) -> Dict[str, Any]:
         require_keys(params, ["protocolVersion", "capabilities", "clientInfo"], ["protocolVersion", "capabilities", "clientInfo"])
         protocol = params["protocolVersion"]
-        if protocol not in LEGACY_PROTOCOLS:
+        if not isinstance(protocol, str) or protocol not in LEGACY_PROTOCOLS:
             raise MemoryError("unsupported_protocol", "Use stateless MCP 2026-07-28 or the pinned legacy protocol.")
         if not isinstance(params["capabilities"], dict) or not isinstance(params["clientInfo"], dict):
             raise invalid("Legacy initialization fields are invalid.")
@@ -302,19 +308,36 @@ def main(argv: Any = None) -> int:
     parser.add_argument("--capability-file", type=Path, required=True)
     args = parser.parse_args(argv)
     server = McpServer(DaemonClient(absolute_path(args.data_dir), absolute_path(args.capability_file)))
-    for raw in sys.stdin.buffer:
-        if len(raw) > MAX_FRAME_BYTES:
-            response = server._rpc_error(None, -32700, "Frame too large")
-        else:
+    return serve_stdio(server, sys.stdin.fileno(), sys.stdout.fileno())
+
+
+def serve_stdio(server: McpServer, input_fd: int, output_fd: int) -> int:
+    transport = StdioTransport(input_fd, output_fd)
+    try:
+        while True:
+            fatal = False
             try:
-                request = json.loads(raw.decode("utf-8"))
-                response = server.handle(request)
-            except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
-                response = server._rpc_error(None, -32700, "Parse error")
-        if response is not None:
-            sys.stdout.write(canonical_json(response) + "\n")
-            sys.stdout.flush()
-    return 0
+                raw = transport.read_frame()
+                if raw is None:
+                    return 0
+                try:
+                    response = server.handle(decode_frame(raw))
+                except (UnicodeError, ValueError, RecursionError):
+                    response = server._rpc_error(None, -32700, "Parse error")
+            except FrameFailure as exc:
+                response = server._rpc_error(None, -32700, str(exc))
+                fatal = True
+            if response is not None:
+                try:
+                    payload = encode_frame(response)
+                except (TypeError, UnicodeError, ValueError, RecursionError):
+                    payload = encode_frame(server._rpc_error(response.get("id"), -32000, "Response exceeds frame limit"))
+                if not transport.write_frame(payload):
+                    return 2
+            if fatal:
+                return 2
+    finally:
+        transport.close()
 
 
 if __name__ == "__main__":

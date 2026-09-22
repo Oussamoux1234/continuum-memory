@@ -19,3 +19,12 @@ Status contains no out-of-scope counts. Typed errors avoid content and unauthori
 Returned context begins with a machine-readable `historical_untrusted_data` contract and
 cannot perform any external action. Generic hosts may still misuse the data; universal
 host-side enforcement is impossible without host support.
+
+JSON-RPC envelopes require `jsonrpc: "2.0"`, a bounded string method, and a bounded
+integer/string request ID when present. Explicit null, boolean, fractional, and
+container IDs are invalid. Request params must be objects; tool names and legacy
+protocol versions must be strings before lookup. Valid notifications produce no
+response and never dispatch tools or change protocol state. Malformed complete
+requests produce stable JSON-RPC errors and leave the bridge usable. Error data
+contains stable codes, not private request fields. Transport framing, deadlines,
+and fail-closed conditions are specified in [ADR 001](001-process-topology.md).

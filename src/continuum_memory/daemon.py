@@ -1,12 +1,13 @@
 """Owner-only Unix socket daemon with a serialized request loop."""
 
 import argparse
-import json
 import os
+import selectors
 import signal
-import socketserver
+import socket
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict
 
@@ -22,23 +23,35 @@ from .security import (
     require_keys,
 )
 from .storage import Store, paths
+from .transport import (
+    CHUNK_BYTES,
+    MAX_CONNECTIONS,
+    READ_TIMEOUT,
+    WRITE_TIMEOUT,
+    decode_frame,
+    encode_frame,
+    valid_id,
+    valid_method,
+)
 
 
-class RequestHandler(socketserver.StreamRequestHandler):
-    def handle(self) -> None:
-        raw = self.rfile.readline(MAX_FRAME_BYTES + 1)
-        if len(raw) > MAX_FRAME_BYTES:
-            self._write_error(None, MemoryError("request_too_large", "The local request exceeds the frame limit."))
-            return
+class RequestHandler:
+    """Dispatch complete frames on the store's owning thread only."""
+
+    def __init__(self, store: Store, kernel: Kernel):
+        self.store = store
+        self.kernel = kernel
+
+    def handle(self, raw: bytes) -> bytes:
         request_id = None
         try:
-            request = json.loads(raw.decode("utf-8"))
+            request = decode_frame(raw)
             require_keys(request, ["id", "method", "auth", "params"], ["id", "method", "auth", "params"])
-            request_id = request["id"]
-            if isinstance(request_id, bool) or not isinstance(request_id, (int, str)):
+            if not valid_id(request["id"]):
                 raise MemoryError("invalid_request", "Request ID is invalid.")
+            request_id = request["id"]
             method = request["method"]
-            if not isinstance(method, str) or len(method) > 64:
+            if not valid_method(method):
                 raise MemoryError("invalid_request", "Method is invalid.")
             auth = require_keys(request["auth"], ["token"], ["token"])
             token = auth["token"]
@@ -47,50 +60,133 @@ class RequestHandler(socketserver.StreamRequestHandler):
             params = request["params"]
             if not isinstance(params, dict):
                 raise MemoryError("invalid_request", "Parameters must be an object.")
-            capability = self.server.store.authenticate(token)  # type: ignore[attr-defined]
-            result = self.server.kernel.dispatch(capability, method, params)  # type: ignore[attr-defined]
-            self._write({"id": request_id, "result": result})
+            capability = self.store.authenticate(token)
+            result = self.kernel.dispatch(capability, method, params)
         except MemoryError as exc:
-            self._write_error(request_id, exc)
-        except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
-            self._write_error(request_id, MemoryError("invalid_json", "The local request is malformed."))
+            # Validation details can contain attacker-controlled field names.
+            return self.error(request_id, exc.code, exc.message)
+        except (UnicodeError, ValueError, RecursionError):
+            return self.error(request_id, "invalid_json", "The local request is malformed.")
         except Exception:
-            self._write_error(request_id, MemoryError("internal_error", "The local service could not complete the request."))
+            return self.error(request_id, "internal_error", "The local service could not complete the request.")
+        try:
+            return encode_frame({"id": request_id, "result": result})
+        except (TypeError, ValueError, UnicodeError, RecursionError):
+            return self.error(request_id, "response_too_large", "The local response exceeds the frame limit; narrow the request.")
 
-    def _write_error(self, request_id: Any, error: MemoryError) -> None:
-        self._write({"id": request_id, "error": error.as_dict()})
-
-    def _write(self, value: Dict[str, Any]) -> None:
-        encoded = (canonical_json(value) + "\n").encode("utf-8")
-        if len(encoded) > MAX_FRAME_BYTES:
-            encoded = (
-                canonical_json(
-                    {
-                        "id": value.get("id"),
-                        "error": {
-                            "code": "response_too_large",
-                            "message": "The local response exceeds the frame limit; narrow the request.",
-                        },
-                    }
-                )
-                + "\n"
-            ).encode("utf-8")
-        self.wfile.write(encoded)
-        self.wfile.flush()
+    @staticmethod
+    def error(request_id: Any, code: str, message: str) -> bytes:
+        return encode_frame({"id": request_id, "error": {"code": code, "message": message}})
 
 
-class MemoryServer(socketserver.UnixStreamServer):
-    allow_reuse_address = False
+class _Connection:
+    def __init__(self, sock: socket.socket):
+        self.sock = sock
+        self.buffer = bytearray()
+        self.output = b""
+        self.offset = 0
+        self.deadline = time.monotonic() + READ_TIMEOUT
 
-    def __init__(
-        self,
-        socket_path: Path,
-        store: Store,
-        kernel_factory: Callable[[Store], Kernel] = Kernel,
-    ):
-        self.store = store
-        self.kernel = kernel_factory(store)
-        super().__init__(str(socket_path), RequestHandler)
+
+class MemoryServer:
+    """Bounded nonblocking socket I/O with serialized kernel/SQLite dispatch."""
+
+    def __init__(self, socket_path: Path, store: Store, kernel_factory: Callable[[Store], Kernel] = Kernel):
+        self.handler = RequestHandler(store, kernel_factory(store))
+        self.selector = selectors.DefaultSelector()
+        self.connections: Dict[socket.socket, _Connection] = {}
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            self.listener.bind(str(socket_path))
+            self.listener.listen(MAX_CONNECTIONS)
+            self.listener.setblocking(False)
+            self.selector.register(self.listener, selectors.EVENT_READ)
+        except Exception:
+            self.server_close()
+            raise
+
+    def _close(self, connection: _Connection) -> None:
+        self.selector.unregister(connection.sock)
+        self.connections.pop(connection.sock, None)
+        connection.sock.close()
+
+    def _respond(self, connection: _Connection, output: bytes) -> None:
+        connection.buffer.clear()
+        connection.output = output
+        connection.deadline = time.monotonic() + WRITE_TIMEOUT
+        self.selector.modify(connection.sock, selectors.EVENT_WRITE, connection)
+
+    def _accept(self) -> None:
+        # Bound work per selector turn even under continuous connection attempts.
+        for _ in range(MAX_CONNECTIONS):
+            try:
+                sock, _ = self.listener.accept()
+            except BlockingIOError:
+                return
+            if len(self.connections) >= MAX_CONNECTIONS:
+                sock.close()
+                continue
+            try:
+                sock.setblocking(False)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, CHUNK_BYTES)
+                connection = _Connection(sock)
+                self.selector.register(sock, selectors.EVENT_READ, connection)
+                self.connections[sock] = connection
+            except OSError:
+                sock.close()
+
+    def _read(self, connection: _Connection) -> None:
+        chunk = connection.sock.recv(min(CHUNK_BYTES, MAX_FRAME_BYTES + 1 - len(connection.buffer)))
+        if not chunk:
+            self._close(connection)
+            return
+        connection.buffer.extend(chunk)
+        newline = connection.buffer.find(b"\n")
+        frame_size = newline + 1 if newline >= 0 else len(connection.buffer)
+        if frame_size > MAX_FRAME_BYTES or (newline < 0 and frame_size == MAX_FRAME_BYTES):
+            self._respond(connection, self.handler.error(None, "request_too_large", "The local request exceeds the frame limit."))
+        elif newline >= 0:
+            self._respond(connection, self.handler.handle(bytes(connection.buffer[:newline])))
+
+    def _write(self, connection: _Connection) -> None:
+        sent = connection.sock.send(memoryview(connection.output)[connection.offset:])
+        if not sent:
+            self._close(connection)
+            return
+        connection.offset += sent
+        if connection.offset == len(connection.output):
+            self._close(connection)
+
+    def serve_forever(self, poll_interval: float = 0.25) -> None:
+        while True:
+            now = time.monotonic()
+            for connection in list(self.connections.values()):
+                if now >= connection.deadline:
+                    self._close(connection)
+            nearest = min((c.deadline for c in self.connections.values()), default=now + poll_interval)
+            for key, _events in self.selector.select(max(0, min(poll_interval, nearest - now))):
+                if key.fileobj is self.listener:
+                    self._accept()
+                    continue
+                connection = key.data
+                if time.monotonic() >= connection.deadline:
+                    self._close(connection)
+                    continue
+                try:
+                    if connection.output:
+                        self._write(connection)
+                    else:
+                        self._read(connection)
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    self._close(connection)
+
+    def server_close(self) -> None:
+        for connection in list(self.connections.values()):
+            self._close(connection)
+        self.listener.close()
+        self.selector.close()
 
 
 def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:

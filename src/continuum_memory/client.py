@@ -1,15 +1,16 @@
 """Bounded one-request Unix socket client used by CLI and MCP bridge."""
 
-import json
 import os
 import socket
 import struct
+import time
 from pathlib import Path
 from typing import Any, Dict
 
 from .errors import MemoryError, UNAVAILABLE
-from .security import MAX_FRAME_BYTES, canonical_json, ensure_private_directory, ensure_private_socket
+from .security import MAX_FRAME_BYTES, ensure_private_directory, ensure_private_socket
 from .storage import load_capability, paths
+from .transport import CHUNK_BYTES, CLIENT_TIMEOUT, decode_frame, encode_frame
 
 
 class DaemonClient:
@@ -27,12 +28,14 @@ class DaemonClient:
             "auth": {"token": self.capability["token"]},
             "params": params,
         }
-        payload = (canonical_json(request) + "\n").encode("utf-8")
-        if len(payload) > MAX_FRAME_BYTES:
-            raise MemoryError("request_too_large", "The local request exceeds the frame limit.")
+        try:
+            payload = encode_frame(request)
+        except (UnicodeError, ValueError, RecursionError) as exc:
+            raise MemoryError("request_too_large", "The local request exceeds the frame limit.") from exc
         expected_socket = ensure_private_socket(self.socket_path)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(5.0)
+        deadline = time.monotonic() + CLIENT_TIMEOUT
+        sock.settimeout(CLIENT_TIMEOUT)
         try:
             sock.connect(str(self.socket_path))
             connected_socket = ensure_private_socket(self.socket_path)
@@ -42,10 +45,12 @@ class DaemonClient:
             ):
                 raise MemoryError("unsafe_socket", "The daemon socket changed during connection.")
             self._verify_peer_owner(sock)
+            self._remaining(sock, deadline)
             sock.sendall(payload)
             chunks = bytearray()
-            while len(chunks) <= MAX_FRAME_BYTES:
-                chunk = sock.recv(min(8192, MAX_FRAME_BYTES + 1 - len(chunks)))
+            while len(chunks) < MAX_FRAME_BYTES:
+                self._remaining(sock, deadline)
+                chunk = sock.recv(min(CHUNK_BYTES, MAX_FRAME_BYTES + 1 - len(chunks)))
                 if not chunk:
                     break
                 chunks.extend(chunk)
@@ -55,16 +60,29 @@ class DaemonClient:
             raise UNAVAILABLE from exc
         finally:
             sock.close()
-        if len(chunks) > MAX_FRAME_BYTES or not chunks:
+        if len(chunks) > MAX_FRAME_BYTES or b"\n" not in chunks:
             raise MemoryError("invalid_response", "The local service returned an invalid response.")
         try:
-            response = json.loads(bytes(chunks).split(b"\n", 1)[0].decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
+            response = decode_frame(bytes(chunks).split(b"\n", 1)[0])
+        except (UnicodeError, ValueError, RecursionError) as exc:
             raise MemoryError("invalid_response", "The local service returned malformed JSON.") from exc
-        if response.get("error"):
+        if (not isinstance(response, dict) or type(response.get("id")) is not int or response["id"] != 1
+                or set(response) not in ({"id", "result"}, {"id", "error"})):
+            raise MemoryError("invalid_response", "The local service returned an invalid response.")
+        if "error" in response:
             error = response["error"]
-            raise MemoryError(error.get("code", "internal_error"), error.get("message", "Request failed."), error.get("details"))
-        return response.get("result")
+            if (not isinstance(error, dict) or not isinstance(error.get("code"), str)
+                    or not isinstance(error.get("message"), str)):
+                raise MemoryError("invalid_response", "The local service returned an invalid error.")
+            raise MemoryError(error["code"], error["message"])
+        return response["result"]
+
+    @staticmethod
+    def _remaining(sock: socket.socket, deadline: float) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout("Local request deadline expired")
+        sock.settimeout(remaining)
 
     @staticmethod
     def _verify_peer_owner(sock: socket.socket) -> None:
