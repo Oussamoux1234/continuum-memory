@@ -109,6 +109,13 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
         for name, sddl in cases.items():
             with self.subTest(name=name):
                 path = self.directory_with_acl(name, sddl)
+                if name == "unprotected":
+                    # CreateDirectory can normalize a supplied descriptor to
+                    # protected. Explicitly enable inheritance on this fixture.
+                    setter = self.boundary.security.SetNamedSecurityInfoW
+                    setter.argtypes = [ctypes.c_wchar_p, DWORD, DWORD, POINTER, POINTER, POINTER, POINTER]
+                    setter.restype = DWORD
+                    self.assertEqual(setter(str(path), 1, 0x20000000, None, None, None, None), 0)
                 with self.assertRaises(MemoryError) as error:
                     self.boundary.inspect(path, directory=True)
                 self.assertEqual(error.exception.code, "unsafe_permissions")

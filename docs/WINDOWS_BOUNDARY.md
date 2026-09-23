@@ -19,7 +19,9 @@ overwritten, its ACL repaired, or its owner changed.
 - Every ancestor is opened without delete sharing, checked for reparse points,
   and held throughout the path-dependent operation. System ancestors need not
   belong to the user; the private leaf must. Junctions, symlinks and other reparse
-  points are refused, including on ancestors.
+  points are refused, including on ancestors. Held handles request data-read /
+  directory-list access: metadata-only opens do not enforce this share lock.
+  An ancestor that denies directory-list access is therefore refused.
 - Each private object must belong to the current **process token user SID**, with
   a protected, present, non-null DACL containing exactly one explicit full-control
   allow ACE for that SID. Broader or unusual ACLs are refused, not interpreted as

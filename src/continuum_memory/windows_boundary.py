@@ -197,7 +197,9 @@ class WindowsBoundary:
 
     def _open(self, path, access=READ_CONTROL | FILE_READ_ATTRIBUTES, create=False, attributes=None):
         handle = self.kernel.CreateFileW(
-            path, access, 3, ctypes.byref(attributes) if attributes is not None else None,
+            # Metadata-only opens do NOT participate in sharing checks. Include
+            # FILE_READ_DATA / FILE_LIST_DIRECTORY so no-delete-sharing pins it.
+            path, access | 1, 3, ctypes.byref(attributes) if attributes is not None else None,
             1 if create else 3,  # CREATE_NEW / OPEN_EXISTING; never truncate.
             FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, None,
         )
