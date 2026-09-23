@@ -106,7 +106,9 @@ The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 bu
 reproducible SQLCipher binding in this dependency-free slice. File permissions, strict
 date parsing, lifecycle expiry, and deletion semantics are tested, but plaintext can remain
 in filesystem or OS snapshots. The owner-only directory blocks other local accounts; it
-does not resist a malicious process already running as the same user. Do not store secrets
+does not resist a malicious process already running as the same user. New writes have
+[local secret-admission checks](docs/SECRET_ADMISSION.md), with bounded owner policy
+and explicit limitations. Do not store secrets
 or sensitive production data. The storage interface is isolated so a reviewed SQLCipher
 implementation can replace it later.
 

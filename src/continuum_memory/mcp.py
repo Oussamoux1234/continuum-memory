@@ -1,6 +1,5 @@
 """Strict, project-bound stdio MCP bridge with no administrative capabilities."""
 
-import argparse
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -9,7 +8,7 @@ from . import __version__
 from .client import DaemonClient
 from .daemon import _default_home
 from .errors import MemoryError, invalid
-from .security import absolute_path, canonical_json, require_keys
+from .security import ContentSafeArgumentParser, absolute_path, canonical_json, require_keys
 from .stdio import FrameFailure, StdioTransport
 from .transport import decode_frame, encode_frame, valid_id, valid_method
 
@@ -303,12 +302,19 @@ class McpServer:
 
 
 def main(argv: Any = None) -> int:
-    parser = argparse.ArgumentParser(prog="continuum-mcp", description="Continuum Memory stdio MCP bridge")
+    parser = ContentSafeArgumentParser(prog="continuum-mcp", description="Continuum Memory stdio MCP bridge")
     parser.add_argument("--data-dir", type=Path, default=_default_home())
     parser.add_argument("--capability-file", type=Path, required=True)
     args = parser.parse_args(argv)
-    server = McpServer(DaemonClient(absolute_path(args.data_dir), absolute_path(args.capability_file)))
-    return serve_stdio(server, sys.stdin.fileno(), sys.stdout.fileno())
+    try:
+        server = McpServer(DaemonClient(absolute_path(args.data_dir), absolute_path(args.capability_file)))
+        return serve_stdio(server, sys.stdin.fileno(), sys.stdout.fileno())
+    except MemoryError as exc:
+        print(canonical_json({"error": exc.as_dict()}), file=sys.stderr)
+        return 2
+    except OSError:
+        print(canonical_json({"error": {"code": "local_io_error", "message": "The local operation could not be completed."}}), file=sys.stderr)
+        return 2
 
 
 def serve_stdio(server: McpServer, input_fd: int, output_fd: int) -> int:

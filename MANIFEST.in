@@ -9,3 +9,4 @@ include schemas/context-response.schema.json
 include docs/PROPOSAL_ERASURE.md
 include docs/LINUX_APPROVAL_BROKER.md
 include scripts/polkit_smoke.py
+include docs/SECRET_ADMISSION.md

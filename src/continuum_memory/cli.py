@@ -13,6 +13,7 @@ from .client import DaemonClient
 from .daemon import _default_home
 from .errors import MemoryError
 from .security import (
+    ContentSafeArgumentParser,
     MAX_BODY_BYTES,
     MAX_SUBJECT_BYTES,
     absolute_path,
@@ -62,7 +63,7 @@ def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="continuum", description="Continuum Memory prototype CLI")
+    parser = ContentSafeArgumentParser(prog="continuum", description="Continuum Memory prototype CLI")
     parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     parser.add_argument("--data-dir", type=Path, default=_default_home())
     parser.add_argument("--json", action="store_true", help="emit compact JSON")
@@ -282,6 +283,9 @@ def main(argv: Any = None) -> int:
         return 0
     except MemoryError as exc:
         _print({"error": exc.as_dict()}, True)
+        return 2
+    except OSError:
+        _print({"error": {"code": "local_io_error", "message": "The local operation could not be completed."}}, True)
         return 2
 
 

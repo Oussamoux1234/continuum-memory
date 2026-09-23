@@ -1,6 +1,5 @@
 """Owner-only Unix socket daemon with a serialized request loop."""
 
-import argparse
 import os
 import selectors
 import signal
@@ -14,6 +13,7 @@ from typing import Any, Callable, Dict
 from .errors import MemoryError
 from .kernel import Kernel
 from .security import (
+    ContentSafeArgumentParser,
     MAX_FRAME_BYTES,
     absolute_path,
     canonical_json,
@@ -231,7 +231,7 @@ def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) ->
 
 
 def main(argv: Any = None) -> int:
-    parser = argparse.ArgumentParser(prog="memoryd", description="Continuum Memory local daemon")
+    parser = ContentSafeArgumentParser(prog="memoryd", description="Continuum Memory local daemon")
     parser.add_argument("--data-dir", type=Path, default=_default_home())
     args = parser.parse_args(argv)
     try:
@@ -239,6 +239,9 @@ def main(argv: Any = None) -> int:
         return 0
     except MemoryError as exc:
         print(canonical_json({"error": exc.as_dict()}), file=sys.stderr)
+        return 2
+    except OSError:
+        print(canonical_json({"error": {"code": "local_io_error", "message": "The local operation could not be completed."}}), file=sys.stderr)
         return 2
 
 

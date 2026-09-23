@@ -1,5 +1,6 @@
 """Canonicalization, capability, preview-grant, and bounded-input helpers."""
 
+import argparse
 import hashlib
 import hmac
 import json
@@ -27,12 +28,6 @@ GRANT_TTL_SECONDS = 120
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 PROVIDER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 TOKEN_RE = re.compile(r"[\w][\w.-]{0,63}", re.UNICODE)
-OBVIOUS_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
-)
 
 
 def canonical_json(value: Any) -> str:
@@ -55,7 +50,10 @@ def random_id(prefix: str) -> str:
 def bounded_text(value: Any, field: str, maximum: int, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise invalid("Expected a string.", field)
-    size = len(value.encode("utf-8"))
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeError:
+        raise invalid("Text must be valid UTF-8.", field) from None
     if (not allow_empty and size == 0) or size > maximum:
         raise invalid("String length is outside the allowed range.", field)
     if "\x00" in value:
@@ -83,7 +81,7 @@ def require_keys(value: Any, allowed: Iterable[str], required: Iterable[str] = (
     allowed_set = set(allowed)
     unknown = sorted(set(value) - allowed_set)
     if unknown:
-        raise MemoryError("unknown_field", "Unknown request field.", {"fields": unknown})
+        raise MemoryError("unknown_field", "Unknown request field.")
     missing = sorted(set(required) - set(value))
     if missing:
         raise MemoryError("missing_field", "Required request field is missing.", {"fields": missing})
@@ -116,11 +114,16 @@ def fts_literal_query(query: str) -> str:
 
 
 def reject_obvious_secrets(values: Iterable[str]) -> None:
-    """Small denylist, deliberately documented as incomplete defense in depth."""
-    for value in values:
-        for pattern in OBVIOUS_SECRET_PATTERNS:
-            if pattern.search(value):
-                raise MemoryError("secret_rejected", "Potential secret material was rejected before persistence.")
+    """Compatibility helper using the default admission policy."""
+    from .admission import AdmissionPolicy
+    AdmissionPolicy().check(values)
+
+
+class ContentSafeArgumentParser(argparse.ArgumentParser):
+    def error(self, _message: str) -> None:
+        # argparse messages can quote invalid choices, values and unknown options.
+        self.exit(2, canonical_json({"error": {"code": "invalid_arguments",
+                                             "message": "Command-line arguments are invalid."}}) + "\n")
 
 
 def sign_grant(control_key: bytes, nonce: str, operation: str, digest: str) -> str:
@@ -258,7 +261,8 @@ def replace_private(path: Path, data: bytes) -> None:
 
 def read_private(path: Path, maximum: int = 4096) -> bytes:
     ensure_private_directory(path.parent)
-    flags = os.O_RDONLY
+    # Only regular files are valid; a raced-in FIFO must not block before fstat.
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
