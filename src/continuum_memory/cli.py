@@ -39,10 +39,10 @@ def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
     broker = broker_for_challenge(challenge)
     grant = broker.authorize(challenge)
     request = {
-            "nonce": challenge["nonce"],
-            "preview_digest": challenge["preview_digest"],
-            "grant": grant,
-            "preview": challenge["preview"],
+        "nonce": challenge["nonce"],
+        "preview_digest": challenge["preview_digest"],
+        "grant": grant,
+        "preview": challenge["preview"],
     }
     try:
         return client.call("admin_apply", request)

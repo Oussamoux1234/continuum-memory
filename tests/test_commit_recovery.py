@@ -116,7 +116,8 @@ class CommitRecoveryTest(unittest.TestCase):
         rejected = self.fx.apply(reject)
         for challenge, result in ((accept, accepted), (correct, corrected), (reject, rejected)):
             self.assertEqual(self.lookup(challenge)["result"], {k:v for k,v in result.items() if k != "commit"})
-        self.assertNotIn("erasure-canary", str(self.fx.store.connection.execute("SELECT result_json FROM admin_results").fetchall()))
+        stored_results = [row[0] for row in self.fx.store.connection.execute("SELECT result_json FROM admin_results")]
+        self.assertNotIn("erasure-canary", canonical_json(stored_results))
 
     def test_audit_diagnostic_serializes_rows_and_anchor_and_releases_own_lock(self):
         other = Store(self.fx.home)
