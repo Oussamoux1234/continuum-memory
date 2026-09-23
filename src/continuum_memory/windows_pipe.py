@@ -128,7 +128,9 @@ class _PipeAPI(WindowsBoundary):
         if self.kernel.WaitForSingleObject(operation.event, CANCEL_GRACE_MS) != WAIT_OBJECT_0:
             os._exit(FATAL_CANCEL_EXIT)
         transferred = DWORD()
-        self.kernel.GetOverlappedResult(pipe, ctypes.byref(operation), ctypes.byref(transferred), False)
+        if (not self.kernel.GetOverlappedResult(pipe, ctypes.byref(operation), ctypes.byref(transferred), False)
+                and ctypes.get_last_error() == 996):  # ERROR_IO_INCOMPLETE contradicts completion.
+            os._exit(FATAL_CANCEL_EXIT)
 
     def operation(self, pipe, kind, deadline, data=None, size=0):
         _remaining(deadline)
@@ -162,7 +164,7 @@ class _PipeAPI(WindowsBoundary):
                 if wait != WAIT_OBJECT_0:
                     raise _error("pipe_timeout" if wait == WAIT_TIMEOUT else "pipe_unavailable")
             if not self.kernel.GetOverlappedResult(pipe, ctypes.byref(operation), ctypes.byref(transferred), False):
-                pending = False  # Signaled operation completed, possibly cancelled/broken.
+                pending = ctypes.get_last_error() == 996
                 raise _error()
             pending = False
             _remaining(deadline)
@@ -214,12 +216,14 @@ class _Peer:
             raise _error("unsafe_owner")
 
     def close(self):
-        if self.token:
-            token, self.token = self.token, HANDLE()
-            self.api._close(token)
-        if self.process:
-            process, self.process = self.process, None
-            self.api._close(process)
+        try:
+            if self.token:
+                token, self.token = self.token, HANDLE()
+                self.api._close(token)
+        finally:
+            if self.process:
+                process, self.process = self.process, None
+                self.api._close(process)
 
 
 class PipeConnection:
@@ -294,10 +298,12 @@ class PipeServer:
             connection.send(ACK)
             yield connection
         finally:
-            if peer is not None:
-                peer.close()
-            if self.handle is not None:
-                self.api.kernel.DisconnectNamedPipe(self.handle)
+            try:
+                if peer is not None:
+                    peer.close()
+            finally:
+                if self.handle is not None:
+                    self.api.kernel.DisconnectNamedPipe(self.handle)
 
     def close(self):
         if self.handle is not None:
@@ -332,6 +338,8 @@ def connect(binding, timeout=5.0):
             raise _error("invalid_frame")
         yield connection
     finally:
-        if peer is not None:
-            peer.close()
-        api._close(handle)
+        try:
+            if peer is not None:
+                peer.close()
+        finally:
+            api._close(handle)

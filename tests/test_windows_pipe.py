@@ -163,10 +163,38 @@ class NativePipeTest(unittest.TestCase):
             with self.subTest(mode=mode), PipeServer(self.binding) as server:
                 child = self.child(mode)
                 with server.accept() as connection:
-                    with self.assertRaises(MemoryError):
+                    with self.assertRaises(MemoryError) as error:
                         connection.receive()
+                    if mode != "truncated-client":
+                        self.assertEqual(error.exception.code, "invalid_frame")
                 output, error = child.communicate(input=b"stop\n", timeout=5)
                 self.assertEqual(child.returncode, 0, error)
+
+    def test_trickle_does_not_reset_absolute_deadline(self):
+        with PipeServer(self.binding) as server:
+            child = self.child("trickle-client")
+            with server.accept(0.5) as connection:
+                started = time.monotonic()
+                with self.assertRaises(MemoryError) as error:
+                    connection.receive()
+                self.assertEqual(error.exception.code, "pipe_timeout")
+                self.assertLess(time.monotonic() - started, 1.5)
+            self.finish(child)
+
+    def test_cancelled_connects_release_all_native_handles(self):
+        api = _PipeAPI()
+        count = api.kernel.GetProcessHandleCount
+        count.argtypes, count.restype = [HANDLE, POINTER], BOOL
+        before, after = DWORD(), DWORD()
+        self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(before)))
+        for _ in range(20):
+            with PipeServer(self.binding) as server:
+                with self.assertRaises(MemoryError) as error:
+                    with server.accept(0.01):
+                        self.fail("Unexpected client")
+                self.assertEqual(error.exception.code, "pipe_timeout")
+        self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(after)))
+        self.assertEqual(after.value, before.value)
 
     def test_peer_exit_is_detected_without_following_replacement_pid(self):
         with PipeServer(self.binding) as server:
@@ -236,6 +264,14 @@ def child_main():
     with connect(binding) as connection:
         if mode == "idle-client":
             print("connected", flush=True)
+            sys.stdin.readline()
+        elif mode == "trickle-client":
+            try:
+                for _ in range(15):
+                    connection.api.operation(connection.handle, "write", connection.deadline, data=b"x")
+                    time.sleep(0.08)
+            except MemoryError:
+                pass  # Server cancelled its bounded fixture read and disconnected.
             sys.stdin.readline()
         elif mode == "truncated-client":
             connection.api.operation(connection.handle, "write", connection.deadline, data=b"partial")
