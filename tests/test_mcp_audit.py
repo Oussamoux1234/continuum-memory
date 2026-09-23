@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from continuum_memory.storage import Store
+from continuum_memory.errors import MemoryError
 from fixtures.harness import EphemeralHarness
 
 
@@ -107,13 +108,18 @@ class McpAndAuditTest(unittest.TestCase):
                     }
                 )
             client = harness.mcp("alpha", "codex")
+            with self.assertRaises(MemoryError) as caught:
+                client.call("memory_context", {"query": "Context item", "max_tokens": 128, "max_bytes": 512})
+            self.assertEqual(caught.exception.code, "budget_too_small")
             result = client.call(
-                "memory_context", {"query": "Context item", "max_tokens": 128, "max_bytes": 512}
+                "memory_context", {"query": "Context item", "max_tokens": 512, "max_bytes": 2048}
             )
             encoded = len(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
-            self.assertLessEqual(encoded, 512)
-            self.assertEqual(result["byte_budget"], 512)
+            self.assertLessEqual(encoded, 2048)
+            self.assertEqual(result["byte_budget"], 2048)
             self.assertEqual(result["completeness"], "partial")
+            self.assertTrue(result["accepted_claims"])
+            self.assertIn("next_cursor", result)
 
 
 if __name__ == "__main__":
