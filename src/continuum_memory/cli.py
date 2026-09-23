@@ -38,15 +38,27 @@ def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
     challenge = client.call("admin_preview", params)
     broker = broker_for_challenge(challenge)
     grant = broker.authorize(challenge)
-    return client.call(
-        "admin_apply",
-        {
+    request = {
             "nonce": challenge["nonce"],
             "preview_digest": challenge["preview_digest"],
             "grant": grant,
             "preview": challenge["preview"],
-        },
-    )
+    }
+    try:
+        return client.call("admin_apply", request)
+    except MemoryError as exc:
+        if exc.code not in {"unavailable", "invalid_response", "internal_error", "response_too_large",
+                            "committed_audit_degraded"}:
+            raise
+        locator = {"nonce": challenge["nonce"], "preview_digest": challenge["preview_digest"]}
+        try:
+            receipt = client.call("admin_result", locator)
+        except MemoryError:
+            # No retry/new grant: the server may have committed after our timeout.
+            raise MemoryError("operation_outcome_unknown", "Check the operation receipt before submitting a new action.",
+                              locator) from exc
+        return dict(receipt["result"], commit={"status": "committed", "receipt_id": receipt["receipt_id"],
+                                             "audit_anchor": receipt["audit_anchor"], "recovered": True})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,6 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit")
     audit_sub = audit.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify")
+    audit_sub.add_parser("reconcile", help="Advance only a verified, matching older audit anchor.")
+
+    result = sub.add_parser("result", help="Read a prior owner operation's receipt without repeating the action.")
+    result.add_argument("--nonce", required=True)
+    result.add_argument("--preview-digest", required=True)
 
     approval = sub.add_parser("approval")
     approval_sub = approval.add_subparsers(dest="approval_command", required=True)
@@ -249,6 +266,10 @@ def run(args: argparse.Namespace) -> Any:
         return client.call("status", {"project": args.project})
     if args.command == "audit" and args.audit_command == "verify":
         return client.call("audit_verify", {})
+    if args.command == "audit" and args.audit_command == "reconcile":
+        return client.call("audit_reconcile", {})
+    if args.command == "result":
+        return client.call("admin_result", {"nonce": args.nonce, "preview_digest": args.preview_digest})
     raise MemoryError("invalid_request", "No command was selected.")
 
 

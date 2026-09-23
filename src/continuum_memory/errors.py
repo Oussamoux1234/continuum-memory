@@ -17,6 +17,16 @@ class MemoryError(Exception):
         return result
 
 
+class CommittedAuditError(MemoryError):
+    """SQLite committed; a later audit-anchor operation did not complete."""
+
+    def __init__(self):
+        super().__init__(
+            "committed_audit_degraded",
+            "A transaction committed but audit synchronization failed. Check the operation result before retrying.",
+        )
+
+
 def invalid(message: str, field: Optional[str] = None) -> MemoryError:
     details = {"field": field} if field else None
     return MemoryError("invalid_request", message, details)
