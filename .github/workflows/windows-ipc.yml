@@ -1,0 +1,34 @@
+name: Windows IPC evidence (not runtime support)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-pipes:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - name: Record native evidence environment
+        shell: pwsh
+        run: |
+          python -c "import platform, sys; print(platform.platform()); print(sys.version)"
+          Write-Output "Runner image: $env:ImageOS $env:ImageVersion"
+      - name: Verify native pipe candidate only
+        shell: pwsh
+        env:
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p test_windows_pipe.py -v
