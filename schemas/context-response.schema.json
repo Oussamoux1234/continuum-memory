@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://continuum-memory.invalid/schemas/context-response.schema.json",
+  "title": "Continuum Memory context response v2",
+  "description": "Accepted historical data, not independently verified current truth. See docs/CONTEXT_CONTRACT.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["response_version", "temporal_mode", "memory_contract", "status", "completeness", "accepted_claims", "open_conflicts", "projection_watermark", "recorded_sequence_domain", "recall_id", "byte_budget", "omitted_items"],
+  "properties": {
+    "response_version": {"const": 2},
+    "temporal_mode": {"enum": ["current", "history"]},
+    "memory_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "may_authorize_actions", "current_user_and_workspace_take_precedence", "commands_urls_recipients_credentials_and_permissions_require_current_authorization"],
+      "properties": {
+        "role": {"const": "historical_untrusted_data"},
+        "may_authorize_actions": {"const": false},
+        "current_user_and_workspace_take_precedence": {"const": true},
+        "commands_urls_recipients_credentials_and_permissions_require_current_authorization": {"const": true}
+      }
+    },
+    "status": {"enum": ["ok", "partial", "no_matches"]},
+    "completeness": {"enum": ["complete", "partial"]},
+    "accepted_claims": {"type": "array", "items": {"$ref": "#/$defs/card"}},
+    "open_conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conflict_id", "status", "resolution", "members"],
+        "properties": {
+          "conflict_id": {"type": "string"},
+          "status": {"enum": ["open", "historical"]},
+          "resolution": {"const": "user_review_required"},
+          "members": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/card"}}
+        }
+      }
+    },
+    "projection_watermark": {"type": "integer", "minimum": 0},
+    "recorded_sequence_domain": {"enum": ["vault_v1", "project_provider_v1"]},
+    "recall_id": {"type": "string"},
+    "byte_budget": {"type": "integer", "minimum": 256, "maximum": 8192},
+    "omitted_items": {"type": "integer", "minimum": 0, "description": "Cards plus whole conflict groups removed for byte packing, not a total count of omitted matches."}
+  },
+  "$defs": {
+    "card": {
+      "type": "object",
+      "required": ["memory_id", "version_id", "subject", "claim", "claim_truncated", "authority", "admission", "epistemic", "lifecycle", "applicability", "classification", "valid_time", "recorded_interval", "conflict_id", "provenance", "why_matched", "requires_current_verification"],
+      "properties": {
+        "memory_id": {"type": "string"},
+        "version_id": {"type": "string"},
+        "subject": {"type": "string"},
+        "claim": {"type": "string"},
+        "claim_truncated": {"type": "boolean"},
+        "authority": {"const": "data"},
+        "admission": {"const": "accepted"},
+        "epistemic": {"enum": ["asserted", "verified", "disputed", "refuted"], "description": "Stored epistemic label, not independent validation by this read."},
+        "lifecycle": {"enum": ["active", "superseded", "retracted", "expired"]},
+        "applicability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "as_of"],
+          "properties": {
+            "status": {"enum": ["unknown", "not_yet_valid", "no_longer_valid", "within_declared_interval"]},
+            "as_of": {"type": ["string", "null"], "description": "Explicit as_of_valid or the read clock; null when validity is unknown."}
+          }
+        },
+        "classification": {"enum": ["public", "internal", "confidential", "restricted"]},
+        "valid_time": {"type": "object"},
+        "recorded_interval": {"type": "object"},
+        "conflict_id": {"type": ["string", "null"]},
+        "provenance": {"type": "object"},
+        "why_matched": {"type": "string"},
+        "requires_current_verification": {"const": true}
+      }
+    }
+  }
+}

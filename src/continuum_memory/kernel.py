@@ -18,7 +18,8 @@ from .approval import (
 from .errors import MemoryError, NOT_FOUND, invalid
 from .forget import forget_scope
 from .projection import (
-    ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, record_audience_change,
+    ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, declared_applicability,
+    record_audience_change,
 )
 from .security import (
     GRANT_TTL_SECONDS,
@@ -1042,7 +1043,7 @@ class Kernel:
             as_of_valid = bounded_text(as_of_valid, "as_of_valid", 64)
             as_of_valid = canonical_utc(as_of_valid, "as_of_valid")
         eligibility = self._eligibility(project, capability["provider"], temporal_mode, as_of_recorded, as_of_valid)
-        cards, _ = self._query_cards(eligibility, query, limit)
+        cards, _, has_more = self._query_cards(eligibility, query, limit)
         watermark = self._watermark(eligibility)
         recall_id = self._record_recall(
             project,
@@ -1055,8 +1056,8 @@ class Kernel:
             snapshot_recorded=eligibility.recorded if as_of_recorded is not None else None,
         )
         return {
-            "status": "ok" if cards else "no_matches",
-            "completeness": "complete",
+            "status": "partial" if has_more else ("ok" if cards else "no_matches"),
+            "completeness": "partial" if has_more else "complete",
             "cards": cards,
             "recall_id": recall_id,
             "projection_watermark": watermark,
@@ -1108,6 +1109,7 @@ class Kernel:
         return membership, groups
 
     def _query_cards(self, eligibility, query, limit):
+        assessed_at = eligibility.valid or self._now_iso()
         conditions, args = eligibility.sql()
         exact = self.db.execute(
             ASSERTION_SELECT + " FROM assertion_versions a" + ASSERTION_JOINS
@@ -1125,15 +1127,19 @@ class Kernel:
                 + " FROM assertion_fts JOIN assertion_versions a ON a.id=assertion_fts.assertion_id"
                 + ASSERTION_JOINS + "WHERE assertion_fts MATCH ? AND " + conditions
                 + " ORDER BY lexical_score DESC,a.ingest_seq DESC,a.id LIMIT ?",
-                [fts_literal_query(query)] + args + [limit]).fetchall()
+                [fts_literal_query(query)] + args + [limit + 1]).fetchall()
             reason = "fts5_document_matches"
+        # Probe only within this audience's eligibility. The extra row cannot
+        # seed another thread's conflict expansion or its recall authorization.
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         membership, groups = self._conflict_projection(eligibility, sorted({row["thread_id"] for row in rows}))
-        cards = [self._card(row, reason, eligibility, membership.get(row["id"])) for row in rows]
+        cards = [self._card(row, reason, eligibility, membership.get(row["id"]), assessed_at) for row in rows]
         selected_groups = {card["conflict_id"] for card in cards if card["conflict_id"]}
-        conflicts = [self._conflict_view(eligibility, cid, groups[cid]) for cid in sorted(selected_groups)]
-        return cards, conflicts
+        conflicts = [self._conflict_view(eligibility, cid, groups[cid], assessed_at) for cid in sorted(selected_groups)]
+        return cards, conflicts, has_more
 
-    def _card(self, row, why, eligibility, conflict_id=None) -> Dict[str, Any]:
+    def _card(self, row, why, eligibility, conflict_id=None, assessed_at=None) -> Dict[str, Any]:
         row = eligibility.at_snapshot(row)
         claim = _truncate_utf8(row["body"], 768)
         return {
@@ -1146,6 +1152,7 @@ class Kernel:
             "admission": row["admission"],
             "epistemic": row["epistemic"],
             "lifecycle": row["lifecycle"],
+            "applicability": declared_applicability(row, eligibility.valid or assessed_at or self._now_iso()),
             "classification": row["classification"],
             "valid_time": {
                 "precision": row["valid_precision"],
@@ -1233,15 +1240,17 @@ class Kernel:
             valid = bounded_text(valid, "as_of_valid", 64)
             valid = canonical_utc(valid, "as_of_valid")
         eligibility = self._eligibility(project, capability["provider"], temporal_mode, recorded, valid)
-        cards, conflicts = self._query_cards(eligibility, query, MAX_RESULTS)
+        cards, conflicts, has_more = self._query_cards(eligibility, query, MAX_RESULTS)
         watermark = self._watermark(eligibility)
-        current = [card for card in cards if not card["conflict_id"]]
+        accepted = [card for card in cards if not card["conflict_id"]]
         recall_id = random_id("rcl")
         capsule: Dict[str, Any] = {
             "memory_contract": MEMORY_CONTRACT,
-            "status": "ok" if cards else "no_matches",
-            "completeness": "complete",
-            "verified_current": current,
+            "response_version": 2,
+            "temporal_mode": temporal_mode,
+            "status": "partial" if has_more else ("ok" if cards else "no_matches"),
+            "completeness": "partial" if has_more else "complete",
+            "accepted_claims": accepted,
             "open_conflicts": conflicts,
             "projection_watermark": watermark,
             "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
@@ -1250,8 +1259,8 @@ class Kernel:
             "omitted_items": 0,
         }
         while len(canonical_json(capsule).encode("utf-8")) > budget:
-            if capsule["verified_current"]:
-                capsule["verified_current"].pop()
+            if capsule["accepted_claims"]:
+                capsule["accepted_claims"].pop()
                 capsule["omitted_items"] += 1
             elif capsule["open_conflicts"]:
                 capsule["open_conflicts"].pop()
@@ -1260,7 +1269,7 @@ class Kernel:
                 raise MemoryError("budget_too_small", "The context budget cannot hold the required memory contract.")
             capsule["completeness"] = "partial"
             capsule["status"] = "partial"
-        recall_cards = capsule["verified_current"] + [
+        recall_cards = capsule["accepted_claims"] + [
             member for conflict in capsule["open_conflicts"] for member in conflict["members"]
         ]
         self._record_recall(
@@ -1276,12 +1285,13 @@ class Kernel:
         )
         return capsule
 
-    def _conflict_view(self, eligibility, conflict_id, rows):
+    def _conflict_view(self, eligibility, conflict_id, rows, assessed_at=None):
+        assessed_at = eligibility.valid or assessed_at or self._now_iso()
         return {
             "conflict_id": conflict_id,
             "status": "historical" if eligibility.mode == "history" else "open",
             "resolution": "user_review_required",
-            "members": [self._card(row, "open_conflict", eligibility, conflict_id) for row in rows],
+            "members": [self._card(row, "open_conflict", eligibility, conflict_id, assessed_at) for row in rows],
         }
 
     def get(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1304,6 +1314,7 @@ class Kernel:
         if any(item not in allowed_ids for item in ids):
             raise NOT_FOUND
         records = []
+        assessed_at = self._now_iso()
         for assertion_id in ids:
             record = self._get_assertion(
                 project,
@@ -1312,6 +1323,7 @@ class Kernel:
                 include_evidence=True,
                 eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
                                               recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
+                assessed_at=assessed_at,
             )
             if record is None:
                 raise NOT_FOUND
@@ -1352,6 +1364,7 @@ class Kernel:
             ).fetchall()
         if not rows:
             raise NOT_FOUND
+        assessed_at = self._now_iso()
         records = [
             self._get_assertion(
                 project,
@@ -1359,6 +1372,7 @@ class Kernel:
                 row["id"],
                 True,
                 current_only=not history,
+                assessed_at=assessed_at,
             )
             for row in rows
         ]
@@ -1383,6 +1397,7 @@ class Kernel:
         include_evidence: bool,
         current_only: bool = False,
         eligibility: Optional[Eligibility] = None,
+        assessed_at: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         eligibility = eligibility or self._eligibility(project, provider, "current" if current_only else "history")
         rows = eligibility.rows(self.db, "a.id=?", [assertion_id])
@@ -1390,7 +1405,7 @@ class Kernel:
             return None
         row = rows[0]
         membership, _ = self._conflict_projection(eligibility, [row["thread_id"]])
-        card = self._card(row, "explicit_get", eligibility, membership.get(assertion_id))
+        card = self._card(row, "explicit_get", eligibility, membership.get(assertion_id), assessed_at)
         card["claim"] = row["body"]
         card["claim_truncated"] = False
         card["retention"] = row["retention"]

@@ -3,5 +3,7 @@ recursive-include fixtures *.py
 recursive-include tests *.py
 recursive-include tests/fixtures *.sql
 include docs/SNAPSHOT_AND_FORGET.md
+include docs/CONTEXT_CONTRACT.md
+include schemas/context-response.schema.json
 include docs/LINUX_APPROVAL_BROKER.md
 include scripts/polkit_smoke.py

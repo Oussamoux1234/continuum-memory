@@ -68,8 +68,8 @@ class SnapshotForgetTest(unittest.TestCase):
         self.approve(operation="correct", target_id=first["assertion_id"], claim="Engine uses MySQL.")
         past = self.context(as_of_recorded=point)
         self.assertEqual(past["open_conflicts"], [])
-        self.assertEqual([c["version_id"] for c in past["verified_current"]], [first["assertion_id"]])
-        card = past["verified_current"][0]
+        self.assertEqual([c["version_id"] for c in past["accepted_claims"]], [first["assertion_id"]])
+        card = past["accepted_claims"][0]
         self.assertEqual(card["lifecycle"], "active")
         self.assertIsNone(card["recorded_interval"]["to_seq"])
         self.assertIsNone(card["recorded_interval"]["retired_at"])
@@ -87,7 +87,7 @@ class SnapshotForgetTest(unittest.TestCase):
                                  claim="Engine uses SQLite.")
         after = self.context()
         self.assertEqual(after["open_conflicts"], [])
-        self.assertEqual(len(after["verified_current"]), 2)
+        self.assertEqual(len(after["accepted_claims"]), 2)
         past = self.context(as_of_recorded=point)
         members = past["open_conflicts"][0]["members"]
         self.assertEqual({c["version_id"] for c in members}, {first["assertion_id"], second["assertion_id"]})
@@ -111,7 +111,7 @@ class SnapshotForgetTest(unittest.TestCase):
         self.assertEqual(self.context()["open_conflicts"], [])
         past = self.context(as_of_recorded=point, as_of_valid="2025-01-15")
         self.assertEqual(past["open_conflicts"], [])
-        self.assertEqual([c["version_id"] for c in past["verified_current"]], [first["assertion_id"]])
+        self.assertEqual([c["version_id"] for c in past["accepted_claims"]], [first["assertion_id"]])
         self.assertEqual(self.context(as_of_valid="2026-01-01")["status"], "no_matches")
 
     def test_history_does_not_conflict_noncoexistent_corrections(self):
@@ -119,7 +119,7 @@ class SnapshotForgetTest(unittest.TestCase):
         self.approve(operation="correct", target_id=first["assertion_id"], claim="Engine uses Postgres.")
         history = self.context(temporal_mode="history")
         self.assertEqual(history["open_conflicts"], [])
-        self.assertEqual(len(history["verified_current"]), 2)
+        self.assertEqual(len(history["accepted_claims"]), 2)
 
     @staticmethod
     def normalized(value):
@@ -194,7 +194,7 @@ class SnapshotForgetTest(unittest.TestCase):
         self.assertEqual(after["cards"], before["cards"])
         self.assertEqual(after["projection_watermark"], before["projection_watermark"] + 1)
         past = self.context("second", as_of_recorded=point)
-        self.assertEqual(past["verified_current"][0]["version_id"], second["assertion_id"])
+        self.assertEqual(past["accepted_claims"][0]["version_id"], second["assertion_id"])
 
     def test_forget_rejects_added_version_without_deleting_anything(self):
         first = self.remember()
