@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -16,7 +15,7 @@ from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.security import canonical_json, require_keys
 from continuum_memory.storage import Store, load_capability
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 from tests import test_snapshot_forget as fixture
 
 SECRETS = {
@@ -365,7 +364,7 @@ class BootstrapAndDiagnosticTests(unittest.TestCase):
             self.assertNotIn(secret,canonical_json(response))
             client.process.stdin.close(); self.assertEqual(client.process.wait(timeout=3),0)
             self.assertEqual(client.process.stderr.read(),'')
-            connection = sqlite3.connect(str(harness.data_dir/'continuum.db'))
+            connection = open_fixture_connection(harness.data_dir)
             try:
                 self.assertEqual(connection.execute('SELECT count(*) FROM proposals').fetchone()[0],0)
             finally:

@@ -5,7 +5,7 @@
 [![verify](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml/badge.svg)](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
 
 **Maturity: experimental local prototype.** Continuum Memory is not production-ready,
-encrypted, hardened against same-user malware, or validated with native Codex, Claude
+release-approved for encrypted storage, hardened against same-user malware, or validated with native Codex, Claude
 Code, or Antigravity installations. It is a narrow, offline, Linux-first vertical slice
 that demonstrates the ledger and trust-boundary design with deterministic MCP fixtures.
 
@@ -49,8 +49,11 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 
 ## Five-minute safe quickstart
 
-Requires Python 3.9+ with SQLite 3.37+ and FTS5. No package download or network service is used.
-Use a temporary directory while evaluating the prototype:
+This held candidate requires Linux x86-64, CPython 3.11–3.14, and the exact
+project-built `continuum-sqlcipher3` 0.6.2.post2 wheel. There is no published
+package or stdlib SQLite fallback. Complete the reviewed offline setup in
+[encrypted storage](docs/SQLCIPHER_STORAGE.md) before the commands below.
+Use only a temporary directory while evaluating the candidate:
 
 ```bash
 python3 -m venv .venv
@@ -104,23 +107,19 @@ native Codex or Claude Code compatibility.
 
 ## Storage notice
 
-The prototype application database is **not encrypted**. The quickstart still uses Python's
-bundled SQLite; the patched SQLCipher wheel pipeline is build/test infrastructure and is not
-an application dependency. File permissions, strict date parsing, lifecycle expiry, and
-deletion semantics are tested, but plaintext can remain in filesystem or OS snapshots. The
-owner-only directory blocks other local accounts; it does not resist a malicious process
-already running as the same user. New writes have
-[local secret-admission checks](docs/SECRET_ADMISSION.md), with bounded owner policy
-and explicit limitations. Do not store secrets or sensitive production data.
+This branch is a **held encrypted-storage candidate** for issue #7. New synthetic
+vaults require the exact SQLCipher 4.19.0 / SQLite 3.53.4 runtime and a random
+32-byte owner-only `storage.key`. Missing, malformed, wrong or unsupported keys,
+runtimes and legacy plaintext vaults fail closed. The key is stored beside the
+database: this does not protect against same-user malware or copying the complete
+vault and key. Do not store production secrets.
 
-A separate CI gate builds ephemeral `continuum-sqlcipher3` test artifacts for Linux x86-64
-on CPython 3.11-3.14. Each matrix entry is built twice in the immutable manylinux builder,
-compared byte for byte, inspected, installed offline, and exercised against encrypted
-database, WAL, FTS5, temp-storage, wrong-key, recovery, integrity, and plaintext-canary
-checks. This validates the native artifact in its test harness; it does not prove Continuum
-Memory migration, key management, rollback, or release readiness. macOS arm64 is blocked
-until an immutable builder/toolchain can meet the same evidence standard. Windows remains
-future work. See `docs/PATCHED_SQLCIPHER_WHEELS.md`.
+The candidate preserves schema-5 migrations, secret admission, daemon locking,
+operation receipts and audit recovery. Existing plaintext vaults are never
+silently converted. See [storage and migration boundaries](docs/SQLCIPHER_STORAGE.md).
+The native pipeline and all application tests must pass independently; human
+security/license acceptance and artifact signing/trust decisions remain open.
+Native macOS and Windows application support is not established by Linux CI.
 
 ## Repository map
 

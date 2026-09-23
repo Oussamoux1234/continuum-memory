@@ -1,6 +1,5 @@
 """Synthetic proposal erasure/retry regressions for issue #16."""
 import json
-import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -10,7 +9,7 @@ from unittest.mock import patch
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.security import sign_grant, token_hash
-from continuum_memory.storage import Store, load_capability, paths
+from continuum_memory.storage import Store, load_capability, paths, sqlite3
 
 
 class ProposalErasureTest(unittest.TestCase):

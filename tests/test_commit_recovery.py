@@ -2,7 +2,6 @@
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -17,8 +16,8 @@ from continuum_memory.errors import CommittedAuditError, MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.migrations import SCHEMA_VERSION, migrate
 from continuum_memory.security import canonical_json, read_private, replace_private, sign_grant
-from continuum_memory.storage import Store, paths
-from fixtures.harness import EphemeralHarness
+from continuum_memory.storage import Store, paths, sqlite3
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 from tests import test_proposal_erasure as erasure
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -280,7 +279,7 @@ class RecoveryMigrationTest(unittest.TestCase):
             home = Path(temp)
             with patch.object(storage, "SCHEMA_SQL", schema), patch.object(storage, "SCHEMA_VERSION", 4):
                 Store.bootstrap(home, [{"name":"fixture", "path_hint":"/fixture", "providers":["codex"]}])
-            db = sqlite3.connect(str(paths(home)["db"]))
+            db = open_fixture_connection(home, writable=True)
             try:
                 before = list(db.iterdump())
                 original_rows = {name: db.execute("SELECT * FROM " + name).fetchall()

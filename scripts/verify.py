@@ -2,12 +2,14 @@
 """One-command supported local verification suite."""
 
 import json
+import hashlib
 import os
 import re
 import subprocess
 import sys
 import tarfile
 import tempfile
+import stat
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
@@ -246,10 +248,20 @@ def packaging_smoke() -> None:
         python = str(Path(environment) / "bin" / "python")
         package_environment = dict(ENV)
         package_environment.pop("PYTHONPATH", None)
+        locked_wheels = application_verification_wheels()
         run(
-            [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(archive)],
+            [python, "-I", "-m", "pip", "--isolated", "install", "--no-index",
+             "--no-cache-dir", "--no-compile", "--no-deps"] + [str(path) for path in locked_wheels],
             package_environment,
         )
+        run(
+            [python, "-I", "-m", "pip", "--isolated", "install", "--no-index",
+             "--no-build-isolation", "--no-cache-dir", "--no-deps", str(archive)],
+            package_environment,
+        )
+        run([python, "-I", "-c",
+             "from continuum_memory.storage import _require_sqlcipher_runtime; "
+             "_require_sqlcipher_runtime()"], package_environment)
         run([str(Path(environment) / "bin" / "continuum"), "--version"], package_environment)
         run([str(Path(environment) / "bin" / "memoryd"), "--help"], package_environment)
         run([str(Path(environment) / "bin" / "continuum-mcp"), "--help"], package_environment)
@@ -259,10 +271,38 @@ def packaging_smoke() -> None:
         )
 
 
+def application_verification_wheels() -> List[Path]:
+    """Require the three reviewed offline inputs before creating a package test environment."""
+    directory = os.environ.get("CONTINUUM_SQLCIPHER_WHEELHOUSE")
+    if not directory:
+        raise RuntimeError("encrypted application verification requires its reviewed offline wheelhouse")
+    wheelhouse = Path(directory)
+    if wheelhouse.is_symlink() or not wheelhouse.is_dir():
+        raise RuntimeError("application wheelhouse must be a real directory")
+    manifest = json.loads((ROOT / "packaging/sqlcipher/manifest.json").read_text())
+    target = "linuxCp%d%d" % sys.version_info[:2]
+    if target not in manifest["expectedArtifacts"]:
+        raise RuntimeError("encrypted application verification requires a supported CPython ABI")
+    locks = [manifest["expectedArtifacts"][target]] + list(manifest["buildDependencies"].values())
+    if {path.name for path in wheelhouse.iterdir()} != {lock["filename"] for lock in locks}:
+        raise RuntimeError("application wheelhouse must contain exactly the three reviewed wheels")
+    wheels = []
+    for lock in locks:
+        path = wheelhouse / lock["filename"]
+        info = path.lstat()
+        if path.is_symlink() or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise RuntimeError("application input must be an unlinked regular wheel")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != lock["sha256"]:
+            raise RuntimeError("application input SHA-256 does not match the reviewed lock")
+        wheels.append(path)
+    return wheels
+
+
 def main() -> int:
     schema_check()
     whitespace_check()
     sqlcipher_supply_chain_check()
+    application_verification_wheels()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])
     run([sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests", "-v"])
     run([sys.executable, "-m", "fixtures.demo"])

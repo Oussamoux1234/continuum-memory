@@ -1,7 +1,8 @@
 """Policy-enforcing domain kernel. The daemon is its only post-bootstrap caller."""
 
+from __future__ import annotations
+
 import json
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,7 @@ from .security import (
     require_keys,
     verify_grant,
 )
-from .storage import POLICY_VERSION, Store
+from .storage import POLICY_VERSION, Store, sqlite3
 from .temporal import canonical_utc, datetime_utc, format_utc
 
 CLASSIFICATIONS = {"public", "internal", "confidential", "restricted"}
@@ -256,7 +257,7 @@ class Kernel:
             "provider": capability["provider"],
             "projection_watermark": watermark,
             "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
-            "storage_mode": "plaintext_prototype",
+            "storage_mode": self.store.storage_mode,
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
         }
@@ -1629,6 +1630,9 @@ class Kernel:
         result = self.store.verify_audit()
         integrity = self.db.execute("PRAGMA integrity_check").fetchone()[0]
         result["sqlite_integrity"] = integrity
+        result["cipher_integrity"] = (
+            "ok" if not self.db.execute("PRAGMA cipher_integrity_check").fetchall() else "invalid"
+        )
         result["content_free_event_schema"] = True
         return result
 
