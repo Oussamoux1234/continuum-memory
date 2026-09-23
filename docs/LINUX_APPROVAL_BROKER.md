@@ -48,7 +48,10 @@ not execute an existing runtime or source build: it stages the explicit wheel in
 root-created directory, rejects
 an unsafe existing runtime, and swaps the staged runtime into place only after the offline
 install succeeds. It rejects non-canonical paths, links, wrong metadata, and redirected
-helper entry points. It does not create approval keys. Both the reviewed checkout's policy
+helper entry points. The fixed launcher uses the activated environment's absolute Python
+interpreter with `-I -m continuum_memory.polkit_helper`, so moving the staged environment
+does not leave it executing a stale console-script shebang. It does not create approval keys.
+Both the reviewed checkout's policy
 and launcher and the exact verified wheel from the same revision remain trusted
 installation inputs. These checks are not signatures; signed release authorization is
 still a separate owner decision.

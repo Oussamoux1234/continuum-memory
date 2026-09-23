@@ -230,6 +230,15 @@ def install_smoke(artifact, directory, wheelhouse, epoch):
         run([executable, flag], cwd=directory, env=environment)
     # The fresh environment must import its installed payload, not this checkout.
     run([python, "-I", "-c", "import continuum_memory; print(continuum_memory.__file__)"], cwd=directory, env=environment)
+    if artifact.name.endswith(".whl"):
+        # The privileged installer activates its staged venv with a rename. Its
+        # fixed wrapper must use the relocated interpreter, not stale shebangs.
+        relocated = directory.with_name(directory.name + "-activated")
+        directory.rename(relocated)
+        if directory.exists():
+            raise ValueError("old approval runtime staging path still exists")
+        relocated_python = relocated / bin_dir.name / python.name
+        run([relocated_python, "-I", "-m", "continuum_memory.polkit_helper", "--help"], cwd=relocated.parent, env=environment)
 
 
 def build_release(output, wheelhouse):
@@ -287,6 +296,7 @@ def build_release(output, wheelhouse):
         "build_tools": {name: metadata.version(name) for name in ("setuptools", "wheel", "build", "spdx-tools")},
         "reproducible_builds": 2, "offline_installs": [artifact.name for artifact in artifacts],
         "entrypoints_per_artifact": sorted(ENTRY_POINTS),
+        "relocated_wheel_helper_module_smoke": True,
         "subjects": {path.name: sha256(path.read_bytes()) for path in artifacts + [sbom_path]},
     }
     (output / "build-evidence.json").write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")

@@ -58,6 +58,9 @@ Each installation exercises `continuum --version`, `memoryd --help`, `continuum-
 and `continuum-polkit-helper --help`, outside the source checkout and without `PYTHONPATH`.
 The source install provisions only its hash-pinned backend into its fresh environment.
 No polkit privilege prompt, actual vault, or installed AI-client profile is touched.
+Separately, the wheel environment is renamed and its original path removed; the relocated
+interpreter runs `-I -m continuum_memory.polkit_helper --help` from an unrelated directory.
+That verifies the installed wrapper's invocation strategy, not a real privileged approval.
 
 The payload SBOM does **not** inventory the host OS, Python, SQLite/OpenSSL, or verification
 toolchain: those are not bundled application dependencies. Build-tool pins/hashes live in
@@ -100,6 +103,9 @@ The wheel argument must be an absolute canonical regular path (no symlink/hardli
 the exact expected name and metadata. The installer copies it into root-owned staging
 before installing offline, without executing a source build or an existing user virtual
 environment. Filename and metadata checks are **not signatures**. The source launcher and
+policy use the fixed helper path; the launcher invokes the activated environment's absolute
+Python interpreter with `-I -m`, avoiding console-script shebangs pointing at the old staging
+directory. The launcher and
 policy must come from the same reviewed revision as the wheel; the operator remains
 responsible for checking that evidence. See [the broker runbook](LINUX_APPROVAL_BROKER.md).
 
