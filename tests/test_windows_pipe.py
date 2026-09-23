@@ -1,6 +1,7 @@
 """Real native pipes/processes; deterministic fatal-fault fixtures are labeled."""
 
 import ctypes
+import json
 import os
 import secrets
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from continuum_memory.errors import MemoryError
 from continuum_memory.windows_boundary import BOOL, DWORD, HANDLE, POINTER, _SecurityAttributes
@@ -182,24 +184,42 @@ class NativePipeTest(unittest.TestCase):
             self.finish(child)
 
     def test_cancelled_connects_release_all_native_handles(self):
-        api = _PipeAPI()
-        count = api.kernel.GetProcessHandleCount
-        count.argtypes, count.restype = [HANDLE, POINTER], BOOL
-        before, after = DWORD(), DWORD()
-        self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(before)))
-        counts = [before.value]
-        # Record the first-use cost separately, then demand exact zero growth
-        # for every subsequent cycle, not a permissive aggregate tolerance.
-        for _ in range(21):
-            with PipeServer(self.binding) as server:
-                with self.assertRaises(MemoryError) as error:
-                    with server.accept(0.01):
-                        self.fail("Unexpected client")
-                self.assertEqual(error.exception.code, "pipe_timeout")
-            self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(after)))
-            counts.append(after.value)
-        print("native cancelled-connect process handle counts: %s" % counts, flush=True)
-        self.assertEqual(counts[2:], [counts[1]] * 20)
+        for _ in range(3):
+            child = self.child("handle-probe")
+            output, error = child.communicate(timeout=10)
+            self.assertEqual(child.returncode, 0, error)
+            self.assertEqual(error, b"")
+            proof = json.loads(output)
+            print("fresh-process native handle proof: %s" % proof, flush=True)
+            self.assertEqual(proof["open_handles"], 0)
+            self.assertEqual(proof["created"], proof["closed"])
+            self.assertEqual(proof["counts"][2:], [proof["counts"][1]] * 20)
+
+    def test_peer_death_before_hello_never_yields_application_connection(self):
+        with PipeServer(self.binding) as server:
+            child = self.child("raw-client")
+            self.signal(child, b"connected")
+            self.finish(child)
+            with self.assertRaises(MemoryError):
+                with server.accept(0.3):
+                    self.fail("Dead unauthenticated client reached application code")
+
+    def test_peer_death_after_hello_never_yields_application_connection(self):
+        with PipeServer(self.binding) as server:
+            child = self.child("raw-hello-client")
+            self.signal(child, b"connected")
+            native_identify = server.api.identify_client
+
+            def kill_at_identification(handle):
+                # Scheduling fault only: identity APIs themselves remain native.
+                child.kill()
+                child.communicate(timeout=5)
+                native_identify(handle)
+
+            server.api.identify_client = kill_at_identification
+            with self.assertRaises(MemoryError):
+                with server.accept():
+                    self.fail("Dead handshake client reached application code")
 
     def test_peer_exit_is_detected_without_following_replacement_pid(self):
         with PipeServer(self.binding) as server:
@@ -222,11 +242,92 @@ class NativePipeTest(unittest.TestCase):
             self.assertEqual(output + error, b"")
 
 
+def handle_probe(binding):
+    """Track real native allocations/closes, without replacing their results."""
+    open_handles, created, closed = {}, {}, {}
+
+    class TrackingAPI(_PipeAPI):
+        def _bind(self):
+            super()._bind()
+            for name in ("CreateNamedPipeW", "CreateEventW", "OpenProcess"):
+                original = getattr(self.kernel, name)
+
+                def allocate(*args, _name=name, _original=original):
+                    handle = _original(*args)
+                    if handle not in (None, ctypes.c_void_p(-1).value):
+                        open_handles[handle] = _name
+                        created[_name] = created.get(_name, 0) + 1
+                    return handle
+
+                setattr(self.kernel, name, allocate)
+            for name in ("OpenProcessToken", "OpenThreadToken"):
+                original = getattr(self.security, name)
+
+                def allocate_token(*args, _name=name, _original=original):
+                    result = _original(*args)
+                    if result:
+                        handle = ctypes.cast(args[-1], ctypes.POINTER(HANDLE)).contents.value
+                        open_handles[handle] = _name
+                        created[_name] = created.get(_name, 0) + 1
+                    return result
+
+                setattr(self.security, name, allocate_token)
+            close = self.kernel.CloseHandle
+            info = self.kernel.GetHandleInformation
+            info.argtypes, info.restype = [HANDLE, POINTER], BOOL
+
+            def close_handle(handle):
+                key = handle.value if isinstance(handle, HANDLE) else handle
+                result = close(handle)
+                if result:
+                    kind = open_handles.pop(key)
+                    closed[kind] = closed.get(kind, 0) + 1
+                    flags = DWORD()
+                    if info(handle, ctypes.byref(flags)) or ctypes.get_last_error() != 6:
+                        raise RuntimeError("Closed fixture handle remained valid")
+                return result
+
+            self.kernel.CloseHandle = close_handle
+
+    api = _PipeAPI()
+    count = api.kernel.GetProcessHandleCount
+    count.argtypes, count.restype = [HANDLE, POINTER], BOOL
+
+    def measured():
+        value = DWORD()
+        if not count(api.kernel.GetCurrentProcess(), ctypes.byref(value)):
+            raise RuntimeError("Native handle count unavailable")
+        return value.value
+
+    counts, stages = [measured()], []
+    with mock.patch("continuum_memory.windows_pipe._PipeAPI", TrackingAPI):
+        for index in range(21):
+            with PipeServer(binding) as server:
+                if index == 0:
+                    stages.append(["server_created", measured()])
+                try:
+                    with server.accept(0.01):
+                        raise RuntimeError("Unexpected fixture connection")
+                except MemoryError as error:
+                    if error.code != "pipe_timeout":
+                        raise
+                if index == 0:
+                    stages.append(["cancel_complete", measured()])
+            counts.append(measured())
+            if open_handles:
+                raise RuntimeError("Native pipe-owned handles leaked")
+    print(json.dumps({"created": created, "closed": closed, "open_handles": len(open_handles),
+                      "counts": counts, "stages": stages}), flush=True)
+
+
 def child_main():
     # Fixture control stdout has an explicit LF protocol; do not let Windows
     # text translation turn these markers into CRLF. Actual pipe frames are bytes.
     sys.stdout.reconfigure(newline="\n")
     mode, binding = sys.argv[2], bytes.fromhex(sys.argv[3])
+    if mode == "handle-probe":
+        handle_probe(binding)
+        return
     if mode.startswith("fatal-"):
         api = _PipeAPI()
         if mode == "fatal-cancel":
@@ -239,6 +340,20 @@ def child_main():
             api.security.RevertToSelf = lambda: False
             api.identify_client(None)
         raise RuntimeError("Injected fatal branch did not terminate")
+    if mode in ("raw-client", "raw-hello-client"):
+        api = _PipeAPI()
+        handle = api.kernel.CreateFileW(pipe_name(binding, api.sid), 0xC0020000, 0, None, 3,
+                                       OVERLAPPED_FLAG | 0x00110000, None)
+        if handle in (None, ctypes.c_void_p(-1).value):
+            raise RuntimeError("Native raw fixture could not connect")
+        try:
+            if mode == "raw-hello-client":
+                api.operation(handle, "write", time.monotonic() + 5, data=b"continuum-pipe-v1\n")
+            print("connected", flush=True)
+            sys.stdin.readline()
+        finally:
+            api._close(handle)
+        return
     if mode == "foreign-owner":
         api = _PipeAPI()
         descriptor = POINTER()
