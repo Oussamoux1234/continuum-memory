@@ -165,9 +165,13 @@ jobs:
             > "work/patched-sqlcipher/evidence/toolchain.txt"
           cp work/patched-sqlcipher/sources/source-verification.json work/patched-sqlcipher/evidence/
           cp packaging/sqlcipher/manifest.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/security-evidence-2026-09-23.json work/patched-sqlcipher/evidence/
           cp packaging/sqlcipher/osv-evidence-2026-09-07.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md work/patched-sqlcipher/evidence/
           cp packaging/sqlcipher/THIRD_PARTY_NOTICES.md work/patched-sqlcipher/evidence/
           cp sbom/patched-sqlcipher-sources.spdx.json work/patched-sqlcipher/evidence/
+          cat work/patched-sqlcipher/evidence/runtime.json
+          cat work/patched-sqlcipher/evidence/source-verification.json
       - name: Retain only fully validated ephemeral test wheel and evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

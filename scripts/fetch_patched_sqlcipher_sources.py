@@ -92,19 +92,19 @@ REVIEWED_SOURCES = {
         "version": "3.5.8",
     },
     "SQLCipher": {
-        "commit": "63697beb0fafcb61faa7a3e6fd267036548ab11b",
+        "commit": "c4b275a47932888216bade83aff2bbc73df0ff85",
         "embeddedSQLiteVersion": "3.53.4",
-        "filename": "sqlcipher-4.18.0.zip",
+        "filename": "sqlcipher-4.19.0.zip",
         "license": "BSD-3-Clause",
         "licenseSha256": "2a2826f6acf46fa650730cf42cbb22a642be33a7ef119c9c4f4bf6daf3bef48e",
         "manifestUuid": "bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
-        "sha256": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90",
+        "sha256": "268d603ff040fa669556fe8be2e8ae8f353d86d799279e3a86e683eb5fb25c95",
         "signature": {
-            "filename": "sqlcipher-4.18.0.zip.sig",
-            "sha256": "bba2c310e7876c6bda126102c5271db0350c08ef61cbe7df7ce9fc9ec79f4a68",
+            "filename": "sqlcipher-4.19.0.zip.sig",
+            "sha256": "f5adf1c55a52af2a362dc76a63e10af0df76a0f811b6ebd355e852ff58acec33",
             "url": (
-                "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/"
-                "sqlcipher-4.18.0.zip.sig"
+                "https://www.zetetic.net/downloads/sqlcipher/verify/4.19.0/"
+                "sqlcipher-4.19.0.zip.sig"
             ),
         },
         "signingKey": {
@@ -113,13 +113,13 @@ REVIEWED_SOURCES = {
             "sha256": "b5fa10e62b50478db1236f3a8c7157074d71450a1f6a245eb77a71802202eefd",
             "url": "https://www.zetetic.net/security/support_zetetic_net_public_key.gpg",
         },
-        "tag": "v4.18.0",
-        "tagObject": "dca3c1ee114fe6bf5d996fc71f3c5380f43cc82c",
+        "tag": "v4.19.0",
+        "tagObject": "58beb4a302f0e3c37341d2312cef521f858b1273",
         "url": (
-            "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/"
-            "sqlcipher-4.18.0.zip"
+            "https://www.zetetic.net/downloads/sqlcipher/verify/4.19.0/"
+            "sqlcipher-4.19.0.zip"
         ),
-        "version": "4.18.0",
+        "version": "4.19.0",
     },
     "SQLite": {
         "license": "LicenseRef-SQLite-Public-Domain",
@@ -142,27 +142,71 @@ REVIEWED_SOURCES = {
 }
 REVIEWED_TARGETS = {
     "linuxCp311": {
-        "filename": "continuum_sqlcipher3-0.6.2.post1-cp311-cp311-manylinux_2_28_x86_64.whl",
+        "filename": "continuum_sqlcipher3-0.6.2.post2-cp311-cp311-manylinux_2_28_x86_64.whl",
         "pythonAbi": "cp311-cp311",
         "pythonMinor": "3.11",
     },
     "linuxCp312": {
-        "filename": "continuum_sqlcipher3-0.6.2.post1-cp312-cp312-manylinux_2_28_x86_64.whl",
+        "filename": "continuum_sqlcipher3-0.6.2.post2-cp312-cp312-manylinux_2_28_x86_64.whl",
         "pythonAbi": "cp312-cp312",
         "pythonMinor": "3.12",
     },
     "linuxCp313": {
-        "filename": "continuum_sqlcipher3-0.6.2.post1-cp313-cp313-manylinux_2_28_x86_64.whl",
+        "filename": "continuum_sqlcipher3-0.6.2.post2-cp313-cp313-manylinux_2_28_x86_64.whl",
         "pythonAbi": "cp313-cp313",
         "pythonMinor": "3.13",
     },
     "linuxCp314": {
-        "filename": "continuum_sqlcipher3-0.6.2.post1-cp314-cp314-manylinux_2_28_x86_64.whl",
+        "filename": "continuum_sqlcipher3-0.6.2.post2-cp314-cp314-manylinux_2_28_x86_64.whl",
         "pythonAbi": "cp314-cp314",
         "pythonMinor": "3.14",
     },
 }
 
+
+REVIEWED_SECURITY_EVIDENCE = {'endpoint': 'https://api.osv.dev/v1/query',
+ 'evidenceDate': '2026-09-23',
+ 'qualification': 'Empty exact-commit query responses mean no known OSV findings at query time; '
+                  'they are not proof of safety. SQLCipher 4.19.0 is the upstream remediation for '
+                  'two issues disclosed 2026-09-08 affecting 4.18.0 and earlier.',
+ 'queriedAt': '2026-09-23T13:23:10.882825+00:00',
+ 'queries': [{'component': 'OpenSSL',
+              'request': {'commit': 'f4dc4d58b48d346a8270183f89acf826d459b0ca'},
+              'response': {}},
+             {'component': 'sqlcipher3',
+              'request': {'commit': '14fc2632676b20011e0bba64fdda49763a2dd2ec'},
+              'response': {}},
+             {'component': 'SQLCipher',
+              'request': {'commit': 'c4b275a47932888216bade83aff2bbc73df0ff85'},
+              'response': {}}],
+ 'requestContentType': 'application/json',
+ 'schemaVersion': 1,
+ 'vendorAdvisories': [{'affectedVersions': '4.18.0 and earlier',
+                       'component': 'SQLCipher',
+                       'fixedVersion': '4.19.0',
+                       'issues': [{'conditions': 'Attacker-controlled attached database aliases '
+                                                 'must reach sqlcipher_export through SQL '
+                                                 'injection or unrestricted SQL access.',
+                                   'effect': 'Aliases can alter generated SQL statements; upstream '
+                                             'says encryption and per-page integrity remain intact '
+                                             'and this issue does not leak data.',
+                                   'name': 'Unquoted schema aliases in sqlcipher_export'},
+                                  {'conditions': 'A new database is opened with the optional '
+                                                 'hexkey URI parameter containing no valid key '
+                                                 'material.',
+                                   'effect': 'Affected versions can create a plaintext SQLite '
+                                             'database without reporting an error; 4.19.0 reports '
+                                             'an error.',
+                                   'name': 'Invalid nonempty URI hexkey'}],
+                       'observedDate': '2026-09-23',
+                       'publishedDate': '2026-09-08',
+                       'qualification': 'Upstream rates both issues Low. The export issue and '
+                                        'plaintext-creation issue have different effects. These '
+                                        'vendor findings invalidate an unqualified security '
+                                        'clearance for 4.18.0 even when its OSV response is empty; '
+                                        'the 4.19.0 candidate still requires signature, build, '
+                                        'runtime, and independent acceptance checks.',
+                       'url': 'https://www.zetetic.net/blog/2026/09/08/sqlcipher-4.19.0-release/'}]}
 
 def load_json_strict(path: Path):
     def reject_duplicates(pairs):
@@ -262,7 +306,7 @@ def validate_download(record: object, label: str) -> None:
 def validate_manifest(manifest: object) -> dict:
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
         raise RuntimeError("unsupported patched-wheel manifest schema")
-    if manifest.get("evidenceDate") != "2026-09-07":
+    if manifest.get("evidenceDate") != "2026-09-23":
         raise RuntimeError("patched-wheel manifest evidence is stale")
     builder = manifest.get("builder")
     if (
@@ -276,7 +320,8 @@ def validate_manifest(manifest: object) -> dict:
         ".github/workflows/patched-sqlcipher-wheel.yml",
         "packaging/sqlcipher/perl/IPC/Cmd.pm",
         "packaging/sqlcipher/perl/Time/Piece.pm",
-        "packaging/sqlcipher/osv-evidence-2026-09-07.json",
+        "packaging/sqlcipher/security-evidence-2026-09-23.json",
+        "packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md",
         "packaging/sqlcipher/pyproject.toml",
         "packaging/sqlcipher/setup_continuum.py",
         "scripts/build_patched_sqlcipher_wheel.sh",
@@ -314,7 +359,7 @@ def validate_manifest(manifest: object) -> dict:
     if artifact != {
         "distribution": "continuum-sqlcipher3",
         "module": "sqlcipher3",
-        "version": "0.6.2.post1",
+        "version": "0.6.2.post2",
     }:
         raise RuntimeError("patched-wheel artifact identity changed")
     expected_artifacts = manifest.get("expectedArtifacts")
@@ -362,12 +407,13 @@ def validate_manifest(manifest: object) -> dict:
     }:
         raise RuntimeError("supported platform status changed without evidence")
     if manifest.get("vulnerabilityEvidence") != {
-        "evidenceFile": "packaging/sqlcipher/osv-evidence-2026-09-07.json",
-        "evidenceSha256": "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
+        "evidenceFile": "packaging/sqlcipher/security-evidence-2026-09-23.json",
+        "evidenceSha256": "90b2e18631cc8eca526e7b66f94d96bcd0ce306429ab68334b0864befdba5d7d",
         "findingCounts": {"OpenSSL": 0, "SQLCipher": 0, "sqlcipher3": 0},
-        "method": "Retained exact-commit OSV API query responses",
+        "method": "Retained exact-commit OSV responses and upstream SQLCipher advisory",
         "qualification": (
-            "No known findings in the queried sources on the evidence date; not proof of safety."
+            "Zero OSV findings for the pinned commits; the vendor advisory fixes "
+            "require separate runtime testing. Not proof of safety."
         ),
     }:
         raise RuntimeError("vulnerability evidence changed without review")
@@ -598,23 +644,8 @@ def inspect_project_inputs(repository_root: Path, manifest: dict) -> None:
             raise RuntimeError("reviewed project input is missing, linked, or modified: %s" % relative)
     evidence_path = repository_root / manifest["vulnerabilityEvidence"]["evidenceFile"]
     evidence = load_json_strict(evidence_path)
-    expected_queries = [
-        {"component": label, "request": {"commit": REVIEWED_SOURCES[label]["commit"]}, "response": {}}
-        for label in ("OpenSSL", "SQLCipher", "sqlcipher3")
-    ]
-    if evidence != {
-        "endpoint": "https://api.osv.dev/v1/query",
-        "evidenceDate": "2026-09-07",
-        "qualification": (
-            "Empty exact-commit query responses mean no known OSV findings at query time; "
-            "they are not proof of safety."
-        ),
-        "queriedAt": "2026-09-07T14:55:24Z",
-        "queries": expected_queries,
-        "requestContentType": "application/json",
-        "schemaVersion": 1,
-    }:
-        raise RuntimeError("retained OSV evidence changed or is malformed")
+    if evidence != REVIEWED_SECURITY_EVIDENCE:
+        raise RuntimeError("retained security evidence changed or is malformed")
 
 
 def gpg_fingerprints(gpg: str, key_file: Path) -> set[str]:

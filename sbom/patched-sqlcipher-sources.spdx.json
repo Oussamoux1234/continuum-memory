@@ -1,7 +1,7 @@
 {
   "SPDXID": "SPDXRef-DOCUMENT",
   "creationInfo": {
-    "created": "2026-09-07T00:00:00Z",
+    "created": "2026-09-23T00:00:00Z",
     "creators": [
       "Organization: Continuum Memory project"
     ]
@@ -15,7 +15,7 @@
     "SPDXRef-File-IPC-Cmd-shim",
     "SPDXRef-File-Time-Piece-shim"
   ],
-  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-07",
+  "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-sqlcipher-sources/2026-09-23",
   "files": [
     {
       "SPDXID": "SPDXRef-File-IPC-Cmd-shim",
@@ -80,16 +80,16 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "20518a87ca38dc6565c3cb0d8a243d2abd3bd16c0f9a9a9e6bfdf2a487d01c90"
+          "checksumValue": "268d603ff040fa669556fe8be2e8ae8f353d86d799279e3a86e683eb5fb25c95"
         }
       ],
       "copyrightText": "NOASSERTION",
-      "downloadLocation": "https://www.zetetic.net/downloads/sqlcipher/verify/4.18.0/sqlcipher-4.18.0.zip",
+      "downloadLocation": "https://www.zetetic.net/downloads/sqlcipher/verify/4.19.0/sqlcipher-4.19.0.zip",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
       "licenseDeclared": "BSD-3-Clause",
       "name": "SQLCipher Community Edition source",
-      "versionInfo": "4.18.0"
+      "versionInfo": "4.19.0"
     },
     {
       "SPDXID": "SPDXRef-Source-SQLite",

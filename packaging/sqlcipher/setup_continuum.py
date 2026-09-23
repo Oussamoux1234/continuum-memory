@@ -10,7 +10,7 @@ from setuptools import Extension, setup
 
 DISTRIBUTION_NAME = "continuum-sqlcipher3"
 MODULE_NAME = "sqlcipher3"
-VERSION = "0.6.2.post1"
+VERSION = "0.6.2.post2"
 EXPECTED_BINDING_SOURCES = {
     "src/blob.c",
     "src/cache.c",

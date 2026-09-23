@@ -2,14 +2,14 @@
 
 Status: ephemeral CI test artifact only; not released or approved for permanent distribution.
 
-The `continuum-sqlcipher3` 0.6.2.post1 wheel retains the `sqlcipher3` Python/C binding API
+The `continuum-sqlcipher3` 0.6.2.post2 wheel retains the `sqlcipher3` Python/C binding API
 from upstream 0.6.2 and replaces only its vendored amalgamation and cryptographic provider
 build. The CI artifact contains:
 
 | Component | Exact source | Relationship | License conclusion |
 | --- | --- | --- | --- |
 | sqlcipher3 binding | 0.6.2, commit `14fc2632676b20011e0bba64fdda49763a2dd2ec` | Python/C binding files | `NOASSERTION`; upstream metadata says MIT but the shipped Gerhard Häring text differs |
-| SQLCipher Community Edition | 4.18.0, commit `63697beb0fafcb61faa7a3e6fd267036548ab11b` | Compiled into the extension | BSD-3-Clause |
+| SQLCipher Community Edition | 4.19.0, commit `c4b275a47932888216bade83aff2bbc73df0ff85` | Compiled into the extension | BSD-3-Clause |
 | SQLite | 3.53.4 from the signed SQLCipher source | SQLCipher base | `LicenseRef-SQLite-Public-Domain` |
 | OpenSSL | 3.5.8 LTS, commit `f4dc4d58b48d346a8270183f89acf826d459b0ca` | Statically linked `libcrypto` | Apache-2.0 |
 

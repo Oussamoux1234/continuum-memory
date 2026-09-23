@@ -1,6 +1,6 @@
 # Verification record
 
-Prototype baseline recorded 2026-09-03; native supply-chain gate updated 2026-09-07.
+Prototype baseline recorded 2026-09-03; native supply-chain gate updated 2026-09-23.
 
 ## Supported command
 
