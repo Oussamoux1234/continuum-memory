@@ -1,6 +1,6 @@
 # Compatibility snapshot
 
-Application baseline recorded 2026-09-03; native supply-chain state updated 2026-09-07.
+Application baseline recorded 2026-09-03; native supply-chain state updated 2026-09-23.
 The application runtime makes no network requests. The patched-wheel workflow permits network
 access only in its pinned source-acquisition container and disables it for build and test.
 
@@ -9,7 +9,7 @@ access only in its pinned source-acquisition container and disables it for build
 | MCP | https://modelcontextprotocol.io/specification/2026-07-28 and official 2026-07-28 release notes | Stateless per-request metadata, `server/discover`, tools; legacy fixture initialization retained |
 | SQLite FTS5 | https://www.sqlite.org/fts5.html | Unicode61 FTS virtual table and `bm25()` |
 | SQLite defensive posture | https://www.sqlite.org/security.html and https://www.sqlite.org/pragma.html | foreign keys, `trusted_schema=OFF`, integrity check, no extension loading |
-| Patched SQLCipher test artifact | Signed SQLCipher 4.18.0 source with SQLite 3.53.4 and OpenSSL 3.5.8 LTS | Separate Linux native supply-chain gate; not selected by the application runtime |
+| Patched SQLCipher test artifact | Signed SQLCipher 4.19.0 source with SQLite 3.53.4 and OpenSSL 3.5.8 LTS | Separate Linux native supply-chain gate; not selected by the application runtime |
 | W3C provenance | https://www.w3.org/TR/prov-o/ | compact author/recorder/authorizer/validator roles only; no conformance claim |
 
 Current local evidence at bootstrap: Python 3.9.6, SQLite CLI 3.51.0 with FTS5, no Rust

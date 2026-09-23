@@ -31,8 +31,10 @@ except ModuleNotFoundError:  # Direct script execution places scripts/ on sys.pa
     )
 
 
-def verify_bundle(sources: Path, manifest_path: Path) -> None:
-    manifest = validate_manifest(load_json_strict(manifest_path))
+def verify_bundle(sources: Path, manifest_path: Path, *, allow_unlocked_bootstrap: bool = False) -> None:
+    manifest = validate_manifest(
+        load_json_strict(manifest_path), allow_unlocked_bootstrap=allow_unlocked_bootstrap
+    )
     inspect_project_inputs(ROOT, manifest)
     for label, record in iter_downloads(manifest):
         path = sources / record["filename"]
@@ -63,8 +65,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sources", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--allow-unlocked-bootstrap", action="store_true")
     arguments = parser.parse_args()
-    verify_bundle(arguments.sources.resolve(), arguments.manifest.resolve())
+    verify_bundle(
+        arguments.sources.resolve(), arguments.manifest.resolve(),
+        allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap,
+    )
     print("patched SQLCipher build inputs: verified")
     return 0
 

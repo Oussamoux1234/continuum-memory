@@ -41,6 +41,127 @@ def assert_no_canary(directory: Path) -> None:
                 raise AssertionError("plaintext canary found in %s" % path.name)
 
 
+def assert_no_plaintext(directory: Path) -> None:
+    assert_no_canary(directory)
+    for path in directory.iterdir():
+        if path.is_file() and path.read_bytes().startswith(b"SQLite format 3\x00"):
+            raise AssertionError("plaintext SQLite header found in %s" % path.name)
+
+
+def test_uri_hexkey(dbapi2, root: Path) -> None:
+    # The URI decodes hex into passphrase bytes, not PRAGMA's x'raw-key' syntax.
+    passphrase = "synthetic-uri-key-for-tests-only"
+    valid_database = root / "uri-valid.db"
+    connection = dbapi2.connect(
+        valid_database.as_uri() + "?mode=rwc&hexkey=" + passphrase.encode("ascii").hex(),
+        uri=True,
+    )
+    try:
+        require_active_cipher(connection.execute("PRAGMA cipher_status").fetchone()[0])
+        connection.execute("CREATE TABLE uri_memory(body TEXT NOT NULL)")
+        connection.execute("INSERT INTO uri_memory VALUES (?)", (CANARY.decode("ascii"),))
+        connection.commit()
+    finally:
+        connection.close()
+    reopened = dbapi2.connect(str(valid_database))
+    try:
+        # This fixed synthetic literal is the same passphrase used in the URI.
+        reopened.execute("PRAGMA key = '%s'" % passphrase)
+        require_active_cipher(reopened.execute("PRAGMA cipher_status").fetchone()[0])
+        if reopened.execute("SELECT body FROM uri_memory").fetchall() != [(CANARY.decode("ascii"),)]:
+            raise AssertionError("valid URI key did not round-trip through PRAGMA key")
+    finally:
+        reopened.close()
+    assert_no_plaintext(root)
+
+    # Both nonempty inputs decode to zero key bytes. The advisory does not promise
+    # strict rejection of every value with a valid prefix followed by invalid hex.
+    for index, invalid_key in enumerate(("zz", "0")):
+        database = root / ("uri-invalid-%d.db" % index)
+        connection = None
+        rejected = False
+        try:
+            connection = dbapi2.connect(database.as_uri() + "?mode=rwc&hexkey=" + invalid_key, uri=True)
+            connection.execute("CREATE TABLE uri_memory(body TEXT NOT NULL)")
+            connection.execute("INSERT INTO uri_memory VALUES (?)", (CANARY.decode("ascii"),))
+            connection.commit()
+        except dbapi2.DatabaseError:
+            rejected = True
+        finally:
+            if connection is not None:
+                connection.close()
+        # Opening may leave an empty file; it must never leave plaintext content.
+        assert_no_plaintext(root)
+        if not rejected:
+            raise AssertionError("nonempty URI hexkey without key material was accepted")
+
+
+def quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def test_quoted_schema_export(dbapi2, root: Path) -> None:
+    source_alias = "source\" quoted; ' schema"
+    target_alias = "target\" quoted; ' schema"
+    source = quote_identifier(source_alias)
+    target = quote_identifier(target_alias)
+    source_database = root / "export-source.db"
+    target_database = root / "export-target.db"
+    connection = open_encrypted(dbapi2, root / "export-control.db")
+    expected_rows = [(1, CANARY.decode("ascii"))]
+    try:
+        connection.execute("CREATE TABLE sentinel(body TEXT NOT NULL)")
+        connection.execute("INSERT INTO sentinel VALUES ('unchanged')")
+        connection.commit()
+        for database, schema in ((source_database, source), (target_database, target)):
+            connection.execute(
+                "ATTACH DATABASE ? AS %s KEY ?" % schema,
+                (str(database), "x'%s'" % KEY.hex()),
+            )
+            require_active_cipher(connection.execute("PRAGMA %s.cipher_status" % schema).fetchone()[0])
+        connection.execute(
+            "CREATE TABLE %s.export_memory(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)" % source
+        )
+        connection.execute("CREATE INDEX %s.export_body ON export_memory(body)" % source)
+        connection.execute("INSERT INTO %s.export_memory(body) VALUES (?)" % source, (CANARY.decode("ascii"),))
+        connection.commit()
+        schema_query = "SELECT type,name,tbl_name,sql FROM %s.sqlite_schema ORDER BY type,name"
+        expected_schema = connection.execute(schema_query % source).fetchall()
+        # Aliases are bound as values here; the native function must quote them
+        # when constructing its own SQL. Both source and target need protection.
+        connection.execute("SELECT sqlcipher_export(?, ?)", (target_alias, source_alias)).fetchall()
+        connection.commit()
+        for schema in (source, target):
+            if connection.execute("SELECT id,body FROM %s.export_memory ORDER BY id" % schema).fetchall() != expected_rows:
+                raise AssertionError("export source or target content changed unexpectedly")
+            if connection.execute(schema_query % schema).fetchall() != expected_schema:
+                raise AssertionError("export source or target schema changed unexpectedly")
+            if connection.execute("SELECT seq FROM %s.sqlite_sequence WHERE name='export_memory'" % schema).fetchall() != [(1,)]:
+                raise AssertionError("export source or target sequence changed unexpectedly")
+        if connection.execute("SELECT body FROM main.sentinel").fetchall() != [("unchanged",)]:
+            raise AssertionError("export changed the unrelated sentinel")
+        if connection.execute("SELECT name FROM main.sqlite_schema ORDER BY name").fetchall() != [("sentinel",)]:
+            raise AssertionError("export altered the unrelated main schema")
+        assert_no_plaintext(root)
+    finally:
+        connection.close()
+    for database in (source_database, target_database):
+        reopened = open_encrypted(dbapi2, database)
+        try:
+            require_active_cipher(reopened.execute("PRAGMA cipher_status").fetchone()[0])
+            if reopened.execute("SELECT id,body FROM export_memory ORDER BY id").fetchall() != expected_rows:
+                raise AssertionError("exported encrypted content did not survive keyed reopen")
+            if reopened.execute(schema_query % "main").fetchall() != expected_schema:
+                raise AssertionError("exported schema did not survive keyed reopen")
+            if reopened.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise AssertionError("exported SQLite integrity check failed")
+            if reopened.execute("PRAGMA cipher_integrity_check").fetchall():
+                raise AssertionError("exported SQLCipher integrity check failed")
+        finally:
+            reopened.close()
+    assert_no_plaintext(root)
+
+
 def main() -> int:
     from sqlcipher3 import dbapi2
 
@@ -49,7 +170,7 @@ def main() -> int:
     if runtime_prefix not in module_path.parents:
         raise AssertionError("sqlcipher3 imported outside the isolated runtime environment")
     distribution = metadata.distribution("continuum-sqlcipher3")
-    if distribution.version != "0.6.2.post1":
+    if distribution.version != "0.6.2.post2":
         raise AssertionError("unexpected installed distribution version")
     if dbapi2.sqlite_version != "3.53.4":
         raise AssertionError("unexpected SQLite runtime: %s" % dbapi2.sqlite_version)
@@ -59,7 +180,7 @@ def main() -> int:
         database = root / "vault.db"
         connection = open_encrypted(dbapi2, database)
         cipher_version = connection.execute("PRAGMA cipher_version").fetchone()[0]
-        if cipher_version != "4.18.0 community":
+        if cipher_version != "4.19.0 community":
             raise AssertionError("unexpected SQLCipher runtime: %s" % cipher_version)
         require_active_cipher(connection.execute("PRAGMA cipher_status").fetchone()[0])
         options = {row[0] for row in connection.execute("PRAGMA compile_options")}
@@ -148,6 +269,8 @@ def main() -> int:
             raise AssertionError("SQLCipher integrity check failed: %r" % (cipher_findings,))
         recovered.close()
         assert_no_canary(root)
+        test_uri_hexkey(dbapi2, root)
+        test_quoted_schema_export(dbapi2, root)
 
     print(
         json.dumps(
@@ -156,6 +279,7 @@ def main() -> int:
                 "cacheTag": sys.implementation.cache_tag,
                 "crashRecovery": "passed",
                 "extensionLoadingDefault": "denied",
+                "exportQuotedSchemas": "passed",
                 "fts5": "passed",
                 "integrity": "passed",
                 "journalMode": journal_mode,
@@ -166,6 +290,8 @@ def main() -> int:
                 "sqliteVersion": dbapi2.sqlite_version,
                 "status": "passed",
                 "tempStore": "memory",
+                "uriHexkeyInvalidMaterial": "rejected",
+                "uriHexkeyValidRoundTrip": "passed",
                 "wrongAndMissingKeys": "rejected",
             },
             sort_keys=True,

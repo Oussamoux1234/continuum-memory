@@ -212,6 +212,49 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate key"):
                 load_json_strict(path)
 
+    def test_rejects_stale_or_overstated_security_evidence_after_rehash(self):
+        relative = self.manifest["vulnerabilityEvidence"]["evidenceFile"]
+        original = load_json_strict(ROOT / relative)
+        mutations = [
+            lambda value: value.update(evidenceDate="2026-09-07"),
+            lambda value: value.update(vendorAdvisories=[]),
+            lambda value: value["queries"][-1]["request"].update(
+                commit="63697beb0fafcb61faa7a3e6fd267036548ab11b"
+            ),
+            lambda value: value["vendorAdvisories"][0].update(fixedVersion="4.18.0"),
+            lambda value: value["vendorAdvisories"][0].update(affectedVersions="none"),
+            lambda value: value["vendorAdvisories"][0]["issues"][0].update(
+                effect="No security impact."
+            ),
+        ]
+        with tempfile.TemporaryDirectory(prefix="continuum-security-evidence-") as temporary:
+            directory = Path(temporary)
+            for name in self.manifest["builder"]["reviewedProjectFiles"]:
+                destination = directory / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / name).read_bytes())
+            for index, mutate in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    changed = copy.deepcopy(original)
+                    mutate(changed)
+                    path = directory / relative
+                    path.write_text(json.dumps(changed), encoding="utf-8")
+                    manifest = copy.deepcopy(self.manifest)
+                    manifest["builder"]["reviewedProjectFiles"][relative] = sha256(path)
+                    manifest["vulnerabilityEvidence"]["evidenceSha256"] = sha256(path)
+                    with self.assertRaisesRegex(RuntimeError, "retained security evidence"):
+                        inspect_project_inputs(directory, manifest)
+
+    def test_historical_evidence_and_unresolved_license_are_preserved(self):
+        self.assertEqual(
+            sha256(ROOT / "packaging/sqlcipher/osv-evidence-2026-09-07.json"),
+            "2d0c5b58e7fd406c2f7eccb9edb93bdeafe5093e868f96e4069331891996fe72",
+        )
+        self.assertEqual(self.manifest["sources"]["sqlcipher3"]["licenseConcluded"], "NOASSERTION")
+        self.assertEqual(self.manifest["sources"]["SQLCipher"]["version"], "4.19.0")
+        self.assertEqual(self.manifest["sources"]["SQLite"]["version"], "3.53.4")
+        self.assertEqual(self.manifest["sources"]["OpenSSL"]["version"], "3.5.8")
+
     def test_gpg_status_requires_one_validsig_and_rejects_adverse_status(self):
         signing = "A" * 40
         primary = "B" * 40

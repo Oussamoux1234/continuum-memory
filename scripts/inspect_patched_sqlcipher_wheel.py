@@ -36,13 +36,13 @@ from scripts.fetch_patched_sqlcipher_sources import (  # noqa: E402
 )
 
 
-DIST_INFO = "continuum_sqlcipher3-0.6.2.post1.dist-info"
+DIST_INFO = "continuum_sqlcipher3-0.6.2.post2.dist-info"
 REPOSITORY_ROOT = DEFAULT_MANIFEST.parents[2]
 MAX_WHEEL_BYTES = 64 * 1024 * 1024
 MAX_WHEEL_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_WHEEL_MEMBERS = 32
 EXPECTED_NATIVE_MARKERS = (
-    b"4.18.0",
+    b"4.19.0",
     b"3.53.4",
     b"OpenSSL 3.5.8 25 Aug 2026",
 )
@@ -50,7 +50,7 @@ EXPECTED_PYTHON_HASHES = {
     "sqlcipher3/__init__.py": "3e9fb2097abc3d7802d06a03faba070eeef8274412fed70293aa3b421bbb6a8e",
     "sqlcipher3/dbapi2.py": "8fa5c6ae7b32600a601c164c75e2a14bed13ea9d9240e4791c4dcca508262394",
 }
-EXPECTED_METADATA_SHA256 = "9245a656987a353c5eedc96d36c513eec365cdf650111a2e4ff1dd1dd92f0063"
+EXPECTED_METADATA_SHA256 = "2d9a55ba9374b0d08c649730c3c2600169fa7501a0c4d9377a815e2f8069c03c"
 EXPECTED_LICENSE_HASHES = {
     "LICENSE": "fa23cf250126548e90008fe92de4ee76d485bfbb3592f5be8aa731775892a960",
     "OpenSSL-Apache-2.0.txt": (
@@ -217,7 +217,7 @@ def inspect_wheel_archive(wheel: Path, manifest: dict, artifact_key: str) -> dic
         raise RuntimeError("wheel metadata standard changed")
     if metadata.get_all("Name", []) != ["continuum-sqlcipher3"]:
         raise RuntimeError("wheel distribution name changed")
-    if metadata.get_all("Version", []) != ["0.6.2.post1"]:
+    if metadata.get_all("Version", []) != ["0.6.2.post2"]:
         raise RuntimeError("wheel version changed")
     if metadata.get_all("Requires-Python", []) != [">=3.11,<3.15"]:
         raise RuntimeError("wheel Python range changed")
@@ -710,7 +710,7 @@ def write_evidence(
     ]
     sbom = {
         "SPDXID": "SPDXRef-DOCUMENT",
-        "creationInfo": {"created": "2026-09-07T00:00:00Z", "creators": ["Organization: Continuum Memory project"]},
+        "creationInfo": {"created": "2026-09-23T00:00:00Z", "creators": ["Organization: Continuum Memory project"]},
         "dataLicense": "CC0-1.0",
         "documentDescribes": [wheel_package["SPDXID"]],
         "documentNamespace": "https://github.com/Oussamoux1234/continuum-memory/spdx/patched-wheel/%s" % inspection["sha256"],
@@ -749,11 +749,14 @@ def main() -> int:
     parser.add_argument("--run-attempt", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source-evidence", type=Path, required=True)
+    parser.add_argument("--allow-unlocked-bootstrap", action="store_true")
     arguments = parser.parse_args()
     manifest_path = arguments.manifest.absolute()
     if not is_single_regular_file(manifest_path):
         raise RuntimeError("patched-wheel manifest must be one unlinked regular file")
-    manifest = validate_manifest(load_json_strict(manifest_path))
+    manifest = validate_manifest(
+        load_json_strict(manifest_path), allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap
+    )
     artifact_target(manifest, arguments.artifact_key)
     wheel_a = one_wheel(arguments.build_a)
     wheel_b = one_wheel(arguments.build_b)
@@ -761,7 +764,9 @@ def main() -> int:
         raise RuntimeError("independent patched wheel builds are not byte-for-byte identical")
     inspection = inspect_wheel(wheel_a, manifest, arguments.artifact_key)
     expected_hash = artifact_target(manifest, arguments.artifact_key)["sha256"]
-    if inspection["sha256"] != expected_hash:
+    if inspection["sha256"] != expected_hash and not (
+        arguments.allow_unlocked_bootstrap and expected_hash is None
+    ):
         raise RuntimeError("patched wheel SHA-256 does not match the locked artifact")
     source_evidence_path = arguments.source_evidence.absolute()
     source_evidence = validate_source_evidence(source_evidence_path, manifest, manifest_path)

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
+if [[ $# -ne 3 && $# -ne 4 ]]; then
   echo "usage: $0 SOURCES_DIR OUTPUT_DIR TARGET_KEY" >&2
   exit 2
+fi
+
+BOOTSTRAP_OPTIONS=()
+if [[ $# -eq 4 ]]; then
+  [[ "$4" == --allow-unlocked-bootstrap ]] || exit 2
+  BOOTSTRAP_OPTIONS=(--allow-unlocked-bootstrap)
 fi
 
 readonly SOURCES_DIR="$1"
@@ -83,11 +89,11 @@ fi
 umask 022
 mkdir -p "${BUILD_ROOT}"
 "${PYTHON_BIN}" "${REPOSITORY_ROOT}/scripts/verify_patched_sqlcipher_inputs.py" \
-  --sources "${SOURCES_DIR}"
+  --sources "${SOURCES_DIR}" "${BOOTSTRAP_OPTIONS[@]}"
 
 /usr/bin/tar --no-same-owner --no-same-permissions -xzf \
   "${SOURCES_DIR}/openssl-3.5.8.tar.gz" -C "${BUILD_ROOT}"
-unzip -q "${SOURCES_DIR}/sqlcipher-4.18.0.zip" -d "${BUILD_ROOT}"
+unzip -q "${SOURCES_DIR}/sqlcipher-4.19.0.zip" -d "${BUILD_ROOT}"
 /usr/bin/tar --no-same-owner --no-same-permissions -xzf \
   "${SOURCES_DIR}/sqlcipher3-0.6.2.tar.gz" -C "${BUILD_ROOT}"
 
@@ -113,7 +119,7 @@ if [[ ! -f "${LIBCRYPTO}" ]]; then
 fi
 "${OPENSSL_PREFIX}/bin/openssl" version -a
 
-pushd "${BUILD_ROOT}/sqlcipher-4.18.0" >/dev/null
+pushd "${BUILD_ROOT}/sqlcipher-4.19.0" >/dev/null
 CFLAGS="${HARDENING_FLAGS} ${PREFIX_MAP}" \
 CPPFLAGS="-I${OPENSSL_PREFIX}/include" \
 LDFLAGS="${LIBCRYPTO} -ldl -pthread" \
@@ -128,14 +134,14 @@ LDFLAGS="${LIBCRYPTO} -ldl -pthread" \
 popd >/dev/null
 
 readonly BINDING_ROOT="${BUILD_ROOT}/sqlcipher3-0.6.2"
-cp "${BUILD_ROOT}/sqlcipher-4.18.0/sqlite3.c" "${BINDING_ROOT}/vendor/sqlite3.c"
-cp "${BUILD_ROOT}/sqlcipher-4.18.0/sqlite3.h" "${BINDING_ROOT}/vendor/sqlite3.h"
+cp "${BUILD_ROOT}/sqlcipher-4.19.0/sqlite3.c" "${BINDING_ROOT}/vendor/sqlite3.c"
+cp "${BUILD_ROOT}/sqlcipher-4.19.0/sqlite3.h" "${BINDING_ROOT}/vendor/sqlite3.h"
 cp "${REPOSITORY_ROOT}/packaging/sqlcipher/setup_continuum.py" "${BINDING_ROOT}/setup.py"
 cp "${REPOSITORY_ROOT}/packaging/sqlcipher/pyproject.toml" "${BINDING_ROOT}/pyproject.toml"
 mkdir "${BINDING_ROOT}/THIRD_PARTY_LICENSES"
-cp "${BUILD_ROOT}/sqlcipher-4.18.0/LICENSE.txt" \
+cp "${BUILD_ROOT}/sqlcipher-4.19.0/LICENSE.txt" \
   "${BINDING_ROOT}/THIRD_PARTY_LICENSES/SQLCipher-BSD-3-Clause.txt"
-cp "${BUILD_ROOT}/sqlcipher-4.18.0/SQLITE_LICENSE.md" \
+cp "${BUILD_ROOT}/sqlcipher-4.19.0/SQLITE_LICENSE.md" \
   "${BINDING_ROOT}/THIRD_PARTY_LICENSES/SQLite-Public-Domain.txt"
 cp "${BUILD_ROOT}/openssl-3.5.8/LICENSE.txt" \
   "${BINDING_ROOT}/THIRD_PARTY_LICENSES/OpenSSL-Apache-2.0.txt"

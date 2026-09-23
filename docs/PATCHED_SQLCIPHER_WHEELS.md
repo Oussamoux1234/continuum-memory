@@ -3,11 +3,18 @@
 Status: Issue #13; hardened Linux CI test-artifact pipeline, not application integration or
 release packaging.
 
+The September 23 candidate updates SQLCipher to 4.19.0 for the vendor's September 8
+fixes. Historical September 7 OSV evidence is preserved. See the
+[dated source and security review](../packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md)
+for the advisory, exact source identities, unresolved license status, and remaining
+acceptance gates. Candidate hashes and native execution must be established before
+this update is considered validated.
+
 ## Scope
 
-The current gate builds `continuum-sqlcipher3` 0.6.2.post1 for Linux x86-64 on CPython
+The current gate builds `continuum-sqlcipher3` 0.6.2.post2 for Linux x86-64 on CPython
 3.11, 3.12, 3.13, and 3.14. It preserves the `sqlcipher3` import and DB-API surface while
-replacing the vulnerable native dependency set evaluated in Issue #7 with SQLCipher 4.18.0 /
+replacing the vulnerable native dependency set evaluated in Issue #7 with SQLCipher 4.19.0 /
 SQLite 3.53.4 / OpenSSL 3.5.8 LTS.
 
 These are ephemeral CI test artifacts. Continuum Memory does not depend on or install them,
