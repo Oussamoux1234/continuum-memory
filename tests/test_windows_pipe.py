@@ -232,6 +232,58 @@ class NativePipeTest(unittest.TestCase):
                     connection.send(b"must-not-be-sent\n")
                 self.assertEqual(error.exception.code, "pipe_identity_unavailable")
 
+    def test_existing_identification_context_is_refused_and_preserved(self):
+        with PipeServer(self.binding) as server:
+            child = self.child("idle-client")
+            with server.accept() as connection:
+                self.signal(child, b"connected")
+                api = server.api
+
+                def identity():
+                    token, level, size = HANDLE(), DWORD(), DWORD()
+                    self.assertTrue(api.security.OpenThreadToken(api.kernel.GetCurrentThread(), 8, True, ctypes.byref(token)))
+                    try:
+                        sid = api.token_sid(token)
+                        self.assertTrue(api.security.GetTokenInformation(token, 9, ctypes.byref(level),
+                                                                        ctypes.sizeof(level), ctypes.byref(size)))
+                        return sid, level.value
+                    finally:
+                        api._close(token)
+
+                self.assertTrue(api.security.ImpersonateNamedPipeClient(connection.handle))
+                try:
+                    expected = identity()
+                    self.assertEqual(expected, (api.sid, 1))
+                    actions = (
+                        lambda: api.identify_client(connection.handle),
+                        lambda: connection.send(b"not-sent\n"),
+                        lambda: connection.receive(),
+                        lambda: server.accept().__enter__(),
+                        lambda: connect(self.binding).__enter__(),
+                    )
+                    for action in actions:
+                        with self.assertRaises(MemoryError) as error:
+                            action()
+                        self.assertEqual(error.exception.code, "pipe_impersonated_context")
+                        self.assertEqual(identity(), expected)
+                finally:
+                    if not api.security.RevertToSelf():
+                        os._exit(FATAL_REVERT_EXIT)
+            self.finish(child)
+
+    def test_thread_token_query_error_is_not_no_token(self):
+        api = _PipeAPI()
+
+        def denied(*_args):
+            ctypes.set_last_error(5)
+            return False
+
+        # Explicit injected access-denied branch; not a second-account fixture.
+        api.security.OpenThreadToken = denied
+        with self.assertRaises(MemoryError) as error:
+            api.require_process_context()
+        self.assertEqual(error.exception.code, "pipe_identity_unavailable")
+
     def test_fatal_fault_fixtures_terminate_not_hang(self):
         # These are deliberately injected API failures, not a real kernel
         # cancellation failure or observed OS impersonation cleanup failure.
@@ -336,7 +388,15 @@ def child_main():
             api.cancel_and_drain(None, _Overlapped())
         else:
             api.security.ImpersonateNamedPipeClient = lambda *_args: True
-            api.security.OpenThreadToken = lambda *_args: False
+            queries = 0
+
+            def fake_token(*_args):
+                nonlocal queries
+                queries += 1
+                ctypes.set_last_error(1008 if queries == 1 else 5)
+                return False
+
+            api.security.OpenThreadToken = fake_token
             api.security.RevertToSelf = lambda: False
             api.identify_client(None)
         raise RuntimeError("Injected fatal branch did not terminate")

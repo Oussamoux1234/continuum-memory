@@ -65,6 +65,10 @@ def pipe_name(binding, sid):
 
 
 class _PipeAPI(WindowsBoundary):
+    def _process_sid(self):
+        self.require_process_context()
+        return super()._process_sid()
+
     def _bind(self):
         super()._bind()
         signatures = (
@@ -89,6 +93,15 @@ class _PipeAPI(WindowsBoundary):
             function = getattr(library, name)
             function.restype, function.argtypes = result, arguments
 
+    def require_process_context(self):
+        token = HANDLE()
+        if self.security.OpenThreadToken(self.kernel.GetCurrentThread(), 8, True, ctypes.byref(token)):
+            self._close(token)
+            raise _error("pipe_impersonated_context")
+        # Never confuse inaccessible/anonymous/failed token queries with absence.
+        if ctypes.get_last_error() != 1008:  # ERROR_NO_TOKEN
+            raise _error("pipe_identity_unavailable")
+
     def token_sid(self, token):
         size = DWORD()
         self.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
@@ -100,6 +113,7 @@ class _PipeAPI(WindowsBoundary):
         return self._sid_string(POINTER.from_buffer(data).value)
 
     def identify_client(self, pipe):
+        self.require_process_context()
         # The last message was the fixed nonsecret HELLO. Static identification
         # SQOS binds this token to the pipe client, not a potentially reused PID.
         if not self.security.ImpersonateNamedPipeClient(pipe):
@@ -231,6 +245,7 @@ class PipeConnection:
         self.api, self.handle, self.peer, self.deadline = api, handle, peer, deadline
 
     def send(self, frame):
+        self.api.require_process_context()
         if (not isinstance(frame, bytes) or not 0 < len(frame) <= MAX_FRAME_BYTES
                 or frame.find(b"\n") != len(frame) - 1):
             raise _error("invalid_frame")
@@ -244,6 +259,7 @@ class PipeConnection:
         self.peer.check()
 
     def receive(self, maximum=MAX_FRAME_BYTES):
+        self.api.require_process_context()
         if type(maximum) is not int or not 1 <= maximum <= MAX_FRAME_BYTES:
             raise _error("invalid_frame")
         result = bytearray()
@@ -285,6 +301,7 @@ class PipeServer:
 
     @contextmanager
     def accept(self, timeout=5.0):
+        self.api.require_process_context()
         deadline = _deadline(timeout)
         peer = None
         try:

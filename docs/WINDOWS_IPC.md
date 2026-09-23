@@ -36,6 +36,12 @@ reverts to its own context. The impersonation token must have exactly
 operation occurs while identifying the client. This avoids granting the server
 the client's impersonation/delegation authority.
 
+Public entry and identification refuse an already-impersonating thread without
+clearing or replacing its existing token. Only `ERROR_NO_TOKEN` establishes the
+expected process context; access-denied, anonymous or other token-query failure
+also refuses. Native tests retain the caller's actual SID and identification
+level across these refusals.
+
 A PID is never sufficient authority: the process handle, creation time, pipe PID,
 liveness and SID are rechecked through I/O. The pre-process-open PID reuse gap is
 additionally guarded by the pipe object's owner on the client and pipe-bound
