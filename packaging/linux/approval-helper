@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 
-exec /opt/continuum-memory-polkit/bin/continuum-polkit-helper "$@"
+exec /opt/continuum-memory-polkit/bin/python -I -m continuum_memory.polkit_helper "$@"

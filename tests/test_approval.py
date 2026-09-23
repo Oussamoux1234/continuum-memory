@@ -166,7 +166,7 @@ class ApprovalContractTest(unittest.TestCase):
         assert annotation is not None
         self.assertEqual(annotation.text, "/usr/libexec/continuum-memory/approval-helper")
         wrapper = (ROOT / "packaging" / "linux" / "approval-helper").read_text(encoding="utf-8")
-        self.assertIn("/opt/continuum-memory-polkit/bin/continuum-polkit-helper", wrapper)
+        self.assertIn("/opt/continuum-memory-polkit/bin/python -I -m continuum_memory.polkit_helper", wrapper)
         validate_installed_policy(
             ROOT / "packaging" / "linux" / "org.continuummemory.approval.policy",
             path_validator=no_path_validation,

@@ -9,13 +9,31 @@ permissions:
   contents: read
 
 jobs:
-  linux-python39:
+  linux:
+    name: Linux Python ${{ matrix.python }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.9"
-      - name: Verify prototype
+          python-version: ${{ matrix.python }}
+      - name: Prepare hash-pinned verification tools
+        run: |
+          python3 -m pip download --only-binary=:all: --require-hashes -r packaging/build-requirements.txt --dest work/build-wheels
+          python3 -m pip install --no-index --find-links work/build-wheels --require-hashes -r packaging/build-requirements.txt
+      - name: Verify prototype and offline distributions
+        env:
+          CONTINUUM_RELEASE_OUTPUT: work/release
         run: python3 scripts/verify.py
+      - name: Retain unsigned review evidence (not a release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-linux-python-${{ matrix.python }}-${{ github.sha }}
+          path: work/release/
+          retention-days: 7
+          if-no-files-found: error

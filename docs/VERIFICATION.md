@@ -1,84 +1,66 @@
-# Verification record
+# Verification gates and evidence
 
-Last run: 2026-09-03.
+## Run the supported gate
 
-## Supported command
+Prepare the pinned toolchain/wheelhouse as described in
+[Linux distribution verification](LINUX_RELEASE.md), then run:
 
 ```bash
-python3 scripts/verify.py
+.venv/bin/python scripts/verify.py
 ```
 
-The command parses both JSON schemas, checks source whitespace, compiles every Python
-module, runs the unit/integration suite with resource warnings promoted to errors, executes
-the complete two-client fixture demo, builds a source distribution, installs that exact
-archive offline into a temporary virtual environment, exercises its entry points, and runs
-`git diff --check`.
+The command parses the project's JSON schemas, checks whitespace, compiles Python modules,
+runs all unit/integration tests with resource warnings promoted to errors, executes the
+17-check two-client lifecycle demo, verifies the source/wheel distributions below, and
+runs `git diff --check`. The current test count is printed by the run; do not interpret an
+old count as evidence for a newer revision.
 
-## Observed result
+The [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
+runs the same gate on Ubuntu 24.04 x86-64 with Python 3.11, 3.12, 3.13, and 3.14. Its
+networked preparation obtains hash-pinned verification dependencies first. The actual
+build/install verifier uses offline dependency resolution and emits host/tool versions.
+Every matrix job must pass for the exact candidate revision before a release decision.
 
-Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
-The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
-[verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
+## What the gate exercises
 
-- 46 unit/integration tests: passed.
-- MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
-  size rejection: passed.
-- Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
-- Lifecycle demo: 17 checks passed, including Agent A proposal, exact user review, Agent B
-  provenance recall, correction/history, recorded-time lookup, conflict surfacing,
-  grant/idempotency replay resistance, two-project and provider-policy isolation,
-  forget/exact/FTS cleanup, and content-free audit/deletion receipts.
-- SQLite `integrity_check`: `ok`; audit HMAC chain: valid; deliberate audit mutation:
-  detected at the first invalid event.
-- Secret canary rejection, FTS syntax generation, changed-preview rejection, feedback
-  non-mutation, context byte budget, and second-daemon fail-closed behavior: passed.
-- Forget regression: one contentful feedback canary deleted, all affected recall-result
-  arrays pruned, and the pre-delete recall handle returned `not_found`: passed.
-- Retention regression with an injected UTC clock: fixed-width normalization, one persisted
-  `expired` transition and audit event, current recall denial, historical retrieval, and
-  preview/apply deadline checks: passed.
-- Strict time validation: invalid calendar dates, naive/space-separated timestamps,
-  invalid 24-hour values, unknown/out-of-range offsets, and trailing data rejected; UTC
-  offset and date-only normalization: passed.
-- Filesystem boundary: data-directory/ancestor/database/capability/socket symlinks,
-  database and capability hardlinks, and group/world-accessible directory/file modes
-  rejected: passed.
-- Portable hyphen/underscore source-distribution discovery, exact filename and embedded
-  name/version validation, invalid/multiple artifact rejection, offline archive install,
-  and the `continuum`, `memoryd`, `continuum-mcp`, and `continuum-polkit-helper` entry
-  points: passed.
-- Linux approval regressions: exact request binding, stdin-only broker transport,
-  cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
-  per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
-  rejection, replay rejection, unprovisioned-runtime failure, explicit test-only prototype
-  injection, exact signed-field and daemon-expiry rejection, policy validation, locked
-  provisioning and umask isolation, Unicode-safe preview rendering, isolated installer
-  environment, and agent denial: passed without invoking polkit.
+- Ledger proposal, review, correction/history, recorded-time queries, conflicts, retention,
+  project/provider isolation, forget cleanup, and content-free audit integrity.
+- MCP fixture discovery/validation, transport and response limits, context honesty, and
+  explicit test-only approval seams. Fixtures are not real client compatibility claims.
+- Filesystem owner/mode/type/link checks, transactional commit-result recovery, secret
+  admission, schema migration regressions, daemon lifetime locks and stale-socket guards.
+- Deterministic Linux broker/signature tests without invoking interactive polkit.
+- PEP 517 source and wheel builds twice in independent clean trees, byte-for-byte digest
+  comparison, wheel construction from the source archive, metadata and required-file checks.
+- Each artifact installed in its own clean offline environment; all four entry points
+  executed outside the source checkout, without source imports through `PYTHONPATH`.
+- Full payload/file SPDX 2.3 inventory reconciled against the archives and validated by
+  independent SPDX tools. Mutated/missing files, false hashes and changed license
+  conclusions are rejected. This is not a host/toolchain SBOM or legal certification.
+- Explicit reviewed-wheel staging for the privileged Linux installer, without actually
+  running that installer or altering system paths during the verifier.
 
-## Initial-slice checklist disposition
+## Reading a result honestly
 
-| Area | Result |
-|---|---|
-| Architecture/constitution/build brief/Relay contract | Passed review-by-construction; no external review claimed |
-| Real SQLite lifecycle and FTS5 vertical slice | Passed on the macOS build host |
-| Agent cannot self-accept through MCP; forged fields/replay | Passed fixture/API tests |
-| Cross-project and provider-disclosure result/count isolation | Passed; timing/physical-shard noninterference not claimed |
-| Correction, historical query, explicit conflict | Passed |
-| Strict ISO/RFC 3339 validation and persisted retention expiry | Passed with deterministic injected-clock tests |
-| Transactional forget, feedback removal, recall pruning, and live FTS cleanup | Passed |
-| Filesystem owner/mode/type/link and socket identity checks | Passed on macOS; same-UID race resistance not claimed |
-| Content-free HMAC audit verification/tamper detection | Passed prototype tests |
-| Default runtime network access | No network code exists; packet-level instrumentation not run |
-| Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
-| Linux distribution package | Source archive build/install passed; wheel, signing, and release artifact not built |
-| Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
-| SQLCipher/page/WAL/temp encryption | Not implemented; plaintext prototype |
-| Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
-| Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
-| Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
-| Vulnerability/license audit, SBOM, signatures, reproducible Linux payload | Not run; no third-party runtime dependency, but host Python/SQLite remain supply-chain inputs |
-| Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
+The current application remains an **experimental plaintext local prototype**. A green
+gate is not evidence of real OS user presence, encrypted pages/WAL/FTS, encrypted backups,
+deletion across restored backups, universal DLP, Windows runtime support, macOS OS-backed
+approval, native Codex/Claude/Antigravity profiles, same-UID malware resistance, physical
+erasure, independent trusted builders, signed provenance, or production readiness.
 
-This result supports only the maturity label “experimental local prototype.” It is not
-evidence for encryption, production security, native-host compatibility, Linux packaging,
-cross-platform behavior, physical erasure, backup revocation, or benchmark-leading recall.
+Issue #3 still requires an owner-controlled interactive Linux polkit smoke test. Encryption
+and platform acceptance remain tracked separately. No real vault/profile is touched by
+the fixture suite. Distribution artifacts are unsigned and unpublished; artifact retention
+in CI for review is not a release.
+
+For a durable acceptance record, save the exact commit, clean/dirty state, command, host
+and SQLite versions, full test/demo result, artifact SHA-256s, and CI run links. The
+`build-evidence.json` records packaging evidence but is explicitly unsigned. A changed
+revision or dependency set needs a fresh run. See [release verification](LINUX_RELEASE.md)
+for reproducibility limits, signing/provenance policy, and the publication hold.
+
+## Historical evidence
+
+The initial 2026-09-03 slice passed 46 tests and the lifecycle demo on the macOS build host
+and the original Ubuntu/Python 3.9 CI job. That was source-archive-only evidence and did
+not establish the newer packaging gate or any of the security/platform claims above.

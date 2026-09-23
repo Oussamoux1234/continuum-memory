@@ -11,6 +11,7 @@ CLIENT_TIMEOUT = 5.0
 MAX_CONNECTIONS = 16
 CHUNK_BYTES = 8192
 MAX_ID_BYTES = 128
+MAX_JSON_DEPTH = 64
 
 
 def valid_id(value: Any) -> bool:
@@ -42,7 +43,27 @@ def _unique_object(pairs: Any) -> Any:
 
 def decode_frame(raw: bytes) -> Any:
     # Callers cap raw acquisition before parsing. Reject ambiguous JSON too.
-    return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
+    text = raw.decode("utf-8")
+    # Do not depend on an interpreter's recursion threshold or allocate a deeply
+    # nested object graph first. Quoted/escaped delimiters are plain string data.
+    depth, quoted, escaped = 0, False, False
+    for character in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quoted = False
+        elif character == '"':
+            quoted = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ValueError("JSON nesting exceeds limit")
+        elif character in "]}":
+            depth -= 1
+    return json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_unique_object)
 
 
 def encode_frame(value: Any) -> bytes:

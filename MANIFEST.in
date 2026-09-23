@@ -2,6 +2,8 @@ recursive-include packaging/linux *
 recursive-include fixtures *.py
 recursive-include tests *.py
 recursive-include tests/fixtures *.sql
+recursive-include docs *.md
+recursive-include schemas *.json
 include docs/SNAPSHOT_AND_FORGET.md
 include docs/CONTEXT_CONTRACT.md
 include docs/COMMIT_RECOVERY.md
@@ -11,3 +13,9 @@ include docs/PROPOSAL_ERASURE.md
 include docs/LINUX_APPROVAL_BROKER.md
 include scripts/polkit_smoke.py
 include docs/SECRET_ADMISSION.md
+include pyproject.toml
+include scripts/verify.py
+include scripts/release_package.py
+include packaging/build-requirements.txt
+include packaging/backend-requirements.txt
+include docs/LINUX_RELEASE.md

@@ -55,12 +55,15 @@ that cannot fit a result return `budget_too_small`, not an empty continuation.
 
 ## Five-minute safe quickstart
 
-Requires Python 3.9+ with SQLite 3.37+ and FTS5. No package download or network service is used.
+The application retains Python 3.9+ compatibility with SQLite 3.37+ and FTS5; release
+verification uses supported Python 3.11–3.14. First prepare the hash-pinned local build
+wheelhouse using [the Linux distribution guide](docs/LINUX_RELEASE.md). Dependency
+preparation is a separate download step; the following install and runtime stay offline.
 Use a temporary directory while evaluating the prototype:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --no-deps -e .
+.venv/bin/python -m pip install --no-index --no-deps --no-build-isolation -e .
+export PATH="$PWD/.venv/bin:$PATH"
 export CONTINUUM_HOME="$(mktemp -d)"
 continuum init --project-name demo --project-path "$PWD" --providers codex,claude
 memoryd --data-dir "$CONTINUUM_HOME"
@@ -88,7 +91,7 @@ the temporary test harness; the packaged daemon and CLI never select it.
 To run the verified fixture demo and complete local test suite:
 
 ```bash
-python3 scripts/verify.py
+.venv/bin/python scripts/verify.py
 ```
 
 The demo prints an ephemeral directory, assertion/version IDs, provenance, correction
