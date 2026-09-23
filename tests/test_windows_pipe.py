@@ -187,14 +187,19 @@ class NativePipeTest(unittest.TestCase):
         count.argtypes, count.restype = [HANDLE, POINTER], BOOL
         before, after = DWORD(), DWORD()
         self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(before)))
-        for _ in range(20):
+        counts = [before.value]
+        # Record the first-use cost separately, then demand exact zero growth
+        # for every subsequent cycle, not a permissive aggregate tolerance.
+        for _ in range(21):
             with PipeServer(self.binding) as server:
                 with self.assertRaises(MemoryError) as error:
                     with server.accept(0.01):
                         self.fail("Unexpected client")
                 self.assertEqual(error.exception.code, "pipe_timeout")
-        self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(after)))
-        self.assertEqual(after.value, before.value)
+            self.assertTrue(count(api.kernel.GetCurrentProcess(), ctypes.byref(after)))
+            counts.append(after.value)
+        print("native cancelled-connect process handle counts: %s" % counts, flush=True)
+        self.assertEqual(counts[2:], [counts[1]] * 20)
 
     def test_peer_exit_is_detected_without_following_replacement_pid(self):
         with PipeServer(self.binding) as server:
