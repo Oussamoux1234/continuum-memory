@@ -18,6 +18,19 @@ ASSERTION_JOINS = (
 )
 
 
+def declared_applicability(row, as_of: str):
+    """Compare declared valid bounds, not truth, admission or recorded lifecycle."""
+    if row["valid_precision"] == "unknown":
+        return {"status": "unknown", "as_of": None}
+    if row["valid_from"] is not None and as_of < row["valid_from"]:
+        status = "not_yet_valid"
+    elif row["valid_to"] is not None and as_of > row["valid_to"]:
+        status = "no_longer_valid"
+    else:
+        status = "within_declared_interval"
+    return {"status": status, "as_of": as_of}
+
+
 @dataclass(frozen=True)
 class Eligibility:
     project: str

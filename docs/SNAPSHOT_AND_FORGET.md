@@ -101,10 +101,10 @@ retry, reopen, integrity and unsupported-version rejection.
 
 F4 proposal erasure/retry protection is addressed by the later
 [v4 proposal lifecycle contract](PROPOSAL_ERASURE.md).
-[F5 result categories and applicability](https://github.com/Oussamoux1234/continuum-memory/issues/17),
 [F7/F9 transport hardening](https://github.com/Oussamoux1234/continuum-memory/issues/18) and
 [F8 post-commit result ambiguity](https://github.com/Oussamoux1234/continuum-memory/issues/8)
-remain separate work. The same-subject conflict rule remains conservative.
+remain separate work. F5 result categories and applicability are now covered by the
+[v2 read contract](CONTEXT_CONTRACT.md). The same-subject conflict rule remains conservative.
 This does not add an explicit resolve/retract API, prove production readiness, encrypt
 storage, provide physical erasure or enforce revocation across backups.
 
@@ -112,4 +112,6 @@ Conflict grouping compares pairs within eligible matching threads; very large th
 still need a performance bound. Forget previews enumerate their exact scope and scan
 project receipts; large scopes can reach existing frame limits and require future
 pagination/normalized references. Search completeness and general history pagination
-remain unchanged. No native wheel matrix or package publication is needed for this fix.
+are described in the v2 read contract: candidate-limit completeness is now honest, while
+history pagination remains follow-up work. No native wheel matrix or package publication
+is needed for this fix.
