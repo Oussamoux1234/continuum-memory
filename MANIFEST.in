@@ -4,6 +4,7 @@ recursive-include tests *.py
 recursive-include tests/fixtures *.sql
 include docs/SNAPSHOT_AND_FORGET.md
 include docs/CONTEXT_CONTRACT.md
+include docs/COMMIT_RECOVERY.md
 include schemas/context-response.schema.json
 include docs/PROPOSAL_ERASURE.md
 include docs/LINUX_APPROVAL_BROKER.md

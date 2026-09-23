@@ -1,47 +1,4 @@
-"""Forward-only schema for the prototype canonical ledger."""
 
-SCHEMA_VERSION = 5
-
-ADMIN_RESULT_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS admin_results (
-    nonce TEXT PRIMARY KEY,
-    capability_id TEXT NOT NULL REFERENCES capabilities(id),
-    project_id TEXT NOT NULL REFERENCES projects(id),
-    operation TEXT NOT NULL,
-    preview_key TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    receipt_mac TEXT NOT NULL,
-    created_at TEXT NOT NULL
-) STRICT;
-"""
-
-AUDIENCE_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS audience_sequences (
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    local_seq INTEGER NOT NULL,
-    recorded_seq INTEGER NOT NULL,
-    PRIMARY KEY(project_id, provider, local_seq),
-    UNIQUE(project_id, provider, recorded_seq)
-) STRICT;
-"""
-PROJECTION_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_assertions_thread_recorded ON assertion_versions(thread_id,ingest_seq,retired_seq);"
-
-DELIVERY_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS proposal_tombstones (
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    delivery_digest TEXT NOT NULL,
-    proposal_id TEXT NOT NULL,
-    disposition TEXT NOT NULL CHECK (disposition IN ('forgotten','rejected','expired')),
-    purged_seq INTEGER NOT NULL,
-    PRIMARY KEY(project_id, provider, delivery_digest)
-) STRICT;
-"""
-PROPOSAL_RETENTION_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_proposals_retention ON proposals(project_id,retention,status);"
-PROPOSAL_DELIVERY_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_proposals_delivery ON proposals(project_id,source_agent,idempotency_key,created_seq);"
-
-SCHEMA_SQL = r"""
 PRAGMA application_id = 1129143636;
 
 CREATE TABLE IF NOT EXISTS metadata (
@@ -327,53 +284,23 @@ CREATE INDEX IF NOT EXISTS idx_conflicts_open
 ON conflicts(project_id, status, thread_id);
 CREATE INDEX IF NOT EXISTS idx_provenance_target
 ON provenance_activities(project_id, target_id, created_seq);
-""" + AUDIENCE_SCHEMA_SQL + PROJECTION_INDEX_SQL + DELIVERY_SCHEMA_SQL + PROPOSAL_RETENTION_INDEX_SQL + PROPOSAL_DELIVERY_INDEX_SQL + ADMIN_RESULT_SCHEMA_SQL
 
-
-def migrate(connection, version):
-    """Atomic forward upgrades through v5; unsupported versions remain fail closed."""
-    if version not in (2, 3, 4):
-        return version
-    connection.execute("BEGIN IMMEDIATE")
-    try:
-        # Another opener may have completed the upgrade while we waited for the
-        # writer lock. Check the version again inside the transaction.
-        locked_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if locked_version not in (2, 3, 4):
-            connection.commit()
-            return locked_version
-        if locked_version == 2:
-            connection.execute(AUDIENCE_SCHEMA_SQL)
-            connection.execute(PROJECTION_INDEX_SQL)
-            connection.execute("ALTER TABLE recalls ADD COLUMN temporal_mode TEXT NOT NULL DEFAULT 'current' "
-                               "CHECK (temporal_mode IN ('current','history'))")
-            connection.execute("ALTER TABLE recalls ADD COLUMN as_of_recorded INTEGER")
-            connection.execute("ALTER TABLE recalls ADD COLUMN as_of_valid TEXT")
-            # v2 did not retain exact temporal intent. Invalidate those receipts,
-            # preserving their IDs for feedback/forget cleanup; require a fresh recall.
-            connection.execute("UPDATE recalls SET result_ids_json='[]'")
-            connection.execute("""
-                INSERT INTO audience_sequences(project_id,provider,local_seq,recorded_seq)
-                SELECT project_id,provider,row_number() OVER (
-                    PARTITION BY project_id,provider ORDER BY recorded_seq),recorded_seq
-                FROM (
-                    SELECT DISTINCT a.project_id,c.provider,a.ingest_seq AS recorded_seq
-                    FROM assertion_versions a JOIN assertion_disclosures ad ON ad.assertion_id=a.id
-                    JOIN capabilities c ON c.project_id=a.project_id AND (ad.provider='*' OR ad.provider=c.provider)
-                    UNION
-                    SELECT DISTINCT a.project_id,c.provider,a.retired_seq AS recorded_seq
-                    FROM assertion_versions a JOIN assertion_disclosures ad ON ad.assertion_id=a.id
-                    JOIN capabilities c ON c.project_id=a.project_id AND (ad.provider='*' OR ad.provider=c.provider)
-                    WHERE a.retired_seq IS NOT NULL
-                )
-            """)
-        connection.execute(DELIVERY_SCHEMA_SQL)
-        connection.execute(PROPOSAL_RETENTION_INDEX_SQL)
-        connection.execute(PROPOSAL_DELIVERY_INDEX_SQL)
-        connection.execute(ADMIN_RESULT_SCHEMA_SQL)
-        connection.execute("PRAGMA user_version=5")
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    return 5
+CREATE TABLE IF NOT EXISTS audience_sequences (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    local_seq INTEGER NOT NULL,
+    recorded_seq INTEGER NOT NULL,
+    PRIMARY KEY(project_id, provider, local_seq),
+    UNIQUE(project_id, provider, recorded_seq)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_assertions_thread_recorded ON assertion_versions(thread_id,ingest_seq,retired_seq);
+CREATE TABLE IF NOT EXISTS proposal_tombstones (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    delivery_digest TEXT NOT NULL,
+    proposal_id TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN ('forgotten','rejected','expired')),
+    purged_seq INTEGER NOT NULL,
+    PRIMARY KEY(project_id, provider, delivery_digest)
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_proposals_retention ON proposals(project_id,retention,status);CREATE INDEX IF NOT EXISTS idx_proposals_delivery ON proposals(project_id,source_agent,idempotency_key,created_seq);

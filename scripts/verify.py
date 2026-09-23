@@ -34,6 +34,9 @@ REQUIRED_SDIST_FILES = (
     "tests/test_verify.py",
     "schemas/context-response.schema.json",
     "docs/CONTEXT_CONTRACT.md",
+    "docs/COMMIT_RECOVERY.md",
+    "tests/fixtures/schema-v4.sql",
+    "src/continuum_memory/results.py",
 )
 
 

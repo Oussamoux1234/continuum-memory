@@ -15,13 +15,14 @@ from .approval import (
     linux_public_key,
     verify_payload,
 )
-from .errors import MemoryError, NOT_FOUND, invalid
+from .errors import CommittedAuditError, MemoryError, NOT_FOUND, invalid
 from .forget import forget_scope
 from .projection import (
     ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, declared_applicability,
     record_audience_change,
 )
 from .proposals import check_delivery, check_proposal_scope, delivery_digest, proposal_scope, purge_proposals
+from .results import read_result, save_result
 from .security import (
     GRANT_TTL_SECONDS,
     MAX_BODY_BYTES,
@@ -94,7 +95,9 @@ class Kernel:
             "approval_info": self.approval_info,
             "admin_preview": self.admin_preview,
             "admin_apply": self.admin_apply,
+            "admin_result": self.admin_result,
             "audit_verify": self.audit_verify,
+            "audit_reconcile": self.audit_reconcile,
         }
         handler = handlers.get(method)
         if handler is None:
@@ -754,13 +757,41 @@ class Kernel:
                 result = self._forget_apply(preview)
             else:
                 raise MemoryError("invalid_transition", "The approved operation is unsupported.")
-            self.store.commit(sync_audit=True)
+            save_result(self.store, capability, challenge, result)
+            audit_anchor = "synced"
+            try:
+                self.store.commit(sync_audit=True)
+            except CommittedAuditError:
+                # This handler surrounds only THIS operation's SQL commit, not
+                # retention preflight or validation. Its receipt is now durable.
+                audit_anchor = "degraded"
         except Exception:
             self.store.rollback()
             raise
+        commit = {"status": "committed", "receipt_id": nonce, "audit_anchor": audit_anchor}
         if operation == "forget":
-            self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        return result
+            try:
+                checkpoint = self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                commit["checkpoint"] = "complete" if checkpoint[0] == 0 else "deferred"
+            except sqlite3.Error:
+                commit["checkpoint"] = "deferred"
+        return dict(result, commit=commit)
+
+    def admin_result(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_permission(capability, "control")
+        require_keys(params, ["nonce", "preview_digest"], ["nonce", "preview_digest"])
+        nonce = bounded_id(params["nonce"], "nonce")
+        digest = bounded_text(params["preview_digest"], "preview_digest", 64)
+        return read_result(self.store, capability, nonce, digest)
+
+    def audit_reconcile(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_permission(capability, "control")
+        require_keys(params, [])
+        try:
+            self.store.sync_audit_head()
+        except (OSError, sqlite3.Error) as exc:
+            raise MemoryError("audit_reconcile_unavailable", "The audit anchor could not be synchronized.") from exc
+        return self.store.verify_audit()
 
     def _accept_proposal_preview(
         self, preview: Dict[str, Any], approval_method: str
