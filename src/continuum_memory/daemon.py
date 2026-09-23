@@ -7,9 +7,11 @@ import socket
 import stat
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from .daemon_lock import DaemonLock, same_inode
 from .errors import MemoryError
 from .kernel import Kernel
 from .security import (
@@ -19,7 +21,6 @@ from .security import (
     canonical_json,
     ensure_private_directory,
     ensure_private_socket,
-    path_exists,
     require_keys,
 )
 from .storage import Store, paths
@@ -93,15 +94,23 @@ class MemoryServer:
 
     def __init__(self, socket_path: Path, store: Store, kernel_factory: Callable[[Store], Kernel] = Kernel):
         self.handler = RequestHandler(store, kernel_factory(store))
-        self.selector = selectors.DefaultSelector()
+        self.socket_path = socket_path
+        self.created_socket = None
+        self.selector = None
         self.connections: Dict[socket.socket, _Connection] = {}
-        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener = None
         try:
+            self.selector = selectors.DefaultSelector()
+            self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.listener.bind(str(socket_path))
+            self.created_socket = socket_path.lstat()
+            os.chmod(str(socket_path), 0o600)
+            if not same_inode(self.created_socket, ensure_private_socket(socket_path)):
+                raise MemoryError("unsafe_socket", "The daemon socket changed during startup.")
             self.listener.listen(MAX_CONNECTIONS)
             self.listener.setblocking(False)
             self.selector.register(self.listener, selectors.EVENT_READ)
-        except Exception:
+        except BaseException:
             self.server_close()
             raise
 
@@ -157,14 +166,16 @@ class MemoryServer:
         if connection.offset == len(connection.output):
             self._close(connection)
 
-    def serve_forever(self, poll_interval: float = 0.25) -> None:
+    def serve_forever(self, poll_interval: float = 0.25, ownership_check: Callable[[], None] = lambda: None) -> None:
         while True:
+            ownership_check()
             now = time.monotonic()
             for connection in list(self.connections.values()):
                 if now >= connection.deadline:
                     self._close(connection)
             nearest = min((c.deadline for c in self.connections.values()), default=now + poll_interval)
             for key, _events in self.selector.select(max(0, min(poll_interval, nearest - now))):
+                ownership_check()
                 if key.fileobj is self.listener:
                     self._accept()
                     continue
@@ -183,50 +194,51 @@ class MemoryServer:
                     self._close(connection)
 
     def server_close(self) -> None:
-        for connection in list(self.connections.values()):
-            self._close(connection)
-        self.listener.close()
-        self.selector.close()
+        # Every cleanup runs even if another close fails; also safe on partial
+        # construction. Never unlink a replacement endpoint belonging elsewhere.
+        with ExitStack() as cleanup:
+            cleanup.callback(self._remove_owned_socket)
+            if self.selector is not None:
+                cleanup.callback(self.selector.close)
+            if self.listener is not None:
+                cleanup.callback(self.listener.close)
+            for connection in self.connections.values():
+                cleanup.callback(connection.sock.close)
+            self.connections.clear()
+
+    def _remove_owned_socket(self) -> None:
+        if self.created_socket is None:
+            return
+        try:
+            current = self.socket_path.lstat()
+            if stat.S_ISSOCK(current.st_mode) and same_inode(current, self.created_socket):
+                self.socket_path.unlink()
+        except FileNotFoundError:
+            pass
+        finally:
+            self.created_socket = None
 
 
 def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:
     ensure_private_directory(data_dir)
     file_map = paths(data_dir)
     socket_path = file_map["socket"]
-    if path_exists(socket_path):
-        ensure_private_socket(socket_path)
-        # Never guess whether an existing socket is stale; a second writer must fail closed.
-        raise MemoryError("already_running", "The daemon socket already exists; remove it only after verifying no daemon runs.")
-    store = Store(data_dir)
-    try:
-        server = MemoryServer(socket_path, store, kernel_factory)
-    except Exception:
-        store.close()
-        raise
-    os.chmod(str(socket_path), 0o600)
-    created_socket = ensure_private_socket(socket_path)
-
     def stop(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt
 
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
-    try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        store.close()
+    with ExitStack() as cleanup:
+        ownership = cleanup.enter_context(DaemonLock(data_dir))
+        ownership.prepare_socket(socket_path)
+        store = Store(data_dir)
+        cleanup.callback(store.close)
+        server = MemoryServer(socket_path, store, kernel_factory)
+        cleanup.callback(server.server_close)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous = signal.signal(signum, stop)
+            cleanup.callback(signal.signal, signum, previous)
         try:
-            current = socket_path.lstat()
-            if (
-                stat.S_ISSOCK(current.st_mode)
-                and current.st_dev == created_socket.st_dev
-                and current.st_ino == created_socket.st_ino
-            ):
-                socket_path.unlink()
-        except FileNotFoundError:
+            server.serve_forever(poll_interval=0.25, ownership_check=ownership.check)
+        except KeyboardInterrupt:
             pass
 
 
