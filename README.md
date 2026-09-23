@@ -38,6 +38,8 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 - agents can search, read, propose, send feedback, and inspect status, but cannot accept,
   correct, forget, export, or change policy through MCP;
 - immutable correction history and explicit open conflicts are returned honestly;
+- bounded search/context/history continuations preserve a recorded snapshot while rechecking
+  forget and disclosure on every page; see the [read contract](docs/CONTEXT_CONTRACT.md);
 - retention deadlines are strict UTC values and due assertions receive an audited,
   monotonic `expired` transition before current reads;
 - project and provider-disclosure filters are applied inside retrieval queries;
@@ -46,6 +48,10 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 - vault files and the Unix socket reject symlinks, hardlinks, foreign ownership, and
   group/world-accessible modes at the access boundary;
 - two deterministic stdio MCP clients can share approved project memory.
+
+Context clients must now support `response_version: 3`: conflict fragments can be partial
+or not fully assessed. Strict v2 consumers must upgrade with the service. Tiny budgets
+that cannot fit a result return `budget_too_small`, not an empty continuation.
 
 ## Five-minute safe quickstart
 

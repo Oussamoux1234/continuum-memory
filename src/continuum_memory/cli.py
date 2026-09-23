@@ -112,6 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
     _project(show)
     show.add_argument("id")
     show.add_argument("--history", action="store_true")
+    show.add_argument("--cursor")
+    show.add_argument("--limit", type=int, default=5)
 
     correct = sub.add_parser("correct")
     _project(correct)
@@ -160,6 +162,7 @@ def _valid_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _query_temporal(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cursor")
     parser.add_argument("--temporal-mode", choices=["current", "history"], default="current")
     parser.add_argument("--as-of-recorded", type=int)
     parser.add_argument("--as-of-valid")
@@ -226,6 +229,7 @@ def run(args: argparse.Namespace) -> Any:
                     "project": args.project,
                     "query": args.query,
                     "limit": args.limit,
+                    "cursor": args.cursor,
                     "temporal_mode": args.temporal_mode,
                     "as_of_recorded": args.as_of_recorded,
                     "as_of_valid": args.as_of_valid,
@@ -241,6 +245,7 @@ def run(args: argparse.Namespace) -> Any:
                     "query": args.query,
                     "max_tokens": args.max_tokens,
                     "max_bytes": args.max_bytes,
+                    "cursor": args.cursor,
                     "temporal_mode": args.temporal_mode,
                     "as_of_recorded": args.as_of_recorded,
                     "as_of_valid": args.as_of_valid,
@@ -248,7 +253,8 @@ def run(args: argparse.Namespace) -> Any:
             ),
         )
     if args.command == "show":
-        return client.call("show", {"project": args.project, "id": args.id, "history": args.history})
+        return client.call("show", _clean({"project": args.project, "id": args.id, "history": args.history,
+                                          "cursor": args.cursor, "limit": args.limit}))
     if args.command == "correct":
         return _admin(
             client,

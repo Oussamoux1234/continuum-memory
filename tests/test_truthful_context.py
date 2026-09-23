@@ -23,7 +23,7 @@ class TruthfulContextTest(unittest.TestCase):
         self.remember(valid_precision="interval", valid_from="2028-01-01", valid_to="2028-02-01")
         result = self.context()
         self.assertNotIn("verified_current", result)
-        self.assertEqual(result["response_version"], 2)
+        self.assertEqual(result["response_version"], 3)
         self.assertEqual(result["temporal_mode"], "current")
         card = result["accepted_claims"][0]
         self.assertEqual(card["admission"], "accepted")
@@ -190,17 +190,17 @@ class TruthfulContextTest(unittest.TestCase):
             result = self.context()
             self.assertEqual(result["completeness"], "partial")
             self.assertEqual(len(result["accepted_claims"]), 2)
-            tiny = self.kernel.context(self.codex, {"query": "engine", "max_tokens": 128, "max_bytes": 512})
-            self.assertEqual(tiny["completeness"], "partial")
-            self.assertGreater(tiny["omitted_items"], 0)
-            self.assertLessEqual(len(canonical_json(tiny).encode("utf-8")), 512)
+            # Pagination must not produce a zero-progress continuation.
+            with self.assertRaises(MemoryError) as caught:
+                self.kernel.context(self.codex, {"query": "engine", "max_tokens": 128, "max_bytes": 512})
+            self.assertEqual(caught.exception.code, "budget_too_small")
         with self.assertRaises(MemoryError) as caught:
             self.kernel.context(self.codex, {"query": "engine", "max_tokens": 64})
         self.assertEqual(caught.exception.code, "budget_too_small")
 
     def test_response_schema_describes_new_contract_and_conflict_cards(self):
         schema = json.loads((Path(__file__).resolve().parents[1] / "schemas/context-response.schema.json").read_text())
-        self.assertEqual(schema["properties"]["response_version"], {"const": 2})
+        self.assertEqual(schema["properties"]["response_version"], {"const": 3})
         self.assertNotIn("verified_current", schema["properties"])
         self.assertFalse(schema["additionalProperties"])
         self.remember()
