@@ -29,3 +29,9 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 The prototype does not claim confidentiality, secure deletion, fully reviewed human presence,
 perfect timing noninterference, crash-proof audit anchoring, or enforcement inside unrelated
 host tools. These are release blockers for stronger maturity language.
+
+The [experimental Windows filesystem boundary](WINDOWS_BOUNDARY.md) is not selected
+by the runtime. Its native ACL/reparse/hardlink tests are substrate evidence only;
+they do not extend any runtime mitigation in this table to Windows. Native IPC,
+SQLite sidecars, approval, lifecycle, durability and full application verification
+remain unsupported.
