@@ -63,11 +63,22 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "db": data_dir / "continuum.db",
         "socket": data_dir / "memoryd.sock",
         "storage_key": data_dir / "storage.key",
+        "rotation_state": data_dir / "storage.rotation.json",
+        "next_storage_key": data_dir / "storage.key.next",
         "audit_key": data_dir / "audit.key",
         "audit_head": data_dir / "audit.head",
         "control": data_dir / "control.cap",
         "caps": data_dir / "capabilities",
     }
+
+
+def require_no_pending_rotation(data_dir: Path) -> None:
+    file_map = paths(data_dir)
+    if any(path_exists(file_map[name]) for name in ("rotation_state", "next_storage_key")):
+        raise MemoryError(
+            "rotation_pending",
+            "Storage key rotation requires explicit offline recovery before opening the vault.",
+        )
 
 
 def _read_storage_key(key_path: Path) -> bytes:
@@ -194,7 +205,7 @@ def _read_connection_settings(
 
 def _validate_database_artifacts(db_path: Path) -> None:
     ensure_private_regular(db_path, "The vault database")
-    for suffix in ("-wal", "-shm"):
+    for suffix in ("-wal", "-shm", "-journal"):
         sidecar = Path(str(db_path) + suffix)
         if path_exists(sidecar):
             ensure_private_regular(sidecar, "The SQLite %s sidecar" % suffix[1:])
@@ -315,10 +326,22 @@ def _capability_document(project_id: Optional[str], provider: str, permissions: 
 
 class Store:
     def __init__(self, data_dir: Path):
+        self._initialize(data_dir, allow_rotation=False)
+
+    @classmethod
+    def _open_during_rotation(cls, data_dir: Path):
+        """Internal maintenance opener; the caller must hold the daemon lease."""
+        store = cls.__new__(cls)
+        store._initialize(data_dir, allow_rotation=True)
+        return store
+
+    def _initialize(self, data_dir: Path, *, allow_rotation: bool) -> None:
         self.data_dir = data_dir
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
         self.owner_uid = int(directory_info.st_uid)
+        if not allow_rotation:
+            require_no_pending_rotation(data_dir)
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
         ensure_private_regular(self.files["db"], "The vault database")
@@ -376,6 +399,7 @@ class Store:
         _require_sqlcipher_runtime()
         if path_exists(data_dir):
             ensure_private_directory(data_dir)
+            require_no_pending_rotation(data_dir)
         else:
             ensure_safe_ancestors(data_dir.parent)
             data_dir.mkdir(mode=0o700, parents=True)
