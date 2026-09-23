@@ -190,6 +190,9 @@ class NativePipeTest(unittest.TestCase):
 
 
 def child_main():
+    # Fixture control stdout has an explicit LF protocol; do not let Windows
+    # text translation turn these markers into CRLF. Actual pipe frames are bytes.
+    sys.stdout.reconfigure(newline="\n")
     mode, binding = sys.argv[2], bytes.fromhex(sys.argv[3])
     if mode.startswith("fatal-"):
         api = _PipeAPI()
