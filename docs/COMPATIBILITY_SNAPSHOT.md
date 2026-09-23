@@ -19,4 +19,4 @@ probed or modified. URL content is not fetched during build or runtime.
 |---|---|
 | macOS 26.5.2 arm64, Python 3.9.6 | Full local verifier passed; development evidence, not a packaged support promise |
 | GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Full verifier passed in Actions run 33742253644 |
-| Windows | Unsupported: POSIX IPC and filesystem security assumptions require a separate design; tracked in issue #1 |
+| Windows | Unsupported: [experimental native filesystem boundary](WINDOWS_BOUNDARY.md) is isolated from the runtime; IPC, storage integration, lifecycle and full native verifier remain tracked in issue #1 |
