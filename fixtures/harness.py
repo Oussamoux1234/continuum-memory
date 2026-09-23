@@ -108,7 +108,7 @@ class McpFixtureClient:
 
 
 class EphemeralHarness:
-    def __init__(self):
+    def __init__(self, daemon_module: str = "fixtures.prototype_daemon"):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-memory-test-")
         self.data_dir = Path(self.temporary.name)
         self.marker = self.data_dir / ".continuum-test-vault"
@@ -126,7 +126,7 @@ class EphemeralHarness:
         environment["PYTHONPATH"] = str(root / "src")
         environment["PYTHONPYCACHEPREFIX"] = str(root / "work" / "pycache")
         self.daemon = subprocess.Popen(
-            [sys.executable, "-m", "fixtures.prototype_daemon", "--data-dir", str(self.data_dir)],
+            [sys.executable, "-m", daemon_module, "--data-dir", str(self.data_dir)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             env=environment,

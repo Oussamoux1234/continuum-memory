@@ -24,3 +24,12 @@ Context response v2 uses `accepted_claims` and an explicit `temporal_mode`; card
 declared applicability independently of their stored epistemic label. The former
 `verified_current` field is removed. Inputs and envelope versions are unchanged; read the
 [client upgrade contract](../CONTEXT_CONTRACT.md) and [response schema](../../schemas/context-response.schema.json).
+
+JSON-RPC envelopes require `jsonrpc: "2.0"`, a bounded string method, and a bounded
+integer/string request ID when present. Explicit null, boolean, fractional, and
+container IDs are invalid. Request params must be objects; tool names and legacy
+protocol versions must be strings before lookup. Valid notifications produce no
+response and never dispatch tools or change protocol state. Malformed complete
+requests produce stable JSON-RPC errors and leave the bridge usable. Error data
+contains stable codes, not private request fields. Transport framing, deadlines,
+and fail-closed conditions are specified in [ADR 001](001-process-topology.md).
