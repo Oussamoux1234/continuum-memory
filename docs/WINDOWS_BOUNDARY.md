@@ -1,7 +1,7 @@
 # Native Windows boundary: experimental filesystem slice
 
 Native Windows remains **unsupported** by the daemon and vault. This module is
-not imported by the POSIX runtime. It is a reviewed, independently testable first
+not imported by the POSIX runtime. It is an independently testable first
 slice of [issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1), not
 its completion. Do not move a real vault onto it or interpret the isolated
 Windows job as a full `scripts/verify.py` pass.

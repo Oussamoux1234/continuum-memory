@@ -64,7 +64,10 @@ class FileIdentity:
 
 def local_path(value):
     """Reject aliases before Win32 can normalize them or reach another namespace."""
-    path = os.fspath(value)
+    try:
+        path = os.fspath(value)
+    except TypeError:
+        raise MemoryError("unsafe_windows_path", "An absolute local Windows path is required.") from None
     if not isinstance(path, str):
         raise MemoryError("unsafe_windows_path", "An absolute local Windows path is required.")
     path = path.replace("/", "\\")

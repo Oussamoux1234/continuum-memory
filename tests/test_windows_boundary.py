@@ -10,7 +10,7 @@ from pathlib import Path
 
 from continuum_memory.errors import MemoryError
 from continuum_memory.windows_boundary import (
-    BOOL, DWORD, HANDLE, LPWSTR, POINTER, WindowsBoundary,
+    BOOL, DWORD, HANDLE, POINTER, WindowsBoundary,
     _Acl, _Ace, _FileInfo, _SecurityAttributes, local_path,
 )
 
@@ -25,6 +25,10 @@ class WindowsPathTest(unittest.TestCase):
                      "C:\\a\\ke\x00y", "C:\\a\\ke*y", "C:\\a\\\ud800", "C:\\" + "x" * 245):
             with self.subTest(path=ascii(path)), self.assertRaises(MemoryError):
                 local_path(path)
+        for path in (None, 1, b"C:\\vault\\key"):
+            with self.subTest(path=path), self.assertRaises(MemoryError) as error:
+                local_path(path)
+            self.assertEqual(error.exception.code, "unsafe_windows_path")
 
     @unittest.skipIf(os.name == "nt", "Non-Windows refusal")
     def test_other_platforms_are_explicitly_refused(self):
@@ -163,13 +167,19 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
         self.private.rename(self.root / "released")
 
     def test_repeated_failures_do_not_leak_handles(self):
+        rejected_acl = self.directory_with_acl(
+            "leak-acl", "O:%sD:P(A;;FA;;;%s)(A;;FR;;;WD)" % (self.boundary.sid, self.boundary.sid)
+        )
+        rejected_link = self.private / "leak-link"
+        rejected_link.symlink_to(self.key)
         count = self.boundary.kernel.GetProcessHandleCount
         count.argtypes, count.restype = [HANDLE, POINTER], BOOL
         before, after = DWORD(), DWORD()
         self.assertTrue(count(self.boundary.kernel.GetCurrentProcess(), ctypes.byref(before)))
         for _ in range(100):
-            with self.assertRaises(MemoryError):
-                self.boundary.read(self.private / "missing")
+            for path, directory in ((self.private / "missing", False), (rejected_acl, True), (rejected_link, False)):
+                with self.assertRaises(MemoryError):
+                    self.boundary.inspect(path, directory)
         self.assertTrue(count(self.boundary.kernel.GetCurrentProcess(), ctypes.byref(after)))
         self.assertEqual(after.value, before.value)
 
