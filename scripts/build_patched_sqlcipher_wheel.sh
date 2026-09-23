@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 && $# -ne 4 ]]; then
+if [[ $# -ne 3 ]]; then
   echo "usage: $0 SOURCES_DIR OUTPUT_DIR TARGET_KEY" >&2
   exit 2
-fi
-
-BOOTSTRAP_OPTIONS=()
-if [[ $# -eq 4 ]]; then
-  [[ "$4" == --allow-unlocked-bootstrap ]] || exit 2
-  BOOTSTRAP_OPTIONS=(--allow-unlocked-bootstrap)
 fi
 
 readonly SOURCES_DIR="$1"
@@ -89,7 +83,7 @@ fi
 umask 022
 mkdir -p "${BUILD_ROOT}"
 "${PYTHON_BIN}" "${REPOSITORY_ROOT}/scripts/verify_patched_sqlcipher_inputs.py" \
-  --sources "${SOURCES_DIR}" "${BOOTSTRAP_OPTIONS[@]}"
+  --sources "${SOURCES_DIR}"
 
 /usr/bin/tar --no-same-owner --no-same-permissions -xzf \
   "${SOURCES_DIR}/openssl-3.5.8.tar.gz" -C "${BUILD_ROOT}"

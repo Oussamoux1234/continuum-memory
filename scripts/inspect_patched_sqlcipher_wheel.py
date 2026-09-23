@@ -749,14 +749,11 @@ def main() -> int:
     parser.add_argument("--run-attempt", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source-evidence", type=Path, required=True)
-    parser.add_argument("--allow-unlocked-bootstrap", action="store_true")
     arguments = parser.parse_args()
     manifest_path = arguments.manifest.absolute()
     if not is_single_regular_file(manifest_path):
         raise RuntimeError("patched-wheel manifest must be one unlinked regular file")
-    manifest = validate_manifest(
-        load_json_strict(manifest_path), allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap
-    )
+    manifest = validate_manifest(load_json_strict(manifest_path))
     artifact_target(manifest, arguments.artifact_key)
     wheel_a = one_wheel(arguments.build_a)
     wheel_b = one_wheel(arguments.build_b)
@@ -764,9 +761,7 @@ def main() -> int:
         raise RuntimeError("independent patched wheel builds are not byte-for-byte identical")
     inspection = inspect_wheel(wheel_a, manifest, arguments.artifact_key)
     expected_hash = artifact_target(manifest, arguments.artifact_key)["sha256"]
-    if inspection["sha256"] != expected_hash and not (
-        arguments.allow_unlocked_bootstrap and expected_hash is None
-    ):
+    if inspection["sha256"] != expected_hash:
         raise RuntimeError("patched wheel SHA-256 does not match the locked artifact")
     source_evidence_path = arguments.source_evidence.absolute()
     source_evidence = validate_source_evidence(source_evidence_path, manifest, manifest_path)

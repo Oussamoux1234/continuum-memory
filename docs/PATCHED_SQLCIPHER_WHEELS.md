@@ -7,8 +7,8 @@ The September 23 candidate updates SQLCipher to 4.19.0 for the vendor's Septembe
 fixes. Historical September 7 OSV evidence is preserved. See the
 [dated source and security review](../packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md)
 for the advisory, exact source identities, unresolved license status, and remaining
-acceptance gates. Candidate hashes and native execution must be established before
-this update is considered validated.
+acceptance gates. Candidate hashes and native checks passed in the restricted
+bootstrap; normal strict-hash exact-head CI remains pending at this checkpoint.
 
 ## Scope
 

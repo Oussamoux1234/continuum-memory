@@ -303,7 +303,7 @@ def validate_download(record: object, label: str) -> None:
         raise RuntimeError("%s download must have one SHA-256 digest" % label)
 
 
-def validate_manifest(manifest: object, *, allow_unlocked_bootstrap: bool = False) -> dict:
+def validate_manifest(manifest: object) -> dict:
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
         raise RuntimeError("unsupported patched-wheel manifest schema")
     if manifest.get("evidenceDate") != "2026-09-23":
@@ -376,7 +376,7 @@ def validate_manifest(manifest: object, *, allow_unlocked_bootstrap: bool = Fals
         if set(expected_artifact) != set(target) | {"sha256"}:
             raise RuntimeError("patched-wheel target fields changed: %s" % key)
         expected_artifact_hash = expected_artifact.get("sha256")
-        if not (allow_unlocked_bootstrap and expected_artifact_hash is None) and (
+        if (
             not isinstance(expected_artifact_hash, str)
             or HEX_64.fullmatch(expected_artifact_hash) is None
             or expected_artifact_hash == "0" * 64
@@ -767,11 +767,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--allow-unlocked-bootstrap", action="store_true")
     arguments = parser.parse_args()
-    manifest = validate_manifest(
-        load_json_strict(arguments.manifest), allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap
-    )
+    manifest = validate_manifest(load_json_strict(arguments.manifest))
     inspect_project_inputs(ROOT, manifest)
     destination = arguments.destination.absolute()
     destination.mkdir(parents=True, exist_ok=True)

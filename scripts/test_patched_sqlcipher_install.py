@@ -24,9 +24,7 @@ from scripts.fetch_patched_sqlcipher_sources import (  # noqa: E402
 )
 
 
-def require_regular_wheel(
-    wheelhouse: Path, target: dict, *, allow_unlocked_bootstrap: bool = False
-) -> Path:
+def require_regular_wheel(wheelhouse: Path, target: dict) -> Path:
     candidates = sorted(wheelhouse.glob("*.whl"))
     if len(candidates) != 1 or candidates[0].name != target["filename"]:
         raise RuntimeError("wheelhouse must contain exactly the expected locked wheel")
@@ -34,9 +32,7 @@ def require_regular_wheel(
     metadata = wheel.lstat()
     if wheel.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
         raise RuntimeError("locked wheel must be one unlinked regular file")
-    if sha256(wheel) != target["sha256"] and not (
-        allow_unlocked_bootstrap and "sha256" in target and target["sha256"] is None
-    ):
+    if sha256(wheel) != target["sha256"]:
         raise RuntimeError("offline-install wheel SHA-256 does not match the manifest")
     return wheel
 
@@ -68,12 +64,9 @@ def main() -> int:
     parser.add_argument("--artifact-key", required=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--wheelhouse", type=Path, required=True)
-    parser.add_argument("--allow-unlocked-bootstrap", action="store_true")
     arguments = parser.parse_args()
 
-    manifest = validate_manifest(
-        load_json_strict(arguments.manifest), allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap
-    )
+    manifest = validate_manifest(load_json_strict(arguments.manifest))
     target = artifact_target(manifest, arguments.artifact_key)
     actual_minor = "%d.%d" % sys.version_info[:2]
     expected_cache_tag = "cpython-%s" % target["pythonAbi"][2:5]
@@ -82,9 +75,7 @@ def main() -> int:
     wheelhouse = arguments.wheelhouse.absolute()
     if wheelhouse.is_symlink() or not wheelhouse.is_dir():
         raise RuntimeError("wheelhouse must be a real directory")
-    wheel = require_regular_wheel(
-        wheelhouse, target, allow_unlocked_bootstrap=arguments.allow_unlocked_bootstrap
-    )
+    wheel = require_regular_wheel(wheelhouse, target)
 
     environment = sanitized_environment()
     with tempfile.TemporaryDirectory(prefix="continuum-wheel-runtime-") as temporary:

@@ -193,6 +193,9 @@ class PatchedSqlcipherManifestTest(unittest.TestCase):
         zero_hash = copy.deepcopy(self.manifest)
         zero_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = "0" * 64
         cases.append(zero_hash)
+        null_hash = copy.deepcopy(self.manifest)
+        null_hash["expectedArtifacts"]["linuxCp312"]["sha256"] = None
+        cases.append(null_hash)
         bad_abi = copy.deepcopy(self.manifest)
         bad_abi["expectedArtifacts"]["linuxCp313"]["pythonAbi"] = "cp314-cp314"
         cases.append(bad_abi)
@@ -663,6 +666,12 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
         )
         self.assertNotIn("allow-unlocked-bootstrap", inspector)
         self.assertNotIn("allow-unlocked-bootstrap", installer)
+        for relative in (
+            "scripts/fetch_patched_sqlcipher_sources.py",
+            "scripts/verify_patched_sqlcipher_inputs.py",
+            "scripts/build_patched_sqlcipher_wheel.sh",
+        ):
+            self.assertNotIn("allow-unlocked-bootstrap", (ROOT / relative).read_text(encoding="utf-8"))
         self.assertGreater(
             workflow.index("Retain only fully validated"),
             workflow.index("Test offline installation"),

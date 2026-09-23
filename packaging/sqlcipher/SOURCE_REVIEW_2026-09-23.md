@@ -1,17 +1,42 @@
-# Source review: planned SQLCipher 4.19.0 candidate
+# SQLCipher 4.19.0 source and native evidence
 
 Evidence date: 2026-09-23. Candidate distribution: `continuum-sqlcipher3`
 `0.6.2.post2`; import remains `sqlcipher3`. This record supports the explicitly
 approved, unmerged 4.18.0-to-4.19.0 remediation for issue #13 / PR #14.
 It does not certify a native wheel or application integration.
 
-At this source-review checkpoint, Actions verification of the candidate's detached
-source signature is **pending**, as are native Linux builds and runtime tests.
-Candidate wheel hashes are **unknown until those builds complete**. The old
+At the initial source-review checkpoint, Actions verification of the candidate's
+detached source signature, native builds, runtime tests, and wheel hashes were
+pending. The subsequent native bootstrap results are recorded below. The old
 `0.6.2.post1` hashes and expired artifacts are not evidence for `0.6.2.post2`.
 The restricted bootstrap must not upload wheels. Normal artifact retention may
 resume only after reviewed candidate hashes and all strict validation locks are
 restored and the corresponding exact-head checks pass.
+
+## Native bootstrap validation
+
+[Run 35869810191](https://github.com/Oussamoux1234/continuum-memory/actions/runs/35869810191)
+at `31cf7aaaec85b44f8271877dd260229cbe8773fc` passed signed-source acquisition,
+two independent builds, byte comparison, exact native/metadata inspection, offline
+installation, and the complete runtime suite on all four Linux ABIs. SQLCipher
+and OpenSSL detached signatures verified against their pinned primary fingerprints.
+The metadata digest was first derived by reproducing post1's locked metadata and
+confirming that only `Version: 0.6.2.post2` changed.
+
+| ABI | Observed wheel SHA-256, identical in both builds |
+| --- | --- |
+| cp311 | `bb6df23d39a1021256e0fe5bc8268c93fb6502a1ad2b5bbabf6bce48a8ba72f5` |
+| cp312 | `45bc9bd447772b3fef50ad630c41cc031bfec785901f63b5c9d62315a02f48ae` |
+| cp313 | `a4b0abac3223a0ca61a5f4bc412bac657b4be374793e039f7b1bd27bc0f5f5a3` |
+| cp314 | `ab1ae989bfe8d1542bd647158cde7e4fe2ca0d6bbff4d951d40ec60c4ddb3be5` |
+
+Each installed wheel reported SQLCipher 4.19.0 community / SQLite 3.53.4, rejected
+invalid URI key material, passed the valid-key control and quoted-schema export,
+and passed the existing encryption, extension-denial, WAL, FTS, crash recovery,
+integrity, and plaintext-canary checks. Each job then failed only at the explicit
+final stop. The bootstrap workflow contained no upload action and retained zero
+artifacts. These are observed build results; normal strict-hash CI must reproduce
+them before retaining a test artifact. This record grants no human acceptance.
 
 ## Reason for the explicit dependency update
 
@@ -71,7 +96,7 @@ No update to the following inputs is proposed by this review:
 | OpenSSL | 3.5.8, commit `f4dc4d58b48d346a8270183f89acf826d459b0ca`, tag object `090eec6d3628aa0520bdf2cf97b063fafc34e7be` | Official archive, checksum, detached signature, and key hashes matched existing pins on September 23. |
 | SQLite | 3.53.4, source ID shown above | Candidate archive metadata agrees with the [SQLite release record](https://www.sqlite.org/releaselog/3_53_4.html). No separate SQLite source archive is substituted. |
 | sqlcipher3 | 0.6.2, commit `14fc2632676b20011e0bba64fdda49763a2dd2ec` | [Upstream tag](https://api.github.com/repos/coleifer/sqlcipher3/git/ref/tags/0.6.2) and sdist SHA-256 matched existing pins. |
-| Builder | `quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c` | Retained immutable Linux image; this review does not establish a new native build result. |
+| Builder | `quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c` | Retained immutable Linux image produced the bootstrap results above; strict-head CI remains pending at this checkpoint. |
 | Python build tools | setuptools 80.9.0 and wheel 0.45.1 | Existing hash-locked inputs retained; no independent upgrade or new support assertion. |
 
 The [OpenSSL lifecycle](https://openssl-library.org/policies/releasestrat/) lists
@@ -99,8 +124,8 @@ legal conclusion for the binding or the combined distribution.
 
 The following gates remain open:
 
-- Mandatory source signatures, native Linux duplicate builds, strict wheel hashes,
-  native inspection, install/runtime tests, and independent exact-head acceptance.
+- Normal strict-hash CI must repeat source signatures, duplicate builds, native
+  inspection and runtime checks; independent exact-head acceptance remains required.
 - Binding and combined-distribution license acceptance, including `NOASSERTION`.
 - Artifact signing identity, trust root, transparency policy, and verification and
   revocation procedures. This candidate is not signed.
