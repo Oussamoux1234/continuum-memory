@@ -115,7 +115,14 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
                     setter = self.boundary.security.SetNamedSecurityInfoW
                     setter.argtypes = [ctypes.c_wchar_p, DWORD, DWORD, POINTER, POINTER, POINTER, POINTER]
                     setter.restype = DWORD
-                    self.assertEqual(setter(str(path), 1, 0x20000000, None, None, None, None), 0)
+                    getter = self.boundary.security.GetSecurityDescriptorDacl
+                    getter.argtypes, getter.restype = [POINTER, POINTER, POINTER, POINTER], BOOL
+                    with self.attributes(sddl) as attributes:
+                        present, defaulted, dacl = BOOL(), BOOL(), POINTER()
+                        self.assertTrue(getter(attributes.descriptor, ctypes.byref(present), ctypes.byref(dacl),
+                                               ctypes.byref(defaulted)))
+                        self.assertTrue(present.value and dacl.value)
+                        self.assertEqual(setter(str(path), 1, 0x20000004, None, None, dacl, None), 0)
                 with self.assertRaises(MemoryError) as error:
                     self.boundary.inspect(path, directory=True)
                 self.assertEqual(error.exception.code, "unsafe_permissions")
