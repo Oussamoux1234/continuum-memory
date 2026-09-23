@@ -35,6 +35,9 @@ REQUIRED_SDIST_FILES = (
     "schemas/context-response.schema.json",
     "docs/CONTEXT_CONTRACT.md",
     "docs/COMMIT_RECOVERY.md",
+    "docs/DAEMON_RECOVERY.md",
+    "src/continuum_memory/daemon_lock.py",
+    "tests/test_daemon_lock.py",
     "tests/fixtures/schema-v4.sql",
     "src/continuum_memory/results.py",
 )

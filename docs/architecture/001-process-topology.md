@@ -21,6 +21,13 @@ and writer boundary. The prototype is deliberately single-process and low throug
 later readers may use consistent read snapshots while writes remain serialized. If the
 daemon is absent, clients return `unavailable` and never start a competing writer.
 
+The daemon holds a persistent owner-only `memoryd.lock` inode with a nonblocking
+OS lock before Store opening/migration until cleanup completes. Cooperating new
+daemons can recover a refused stale socket only under the validated version marker
+and unchanged inode checks. First adoption of a legacy socket is fail-closed;
+mixed-version startup is unsupported. See [daemon recovery](../DAEMON_RECOVERY.md)
+for the offline upgrade, failure matrix and same-user/local-filesystem limits.
+
 ## Local transport limits
 
 Frames are UTF-8 JSON objects terminated by LF, with a 65,536-byte limit including

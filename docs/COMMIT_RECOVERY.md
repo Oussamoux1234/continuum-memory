@@ -100,8 +100,10 @@ grant replay, exact receipt scope/integrity, deletion canaries, retention prefli
 late-writer ordering, refused anchor repair, deferred checkpoints, v4 migration,
 and actual daemon/CLI read-only recovery surfaces. Only synthetic temporary vaults
 are used. Host power-loss, disk-controller guarantees, exhaustive OS fault injection,
-key rotation, stale daemon locks, backup revocation and exactly-once feedback are
-not certified by this slice and remain separate work under #8/#6.
+key rotation, full platform lifetime guarantees, backup revocation and exactly-once
+feedback are not certified by this slice and remain separate work under #8/#6.
+Cooperating-daemon locks and guarded stale-socket restart are covered separately in
+[daemon recovery](DAEMON_RECOVERY.md), including its offline-upgrade constraints.
 
 Full chain verification on every audited commit/reconciliation is linear in audit
 history; this favors correctness in the bounded prototype, not large-vault throughput.

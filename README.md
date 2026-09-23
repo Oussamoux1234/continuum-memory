@@ -30,6 +30,8 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 ## What this prototype proves
 
 - a single local daemon is the post-bootstrap SQLite writer;
+- persistent OS-held daemon ownership and guarded crash restart; see
+  [daemon recovery and offline upgrade](docs/DAEMON_RECOVERY.md);
 - users can accept exact, previewed claims using a one-shot approval grant;
 - provisioned Linux users approve through a polkit-authorized, root-keyed proof that the
   user daemon verifies using only a public key;
