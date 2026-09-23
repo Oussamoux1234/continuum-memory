@@ -29,23 +29,29 @@ administrative preview/apply calls fail closed. HMAC grants are accepted only by
 explicitly injected temporary test kernel. Existing nonce consumption, expiry,
 exact-preview verification, and replay protection remain enforced by the daemon.
 
-## Source installation
+## Reviewed-wheel installation
 
 This development installer is intentionally separate from application initialization. It
-must be reviewed and run explicitly on Linux from a clean checkout:
+must be reviewed and run explicitly on Linux from a clean checkout. First follow
+[the Linux distribution guide](LINUX_RELEASE.md) to build and verify the matching wheel:
 
 ```bash
-sudo packaging/linux/install-polkit.sh
+sudo packaging/linux/install-polkit.sh \
+  "$PWD/work/release/continuum_memory-0.1.0.dev0-py3-none-any.whl"
 ```
 
 It creates an offline root-owned helper environment under `/opt/continuum-memory-polkit`,
 installs the fixed launcher at `/usr/libexec/continuum-memory/approval-helper`, and installs
 the polkit policy under `/usr/share/polkit-1/actions`. It canonicalizes its own source path,
 uses fixed system executables, and starts Python/pip with an isolated environment. It does
-not execute an existing runtime: it builds in a new root-created staging directory, rejects
+not execute an existing runtime or source build: it stages the explicit wheel in a new
+root-created directory, rejects
 an unsafe existing runtime, and swaps the staged runtime into place only after the offline
-install succeeds. It does not create approval keys. The reviewed checkout is still trusted
-installation input; signed distribution artifacts remain issue #2.
+install succeeds. It rejects non-canonical paths, links, wrong metadata, and redirected
+helper entry points. It does not create approval keys. Both the reviewed checkout's policy
+and launcher and the exact verified wheel from the same revision remain trusted
+installation inputs. These checks are not signatures; signed release authorization is
+still a separate owner decision.
 
 With `memoryd` running for the selected vault, provision the per-user key through polkit:
 

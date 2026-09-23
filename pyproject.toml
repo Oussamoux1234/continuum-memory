@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuum-memory"
+version = "0.1.0.dev0"
+description = "A local evidence and versioned-claims ledger for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{name = "Oussama Essalmani", email = "98963291+Oussamoux1234@users.noreply.github.com"}]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Oussamoux1234/continuum-memory"
+Issues = "https://github.com/Oussamoux1234/continuum-memory/issues"
+
+[project.scripts]
+continuum = "continuum_memory.cli:main"
+memoryd = "continuum_memory.daemon:main"
+continuum-mcp = "continuum_memory.mcp:main"
+continuum-polkit-helper = "continuum_memory.polkit_helper:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false

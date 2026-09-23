@@ -14,6 +14,8 @@ from typing import Dict, List, Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if __package__ in (None, ""):
+    sys.path.insert(0, str(ROOT))
 ENV = dict(os.environ)
 ENV["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
 ENV["PYTHONPYCACHEPREFIX"] = str(ROOT / "work" / "pycache")
@@ -40,6 +42,11 @@ REQUIRED_SDIST_FILES = (
     "tests/test_daemon_lock.py",
     "tests/fixtures/schema-v4.sql",
     "src/continuum_memory/results.py",
+    "pyproject.toml",
+    "scripts/release_package.py",
+    "packaging/build-requirements.txt",
+    "packaging/backend-requirements.txt",
+    "docs/LINUX_RELEASE.md",
 )
 
 
@@ -144,40 +151,18 @@ def require_sdist_files(archive: Path, required: tuple[str, ...] = REQUIRED_SDIS
 
 
 def packaging_smoke() -> None:
+    from scripts.release_package import build_release
+
     with tempfile.TemporaryDirectory(prefix="continuum-package-", dir=str(ROOT / "work")) as temp:
-        artifacts = Path(temp) / "dist"
-        artifacts.mkdir()
-        run(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "sdist",
-                "--dist-dir",
-                str(artifacts),
-            ]
-        )
+        artifacts = Path(os.environ.get("CONTINUUM_RELEASE_OUTPUT", str(Path(temp) / "dist"))).resolve()
+        wheelhouse = Path(os.environ.get("CONTINUUM_BUILD_WHEELHOUSE", ROOT / "work" / "build-wheels"))
+        build_release(artifacts, wheelhouse.resolve())
         archive = find_sdist(artifacts)
         require_sdist_files(archive)
-        environment = str(Path(temp) / "venv")
-        run([sys.executable, "-m", "venv", environment])
-        python = str(Path(environment) / "bin" / "python")
-        package_environment = dict(ENV)
-        package_environment.pop("PYTHONPATH", None)
-        run(
-            [python, "-m", "pip", "install", "--no-cache-dir", "--no-deps", str(archive)],
-            package_environment,
-        )
-        run([str(Path(environment) / "bin" / "continuum"), "--version"], package_environment)
-        run([str(Path(environment) / "bin" / "memoryd"), "--help"], package_environment)
-        run([str(Path(environment) / "bin" / "continuum-mcp"), "--help"], package_environment)
-        run(
-            [str(Path(environment) / "bin" / "continuum-polkit-helper"), "--help"],
-            package_environment,
-        )
 
 
 def main() -> int:
+    (ROOT / "work").mkdir(exist_ok=True)
     schema_check()
     whitespace_check()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])
