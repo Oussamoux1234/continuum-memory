@@ -1,0 +1,165 @@
+{
+  "artifact": {
+    "distribution": "continuum-sqlcipher3",
+    "module": "sqlcipher3",
+    "version": "0.6.2.post2"
+  },
+  "buildDependencies": {
+    "setuptools": {
+      "filename": "setuptools-80.9.0-py3-none-any.whl",
+      "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922",
+      "url": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl",
+      "version": "80.9.0"
+    },
+    "wheel": {
+      "filename": "wheel-0.45.1-py3-none-any.whl",
+      "sha256": "708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248",
+      "url": "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl",
+      "version": "0.45.1"
+    }
+  },
+  "builder": {
+    "image": "quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c",
+    "imageTag": "2026.09.05-1",
+    "platform": "linux-x86_64",
+    "reviewedProjectFiles": {
+      ".github/workflows/patched-sqlcipher-wheel.yml": "2bacef0084150df7c375483951de86537b3e418972b0eaaa71d0bacbd8daf63a",
+      "packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md": "05a591dd0f04a5fbace86b2e10c631f57002fbdc6b7c00aaada42ab225a0e80a",
+      "packaging/sqlcipher/perl/IPC/Cmd.pm": "e5b04fd40c115bb6ba663a88b0e5d0776f3e7454ddb80fed344ff2713bec6c8a",
+      "packaging/sqlcipher/perl/Time/Piece.pm": "2c2da5b01d7206240a7d3dba86a2d1f0bb185ec85b27367c20f439d419818eed",
+      "packaging/sqlcipher/pyproject.toml": "7a67e414fe5a4938299fe2ee58f6fb3e90b59bbfe722236264edfca29dfd7370",
+      "packaging/sqlcipher/security-evidence-2026-09-23.json": "90b2e18631cc8eca526e7b66f94d96bcd0ce306429ab68334b0864befdba5d7d",
+      "packaging/sqlcipher/setup_continuum.py": "cdd5fe3ee9c8f4c211fc478231c833e59b36617c89e027e779d51482f1140375",
+      "scripts/build_patched_sqlcipher_wheel.sh": "def2777a80e0624f41e67b3a55544215653e863dfd7962418b6e3ea37352fed2",
+      "scripts/fetch_patched_sqlcipher_sources.py": "c534fd7a489643cf930e9b7aff035254c11370927820b0255bcc1a2e953278f3",
+      "scripts/inspect_patched_sqlcipher_wheel.py": "28199a14db7d4ba1cb0cdfb99b8c33b72dfeefab9d230a7a870962c8d8119f1c",
+      "scripts/test_patched_sqlcipher_install.py": "cacf7d540fa79bb77917b91302ea62b1d106305269eebc36be7800e8d3b65f86",
+      "scripts/test_patched_sqlcipher_runtime.py": "13f7d11a86cfeb77baf85e1b29b3539c056f7d9edd8433b92ff7025686262404",
+      "scripts/verify_patched_sqlcipher_inputs.py": "840cd31fb463373a409a1db72f14ea39c333416a0faecff491a8c2d8ca52eeb0"
+    },
+    "sourceDateEpoch": 1788285600
+  },
+  "evidenceDate": "2026-09-23",
+  "expectedArtifacts": {
+    "linuxCp311": {
+      "filename": "continuum_sqlcipher3-0.6.2.post2-cp311-cp311-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp311-cp311",
+      "pythonMinor": "3.11",
+      "sha256": "bb6df23d39a1021256e0fe5bc8268c93fb6502a1ad2b5bbabf6bce48a8ba72f5"
+    },
+    "linuxCp312": {
+      "filename": "continuum_sqlcipher3-0.6.2.post2-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp312-cp312",
+      "pythonMinor": "3.12",
+      "sha256": "45bc9bd447772b3fef50ad630c41cc031bfec785901f63b5c9d62315a02f48ae"
+    },
+    "linuxCp313": {
+      "filename": "continuum_sqlcipher3-0.6.2.post2-cp313-cp313-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp313-cp313",
+      "pythonMinor": "3.13",
+      "sha256": "a4b0abac3223a0ca61a5f4bc412bac657b4be374793e039f7b1bd27bc0f5f5a3"
+    },
+    "linuxCp314": {
+      "filename": "continuum_sqlcipher3-0.6.2.post2-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "pythonAbi": "cp314-cp314",
+      "pythonMinor": "3.14",
+      "sha256": "ab1ae989bfe8d1542bd647158cde7e4fe2ca0d6bbff4d951d40ec60c4ddb3be5"
+    }
+  },
+  "schemaVersion": 1,
+  "signing": {
+    "artifactSigningStatus": "BLOCKED_IDENTITY_NOT_SELECTED",
+    "requiredDecision": "Select and approve the artifact signing identity, trust root, transparency policy, verification procedure, and revocation procedure before permanent distribution."
+  },
+  "sources": {
+    "OpenSSL": {
+      "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca",
+      "endOfLife": "2030-04-08",
+      "filename": "openssl-3.5.8.tar.gz",
+      "license": "Apache-2.0",
+      "licenseSha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "releaseSeries": "3.5 LTS",
+      "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2",
+      "signature": {
+        "filename": "openssl-3.5.8.tar.gz.asc",
+        "sha256": "f4bfa84a290dfd5ad102a54ebc0f93f9b35359cb36c383769b5c7bc6034f1f65",
+        "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz.asc"
+      },
+      "signingKey": {
+        "filename": "openssl-pubkeys.asc",
+        "primaryFingerprint": "B146647E45A7B33947AB226B2A2C87D161692D40",
+        "sha256": "56e106cd1c44bdb117aec24795f6dfbecaa9bfa0a2901b85331f0059aad16d53",
+        "url": "https://mirror.openssl-library.org/source/pubkeys.asc"
+      },
+      "tag": "openssl-3.5.8",
+      "tagObject": "090eec6d3628aa0520bdf2cf97b063fafc34e7be",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
+      "version": "3.5.8"
+    },
+    "SQLCipher": {
+      "commit": "c4b275a47932888216bade83aff2bbc73df0ff85",
+      "embeddedSQLiteVersion": "3.53.4",
+      "filename": "sqlcipher-4.19.0.zip",
+      "license": "BSD-3-Clause",
+      "licenseSha256": "2a2826f6acf46fa650730cf42cbb22a642be33a7ef119c9c4f4bf6daf3bef48e",
+      "manifestUuid": "bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
+      "sha256": "268d603ff040fa669556fe8be2e8ae8f353d86d799279e3a86e683eb5fb25c95",
+      "signature": {
+        "filename": "sqlcipher-4.19.0.zip.sig",
+        "sha256": "f5adf1c55a52af2a362dc76a63e10af0df76a0f811b6ebd355e852ff58acec33",
+        "url": "https://www.zetetic.net/downloads/sqlcipher/verify/4.19.0/sqlcipher-4.19.0.zip.sig"
+      },
+      "signingKey": {
+        "filename": "zetetic-public-key.gpg",
+        "primaryFingerprint": "D83F5F9EB811D6E6B4A0D9C5D1FA3A2A97ED25C2",
+        "sha256": "b5fa10e62b50478db1236f3a8c7157074d71450a1f6a245eb77a71802202eefd",
+        "url": "https://www.zetetic.net/security/support_zetetic_net_public_key.gpg"
+      },
+      "tag": "v4.19.0",
+      "tagObject": "58beb4a302f0e3c37341d2312cef521f858b1273",
+      "url": "https://www.zetetic.net/downloads/sqlcipher/verify/4.19.0/sqlcipher-4.19.0.zip",
+      "version": "4.19.0"
+    },
+    "SQLite": {
+      "license": "LicenseRef-SQLite-Public-Domain",
+      "licenseSha256": "595e823c2ada6c839679e693bee1f4d7f88e2d34ac99a913ae41e3d43fb10c7d",
+      "version": "3.53.4"
+    },
+    "sqlcipher3": {
+      "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec",
+      "filename": "sqlcipher3-0.6.2.tar.gz",
+      "licenseConcluded": "NOASSERTION",
+      "licenseSha256": "fa23cf250126548e90008fe92de4ee76d485bfbb3592f5be8aa731775892a960",
+      "sha256": "a2b675289ba8889f389625a21f3a01f1ff159a551b5b88fba8fd92da0e02380a",
+      "tag": "0.6.2",
+      "url": "https://files.pythonhosted.org/packages/ae/c1/414003d77549c444bafd636149ab3ace6f4e2cb4666c9955d54ad62096cb/sqlcipher3-0.6.2.tar.gz",
+      "version": "0.6.2"
+    }
+  },
+  "supportedSlice": {
+    "built": [
+      "linux-x86_64/cp311",
+      "linux-x86_64/cp312",
+      "linux-x86_64/cp313",
+      "linux-x86_64/cp314"
+    ],
+    "planned": [
+      "macos-arm64/cp311",
+      "macos-arm64/cp312",
+      "macos-arm64/cp313",
+      "macos-arm64/cp314"
+    ],
+    "windowsSupported": false
+  },
+  "vulnerabilityEvidence": {
+    "evidenceFile": "packaging/sqlcipher/security-evidence-2026-09-23.json",
+    "evidenceSha256": "90b2e18631cc8eca526e7b66f94d96bcd0ce306429ab68334b0864befdba5d7d",
+    "findingCounts": {
+      "OpenSSL": 0,
+      "SQLCipher": 0,
+      "sqlcipher3": 0
+    },
+    "method": "Retained exact-commit OSV responses and upstream SQLCipher advisory",
+    "qualification": "Zero OSV findings for the pinned commits; the vendor advisory fixes require separate runtime testing. Not proof of safety."
+  }
+}
