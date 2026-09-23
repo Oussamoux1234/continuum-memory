@@ -91,6 +91,9 @@ python3 scripts/polkit_smoke.py --vault-id vlt_EXAMPLE
 
 The command requests real polkit authorization, displays only a synthetic preview, verifies
 the returned signature, and does not contact `memoryd` or change memory.
+Use the [owner acceptance checklist](LOCAL_ACCEPTANCE_CHECKLIST.md) to capture
+controlled-host, cancellation, policy/path, and signature evidence without recording
+credentials. Preparing that checklist does not count as executing the test.
 
 ## Removal
 
