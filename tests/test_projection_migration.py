@@ -8,7 +8,7 @@ from unittest.mock import patch
 from continuum_memory import storage
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
-from continuum_memory.migrations import migrate
+from continuum_memory.migrations import SCHEMA_VERSION, migrate
 from continuum_memory.storage import Store, load_capability, paths
 
 
@@ -56,7 +56,7 @@ class ProjectionMigrationTest(unittest.TestCase):
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], 2)
         store = Store(self.home)
         try:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual([dict(row) for row in store.connection.execute("SELECT * FROM assertion_versions ORDER BY id")], before)
             kernel = Kernel(store, approval_public_key_provider=lambda uid: None)
             codex = store.authenticate(load_capability(self.cap_path)["token"])
@@ -87,8 +87,8 @@ class ProjectionMigrationTest(unittest.TestCase):
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], 2)
         self.assertIsNone(self.db.execute("SELECT name FROM sqlite_master WHERE name='audience_sequences'").fetchone())
         self.assertEqual(self.db.execute("SELECT result_ids_json FROM recalls").fetchone()[0], '["asr_visible2"]')
-        self.assertEqual(migrate(self.db, 2), 3)
-        self.assertEqual(migrate(self.db, 2), 3)
+        self.assertEqual(migrate(self.db, 2), SCHEMA_VERSION)
+        self.assertEqual(migrate(self.db, 2), SCHEMA_VERSION)
         self.assertEqual(self.db.execute("SELECT result_ids_json FROM recalls").fetchone()[0], "[]")
 
     def test_unsupported_schema_is_rejected_without_mutation(self):

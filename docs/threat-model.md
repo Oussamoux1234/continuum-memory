@@ -16,7 +16,7 @@ OS account. The daemon trusts possession of scoped capability material, not mode
 | Cross-project/provider disclosure | bound capability; authorization predicates inside exact/FTS/get queries; non-revealing errors | Shared canonical/FTS DB is not physically sharded and leaks access timing/size locally; isolation tests cover results/counts only |
 | SQL/FTS injection | parameterized SQL; literal-token FTS query builder; bounded strings | SQLite/parser defects; injection tests |
 | Oversized/malformed JSON | 64 KiB frames; strict keys/types/ranges; shallow expected objects | Resource exhaustion below OS boundary; malformed MCP tests |
-| Replay/duplicate delivery | scoped idempotency table; nonce-bound single-use grants; packaged runtime rejects HMAC grants | Prototype HMAC exists only in an explicitly injected temporary test daemon; replay/cross-challenge tests |
+| Replay/duplicate delivery | project/provider delivery identity; atomic content-free purge tombstones; nonce-bound single-use grants; packaged runtime rejects HMAC grants | Fresh keys, old pre-v4 deletions, database rollback and HMAC-key changes are outside suppression; [contract and tests](PROPOSAL_ERASURE.md) |
 | Crash or corruption | one writer, WAL, FULL sync, transactions, integrity check | No full power-loss/fault matrix yet; integrity tests only |
 | Audit tamper/truncation | content-free HMAC chain and external head file | Same-UID attacker may alter DB and key/head; tamper/tail tests |
 | Deleted content remnants | transactional canonical/feedback/recall/FTS removal, orphan cleanup, secure_delete, checkpoint | Plaintext copies/snapshots/WAL history/SSD not guaranteed; deletion tests |
