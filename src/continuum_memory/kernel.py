@@ -15,6 +15,7 @@ from .approval import (
     linux_public_key,
     verify_payload,
 )
+from .admission import AdmissionPolicy
 from .errors import MemoryError, NOT_FOUND, invalid
 from .forget import forget_scope
 from .projection import (
@@ -39,7 +40,6 @@ from .security import (
     fts_literal_query,
     parse_disclosure,
     random_id,
-    reject_obvious_secrets,
     require_keys,
     verify_grant,
 )
@@ -70,6 +70,7 @@ class Kernel:
     ):
         self.store = store
         self.db = store.connection
+        self.admission_policy = AdmissionPolicy.load(store.data_dir)
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._approval_public_key_provider = approval_public_key_provider
         self._approval_signature_verifier = approval_signature_verifier
@@ -299,6 +300,7 @@ class Kernel:
         project = self._project(capability, params)
         self._expire_due(project)
         idempotency_key = bounded_id(params["idempotency_key"], "idempotency_key")
+        self.admission_policy.check([idempotency_key, capability["provider"]])
         key_digest = delivery_digest(self.store, project, capability["provider"], idempotency_key)
         check_delivery(self.store, project, capability["provider"], key_digest)
         subject = bounded_text(params["subject"], "subject", MAX_SUBJECT_BYTES)
@@ -309,7 +311,8 @@ class Kernel:
         retention = self._retention(params.get("retention", "forever"))
         disclosure = parse_disclosure(params["disclosure"])
         valid_precision, valid_from, valid_to = self._valid_time(params)
-        reject_obvious_secrets([subject, claim, evidence, locator])
+        self.admission_policy.check([subject, claim, evidence, locator, classification, retention, valid_precision]
+                                    + disclosure + [v for v in (valid_from, valid_to) if v is not None])
         normalized = {
             "subject": subject,
             "claim": claim,
@@ -475,6 +478,8 @@ class Kernel:
             preview = self._forget_preview(project, params)
         else:
             raise invalid("Administrative operation is unsupported.", "operation")
+        if operation in {"remember", "correct", "accept_proposal"}:
+            self._check_content_preview(preview)
         digest = digest_json(preview)
         nonce = random_id("gnt")
         expires_at = int(time.time()) + GRANT_TTL_SECONDS
@@ -524,7 +529,8 @@ class Kernel:
         retention = self._retention(params.get("retention", "forever"))
         disclosure = parse_disclosure(params.get("disclosure", ["*"]))
         valid_precision, valid_from, valid_to = self._valid_time(params)
-        reject_obvious_secrets([subject, claim, evidence, locator])
+        self.admission_policy.check([subject, claim, evidence, locator, classification, retention, valid_precision]
+                                    + disclosure + [v for v in (valid_from, valid_to) if v is not None])
         return {
             "schema_version": 1,
             "operation": "remember",
@@ -606,7 +612,8 @@ class Kernel:
             "valid_to": params.get("valid_to", row["valid_to"]),
         }
         precision, valid_from, valid_to = self._valid_time(temporal_params)
-        reject_obvious_secrets([claim, evidence, locator])
+        self.admission_policy.check([row["subject"], claim, evidence, locator, classification, retention, precision]
+                                    + disclosure + [v for v in (valid_from, valid_to) if v is not None])
         return {
             "schema_version": 1,
             "operation": "correct",
@@ -796,6 +803,13 @@ class Kernel:
         return {"proposal_id": proposal_id, "review_status": "rejected", "recorded_seq": sequence,
                 "content_purged": True, "delivery_retry": "suppressed"}
 
+    def _check_content_preview(self, preview: Dict[str, Any]) -> None:
+        self.admission_policy.check([
+            preview["subject"], preview["claim"], preview["evidence"]["body"],
+            preview["evidence"]["source_handle"], preview["source"]["author"],
+            preview["classification"], preview["retention"],
+        ] + preview["disclosure"] + [v for v in preview["valid_time"].values() if v is not None])
+
     def _accept_preview(
         self,
         preview: Dict[str, Any],
@@ -803,6 +817,9 @@ class Kernel:
         supersedes_id: Optional[str],
         approval_method: str,
     ) -> Dict[str, Any]:
+        # Recheck at the final write boundary: policy may have tightened since
+        # preview/legacy proposal creation. admin_apply rolls back a denied grant.
+        self._check_content_preview(preview)
         project = preview["project_id"]
         scope_id = preview["scope"]["id"]
         subject = preview["subject"]
@@ -1536,7 +1553,7 @@ class Kernel:
         if label not in FEEDBACK_LABELS:
             raise invalid("Feedback label is unsupported.", "label")
         reason = bounded_text(params.get("reason", ""), "reason", MAX_REASON_BYTES, allow_empty=True)
-        reject_obvious_secrets([reason])
+        self.admission_policy.check([reason, label, capability["provider"]])
         recall = self.db.execute(
             "SELECT * FROM recalls WHERE id=? AND project_id=? AND provider=?",
             (recall_id, project, capability["provider"]),

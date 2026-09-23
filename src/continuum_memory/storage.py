@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .admission import AdmissionPolicy
 from .errors import MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
 from .security import (
@@ -125,6 +126,7 @@ class Store:
     def bootstrap(cls, data_dir: Path, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not projects or len(projects) > 16:
             raise MemoryError("invalid_request", "Bootstrap requires one to sixteen projects.")
+        admission_policy = AdmissionPolicy.load(data_dir)
         normalized_projects = []
         for spec in projects:
             if set(spec) != {"name", "path_hint", "providers"}:
@@ -136,6 +138,7 @@ class Store:
             providers = sorted({bounded_provider(item) for item in spec["providers"]})
             if not providers or len(providers) > 8:
                 raise MemoryError("invalid_request", "Each project requires one to eight providers.")
+            admission_policy.check([name, path_hint] + providers)
             normalized_projects.append({"name": name, "path_hint": path_hint, "providers": providers})
         projects = normalized_projects
         if path_exists(data_dir):

@@ -15,8 +15,9 @@ MAX_ID_BYTES = 128
 
 def valid_id(value: Any) -> bool:
     if isinstance(value, str):
+        from .admission import contains_secret
         try:
-            return len(value.encode("utf-8")) <= MAX_ID_BYTES
+            return len(value.encode("utf-8")) <= MAX_ID_BYTES and not contains_secret(value)
         except UnicodeError:
             return False
     return isinstance(value, int) and not isinstance(value, bool) and -(2**63) <= value < 2**63
