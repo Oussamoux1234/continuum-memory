@@ -134,7 +134,7 @@ class LifecycleIntegrationTest(unittest.TestCase):
         context = self.claude.call(
             "memory_context", {"query": "database project uses", "max_tokens": 2048, "max_bytes": 8192}
         )
-        self.assertEqual(context["verified_current"], [])
+        self.assertEqual(context["accepted_claims"], [])
         self.assertEqual(len(context["open_conflicts"]), 1)
         self.assertEqual(len(context["open_conflicts"][0]["members"]), 2)
         self.assertFalse(context["memory_contract"]["may_authorize_actions"])

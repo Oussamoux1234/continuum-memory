@@ -32,6 +32,8 @@ REQUIRED_SDIST_FILES = (
     "src/continuum_memory/polkit_helper.py",
     "tests/test_approval.py",
     "tests/test_verify.py",
+    "schemas/context-response.schema.json",
+    "docs/CONTEXT_CONTRACT.md",
 )
 
 

@@ -25,7 +25,7 @@ historical queries can still retrieve the expired version because expiry is a li
 transition, not a claim of physical deletion.
 
 Overlapping incompatible active accepted assertions create a conflict set. Context returns
-the set under `open_conflicts` and excludes all members from verified-current output. No
+the set under `open_conflicts` and excludes all members from ordinary `accepted_claims`. No
 timestamp, recorder, or provider silently wins.
 
 Without a semantic model, the prototype uses a conservative deterministic rule: two
@@ -38,3 +38,8 @@ cache. Read paths share recorded/valid and audience eligibility; later retiremen
 alter an earlier snapshot. Agent sequences are project/provider scoped, while owner
 sequences remain vault scoped. See [snapshot semantics and migration](../SNAPSHOT_AND_FORGET.md)
 for interval boundaries, historical conflicts, receipt compatibility and ranking.
+
+Read contract v2 labels declared applicability separately from admission, epistemic state
+and lifecycle. Without `as_of_valid`, selection remains validity-unfiltered; known bounds
+are compared to the read clock without promoting memories to verified current facts.
+See the [client upgrade contract](../CONTEXT_CONTRACT.md).

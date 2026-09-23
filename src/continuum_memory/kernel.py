@@ -18,8 +18,10 @@ from .approval import (
 from .errors import MemoryError, NOT_FOUND, invalid
 from .forget import forget_scope
 from .projection import (
-    ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, record_audience_change,
+    ASSERTION_JOINS, ASSERTION_SELECT, Eligibility, conflict_groups, declared_applicability,
+    record_audience_change,
 )
+from .proposals import check_delivery, check_proposal_scope, delivery_digest, proposal_scope, purge_proposals
 from .security import (
     GRANT_TTL_SECONDS,
     MAX_BODY_BYTES,
@@ -169,6 +171,7 @@ class Kernel:
 
     def _expire_due(self, project: str) -> int:
         """Persist every due lifecycle transition before serving the triggering request."""
+        self._purge_due_proposals(project)
         now = self._now_iso()
         due = self.db.execute(
             "SELECT id FROM assertion_versions WHERE project_id=? AND lifecycle='active' "
@@ -215,6 +218,27 @@ class Kernel:
             self.store.rollback()
             raise
         return expired
+
+    def _purge_due_proposals(self, project: str) -> None:
+        now = self._now_iso()
+        query = ("SELECT * FROM proposals WHERE project_id=? AND "
+                 "(status='rejected' OR (retention!='forever' AND retention<=?)) ORDER BY created_seq,id")
+        if not self.db.execute(query, (project, now)).fetchone():
+            return
+        self.store.begin()
+        try:
+            # Recheck after obtaining the lock: another writer may have accepted
+            # or removed a draft since the initial read.
+            for row in self.db.execute(query, (project, now)).fetchall():
+                disposition = "rejected" if row["status"] == "rejected" else "expired"
+                sequence = self.store.next_sequence()
+                purge_proposals(self.store, [row], sequence, disposition)
+                self.store.append_audit(sequence, "retention_policy", "proposal_" + disposition + "_purged",
+                                        project, row["id"], occurred_at=now)
+            self.store.commit(sync_audit=True)
+        except Exception:
+            self.store.rollback()
+            raise
 
     def status(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         self._require_permission(capability, "read")
@@ -274,6 +298,9 @@ class Kernel:
         )
         project = self._project(capability, params)
         self._expire_due(project)
+        idempotency_key = bounded_id(params["idempotency_key"], "idempotency_key")
+        key_digest = delivery_digest(self.store, project, capability["provider"], idempotency_key)
+        check_delivery(self.store, project, capability["provider"], key_digest)
         subject = bounded_text(params["subject"], "subject", MAX_SUBJECT_BYTES)
         claim = bounded_text(params["claim"], "claim", MAX_BODY_BYTES)
         evidence = bounded_text(params["evidence"], "evidence", MAX_BODY_BYTES)
@@ -282,7 +309,6 @@ class Kernel:
         retention = self._retention(params.get("retention", "forever"))
         disclosure = parse_disclosure(params["disclosure"])
         valid_precision, valid_from, valid_to = self._valid_time(params)
-        idempotency_key = bounded_id(params["idempotency_key"], "idempotency_key")
         reject_obvious_secrets([subject, claim, evidence, locator])
         normalized = {
             "subject": subject,
@@ -297,18 +323,25 @@ class Kernel:
             "valid_to": valid_to,
         }
         request_digest = self.store.keyed_digest("proposal-request", canonical_json(normalized))
-        existing = self.db.execute(
-            "SELECT id,status,request_digest FROM proposals WHERE source_capability_id=? AND idempotency_key=?",
-            (capability["id"], idempotency_key),
-        ).fetchone()
-        if existing:
-            if existing["request_digest"] != request_digest:
-                raise MemoryError("idempotency_conflict", "The idempotency key was already used for a different request.")
-            return {"proposal_id": existing["id"], "review_status": existing["status"], "replayed": True}
         now = self._now_iso()
         proposal_id = random_id("prp")
         self.store.begin()
         try:
+            # Delete/purge may have committed while this payload was validated.
+            # Serialize the live replay check and insertion with tombstone checks.
+            check_delivery(self.store, project, capability["provider"], key_digest)
+            existing = self.db.execute(
+                "SELECT id,status,request_digest FROM proposals WHERE project_id=? AND source_agent=? "
+                "AND idempotency_key=? ORDER BY created_seq,id LIMIT 1",
+                (project, capability["provider"], idempotency_key),
+            ).fetchone()
+            if existing:
+                if existing["request_digest"] != request_digest:
+                    raise MemoryError("idempotency_conflict", "The idempotency key was already used for a different request.")
+                self.store.commit()
+                return {"proposal_id": existing["id"], "review_status": existing["status"], "replayed": True}
+            if retention != "forever" and retention <= self._now_iso():
+                raise MemoryError("retention_expired", "The proposal retention deadline has passed.")
             sequence = self.store.next_sequence()
             self.db.execute(
                 "INSERT INTO proposals(id,project_id,scope_id,subject,subject_key,body,evidence_body,"
@@ -515,7 +548,7 @@ class Kernel:
             raise NOT_FOUND
         if row["status"] != "proposed":
             raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
-        return {
+        preview = {
             "schema_version": 1,
             "operation": operation,
             "project_id": project,
@@ -535,6 +568,9 @@ class Kernel:
             "source": {"author": row["source_agent"], "recorder": "agent_proposal"},
             "policy_version": POLICY_VERSION,
         }
+        preview.update(proposal_scope(self.store, project, proposal_id))
+        preview["content_purge_on_rejection"] = operation == "reject_proposal"
+        return preview
 
     def _correct_preview(self, project: str, params: Dict[str, Any]) -> Dict[str, Any]:
         target_id = bounded_id(params.get("target_id"), "target_id")
@@ -599,7 +635,27 @@ class Kernel:
             (target_id, project, target_id, project),
         ).fetchone()
         if not row:
-            raise NOT_FOUND
+            proposal = self.db.execute("SELECT * FROM proposals WHERE project_id=? AND id=?", (project, target_id)).fetchone()
+            accepted = self.db.execute(
+                "SELECT a.thread_id FROM assertion_versions a JOIN provenance_activities p ON p.target_id=a.id "
+                "WHERE p.project_id=? AND p.activity_type='proposal_acceptance' AND p.input_ids_json=? LIMIT 1",
+                (project, canonical_json([target_id]))).fetchone()
+            if accepted:
+                return self._forget_preview(project, {"target_id": accepted["thread_id"]})
+            if proposal is None:
+                raise NOT_FOUND
+            if proposal["status"] == "accepted":
+                raise MemoryError("integrity_error", "The accepted proposal's memory is unavailable.")
+            scope = proposal_scope(self.store, project, target_id)
+            return {
+                "schema_version": 1, "operation": "forget", "project_id": project,
+                "target_kind": "proposal", "proposal_id": target_id,
+                "proposal": self._proposal_view(proposal),
+                "affected_set": scope["affected_set"], "state_digest": scope["state_digest"],
+                "effects": ["proposal_content", "proposal_evidence", "proposal_reviews", "proposal_provenance"],
+                "delivery_retry": "suppressed", "policy_version": POLICY_VERSION,
+                "limitations": ["no_managed_backups_in_slice", "no_physical_overwrite_guarantee"],
+            }
         scope = forget_scope(self.store, project, row["id"])
         return {
             "schema_version": 1,
@@ -710,6 +766,9 @@ class Kernel:
         self, preview: Dict[str, Any], approval_method: str
     ) -> Dict[str, Any]:
         proposal_id = preview["proposal_id"]
+        if preview["retention"] != "forever" and preview["retention"] <= self._now_iso():
+            raise MemoryError("retention_expired", "The approved retention deadline has passed.")
+        check_proposal_scope(self.store, preview)
         row = self.db.execute("SELECT status,source_agent FROM proposals WHERE id=?", (proposal_id,)).fetchone()
         if not row or row["status"] != "proposed":
             raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
@@ -725,19 +784,17 @@ class Kernel:
         return dict(result, proposal_id=proposal_id, review_status="accepted")
 
     def _reject_proposal_preview(self, preview: Dict[str, Any]) -> Dict[str, Any]:
+        check_proposal_scope(self.store, preview)
         proposal_id = preview["proposal_id"]
-        row = self.db.execute("SELECT status FROM proposals WHERE id=?", (proposal_id,)).fetchone()
-        if not row or row["status"] != "proposed":
-            raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
+        row = self.db.execute("SELECT * FROM proposals WHERE project_id=? AND id=?",
+                              (preview["project_id"], proposal_id)).fetchone()
+        if row["status"] != "proposed":
+            raise MemoryError("stale_preview", "The proposal is no longer pending review.")
         sequence = self.store.next_sequence()
-        now = self._now_iso()
-        self.db.execute("UPDATE proposals SET status='rejected',reviewed_at=? WHERE id=?", (now, proposal_id))
-        self.db.execute(
-            "INSERT INTO reviews(id,proposal_id,decision,actor,preview_digest,reviewed_at) VALUES (?,?,?,?,?,?)",
-            (random_id("rvw"), proposal_id, "rejected", "user_control", digest_json(preview), now),
-        )
+        purge_proposals(self.store, [row], sequence, "rejected")
         self.store.append_audit(sequence, "user_control", "proposal_rejected", preview["project_id"], proposal_id)
-        return {"proposal_id": proposal_id, "review_status": "rejected", "recorded_seq": sequence}
+        return {"proposal_id": proposal_id, "review_status": "rejected", "recorded_seq": sequence,
+                "content_purged": True, "delivery_retry": "suppressed"}
 
     def _accept_preview(
         self,
@@ -909,6 +966,8 @@ class Kernel:
         }
 
     def _forget_apply(self, preview: Dict[str, Any]) -> Dict[str, Any]:
+        if preview.get("target_kind") == "proposal":
+            return self._forget_proposal_apply(preview)
         project = preview["project_id"]
         thread_id = preview["thread_id"]
         # admin_apply already holds BEGIN IMMEDIATE. Recheck before any deletion;
@@ -937,13 +996,9 @@ class Kernel:
                 (thread_id,),
             )
         ]
-        proposal_ids = [
-            row["id"]
-            for row in self.db.execute(
-                "SELECT id FROM proposals WHERE project_id=? AND subject_key=?",
-                (project, thread["subject_key"]),
-            )
-        ]
+        proposals = self.db.execute(
+            "SELECT * FROM proposals WHERE project_id=? AND subject_key=?",
+            (project, thread["subject_key"])).fetchall()
         assertion_ids = set(assertions)
         sequence = self.store.next_sequence()
         record_audience_change(self.db, project, sequence, assertions)
@@ -977,14 +1032,7 @@ class Kernel:
                 "DELETE FROM provenance_activities WHERE project_id=? AND target_id=?",
                 (project, assertion_id),
             )
-        for proposal_id in proposal_ids:
-            self.db.execute(
-                "DELETE FROM provenance_activities WHERE project_id=? AND target_id=?",
-                (project, proposal_id),
-            )
-        self.db.execute(
-            "DELETE FROM proposals WHERE project_id=? AND subject_key=?", (project, thread["subject_key"])
-        )
+        purge_proposals(self.store, proposals, sequence, "forgotten")
         self.db.execute("DELETE FROM claim_threads WHERE id=?", (thread_id,))
         for evidence_id in evidence:
             self.db.execute(
@@ -1021,6 +1069,26 @@ class Kernel:
             "limitations": preview["limitations"],
         }
 
+    def _forget_proposal_apply(self, preview):
+        check_proposal_scope(self.store, preview)
+        project = preview["project_id"]
+        proposal_id = preview["proposal_id"]
+        row = self.db.execute("SELECT * FROM proposals WHERE project_id=? AND id=?", (project, proposal_id)).fetchone()
+        if row["status"] == "accepted" or preview["affected_set"]["accepted_assertions_precondition"]:
+            raise MemoryError("stale_preview", "The proposal has accepted memory. Request a new forget preview.")
+        sequence = self.store.next_sequence()
+        purge_proposals(self.store, [row], sequence, "forgotten")
+        receipt_id = random_id("del")
+        projections = ["proposal_content", "proposal_evidence", "proposal_reviews", "proposal_provenance"]
+        self.db.execute(
+            "INSERT INTO deletion_receipts(id,project_id,target_id,projection_kinds_json,deletion_seq,"
+            "completion_state,policy_version,deleted_at) VALUES (?,?,?,?,?,'complete',?,?)",
+            (receipt_id, project, proposal_id, canonical_json(projections), sequence, POLICY_VERSION, self._now_iso()))
+        self.store.append_audit(sequence, "user_control", "proposal_forgotten", project, proposal_id)
+        return {"deletion_receipt_id": receipt_id, "target_id": proposal_id, "deletion_seq": sequence,
+                "completion_state": "complete", "projection_kinds": projections, "content_free_receipt": True,
+                "delivery_retry": "suppressed", "limitations": preview["limitations"]}
+
     def search(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         self._require_permission(capability, "read")
         allowed = ["query", "limit", "temporal_mode", "as_of_recorded", "as_of_valid"]
@@ -1042,7 +1110,7 @@ class Kernel:
             as_of_valid = bounded_text(as_of_valid, "as_of_valid", 64)
             as_of_valid = canonical_utc(as_of_valid, "as_of_valid")
         eligibility = self._eligibility(project, capability["provider"], temporal_mode, as_of_recorded, as_of_valid)
-        cards, _ = self._query_cards(eligibility, query, limit)
+        cards, _, has_more = self._query_cards(eligibility, query, limit)
         watermark = self._watermark(eligibility)
         recall_id = self._record_recall(
             project,
@@ -1055,8 +1123,8 @@ class Kernel:
             snapshot_recorded=eligibility.recorded if as_of_recorded is not None else None,
         )
         return {
-            "status": "ok" if cards else "no_matches",
-            "completeness": "complete",
+            "status": "partial" if has_more else ("ok" if cards else "no_matches"),
+            "completeness": "partial" if has_more else "complete",
             "cards": cards,
             "recall_id": recall_id,
             "projection_watermark": watermark,
@@ -1108,6 +1176,7 @@ class Kernel:
         return membership, groups
 
     def _query_cards(self, eligibility, query, limit):
+        assessed_at = eligibility.valid or self._now_iso()
         conditions, args = eligibility.sql()
         exact = self.db.execute(
             ASSERTION_SELECT + " FROM assertion_versions a" + ASSERTION_JOINS
@@ -1125,15 +1194,19 @@ class Kernel:
                 + " FROM assertion_fts JOIN assertion_versions a ON a.id=assertion_fts.assertion_id"
                 + ASSERTION_JOINS + "WHERE assertion_fts MATCH ? AND " + conditions
                 + " ORDER BY lexical_score DESC,a.ingest_seq DESC,a.id LIMIT ?",
-                [fts_literal_query(query)] + args + [limit]).fetchall()
+                [fts_literal_query(query)] + args + [limit + 1]).fetchall()
             reason = "fts5_document_matches"
+        # Probe only within this audience's eligibility. The extra row cannot
+        # seed another thread's conflict expansion or its recall authorization.
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         membership, groups = self._conflict_projection(eligibility, sorted({row["thread_id"] for row in rows}))
-        cards = [self._card(row, reason, eligibility, membership.get(row["id"])) for row in rows]
+        cards = [self._card(row, reason, eligibility, membership.get(row["id"]), assessed_at) for row in rows]
         selected_groups = {card["conflict_id"] for card in cards if card["conflict_id"]}
-        conflicts = [self._conflict_view(eligibility, cid, groups[cid]) for cid in sorted(selected_groups)]
-        return cards, conflicts
+        conflicts = [self._conflict_view(eligibility, cid, groups[cid], assessed_at) for cid in sorted(selected_groups)]
+        return cards, conflicts, has_more
 
-    def _card(self, row, why, eligibility, conflict_id=None) -> Dict[str, Any]:
+    def _card(self, row, why, eligibility, conflict_id=None, assessed_at=None) -> Dict[str, Any]:
         row = eligibility.at_snapshot(row)
         claim = _truncate_utf8(row["body"], 768)
         return {
@@ -1146,6 +1219,7 @@ class Kernel:
             "admission": row["admission"],
             "epistemic": row["epistemic"],
             "lifecycle": row["lifecycle"],
+            "applicability": declared_applicability(row, eligibility.valid or assessed_at or self._now_iso()),
             "classification": row["classification"],
             "valid_time": {
                 "precision": row["valid_precision"],
@@ -1233,15 +1307,17 @@ class Kernel:
             valid = bounded_text(valid, "as_of_valid", 64)
             valid = canonical_utc(valid, "as_of_valid")
         eligibility = self._eligibility(project, capability["provider"], temporal_mode, recorded, valid)
-        cards, conflicts = self._query_cards(eligibility, query, MAX_RESULTS)
+        cards, conflicts, has_more = self._query_cards(eligibility, query, MAX_RESULTS)
         watermark = self._watermark(eligibility)
-        current = [card for card in cards if not card["conflict_id"]]
+        accepted = [card for card in cards if not card["conflict_id"]]
         recall_id = random_id("rcl")
         capsule: Dict[str, Any] = {
             "memory_contract": MEMORY_CONTRACT,
-            "status": "ok" if cards else "no_matches",
-            "completeness": "complete",
-            "verified_current": current,
+            "response_version": 2,
+            "temporal_mode": temporal_mode,
+            "status": "partial" if has_more else ("ok" if cards else "no_matches"),
+            "completeness": "partial" if has_more else "complete",
+            "accepted_claims": accepted,
             "open_conflicts": conflicts,
             "projection_watermark": watermark,
             "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
@@ -1250,8 +1326,8 @@ class Kernel:
             "omitted_items": 0,
         }
         while len(canonical_json(capsule).encode("utf-8")) > budget:
-            if capsule["verified_current"]:
-                capsule["verified_current"].pop()
+            if capsule["accepted_claims"]:
+                capsule["accepted_claims"].pop()
                 capsule["omitted_items"] += 1
             elif capsule["open_conflicts"]:
                 capsule["open_conflicts"].pop()
@@ -1260,7 +1336,7 @@ class Kernel:
                 raise MemoryError("budget_too_small", "The context budget cannot hold the required memory contract.")
             capsule["completeness"] = "partial"
             capsule["status"] = "partial"
-        recall_cards = capsule["verified_current"] + [
+        recall_cards = capsule["accepted_claims"] + [
             member for conflict in capsule["open_conflicts"] for member in conflict["members"]
         ]
         self._record_recall(
@@ -1276,12 +1352,13 @@ class Kernel:
         )
         return capsule
 
-    def _conflict_view(self, eligibility, conflict_id, rows):
+    def _conflict_view(self, eligibility, conflict_id, rows, assessed_at=None):
+        assessed_at = eligibility.valid or assessed_at or self._now_iso()
         return {
             "conflict_id": conflict_id,
             "status": "historical" if eligibility.mode == "history" else "open",
             "resolution": "user_review_required",
-            "members": [self._card(row, "open_conflict", eligibility, conflict_id) for row in rows],
+            "members": [self._card(row, "open_conflict", eligibility, conflict_id, assessed_at) for row in rows],
         }
 
     def get(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1304,6 +1381,7 @@ class Kernel:
         if any(item not in allowed_ids for item in ids):
             raise NOT_FOUND
         records = []
+        assessed_at = self._now_iso()
         for assertion_id in ids:
             record = self._get_assertion(
                 project,
@@ -1312,6 +1390,7 @@ class Kernel:
                 include_evidence=True,
                 eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
                                               recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
+                assessed_at=assessed_at,
             )
             if record is None:
                 raise NOT_FOUND
@@ -1352,6 +1431,7 @@ class Kernel:
             ).fetchall()
         if not rows:
             raise NOT_FOUND
+        assessed_at = self._now_iso()
         records = [
             self._get_assertion(
                 project,
@@ -1359,6 +1439,7 @@ class Kernel:
                 row["id"],
                 True,
                 current_only=not history,
+                assessed_at=assessed_at,
             )
             for row in rows
         ]
@@ -1383,6 +1464,7 @@ class Kernel:
         include_evidence: bool,
         current_only: bool = False,
         eligibility: Optional[Eligibility] = None,
+        assessed_at: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         eligibility = eligibility or self._eligibility(project, provider, "current" if current_only else "history")
         rows = eligibility.rows(self.db, "a.id=?", [assertion_id])
@@ -1390,7 +1472,7 @@ class Kernel:
             return None
         row = rows[0]
         membership, _ = self._conflict_projection(eligibility, [row["thread_id"]])
-        card = self._card(row, "explicit_get", eligibility, membership.get(assertion_id))
+        card = self._card(row, "explicit_get", eligibility, membership.get(assertion_id), assessed_at)
         card["claim"] = row["body"]
         card["claim_truncated"] = False
         card["retention"] = row["retention"]

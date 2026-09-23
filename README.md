@@ -16,6 +16,10 @@ capsules are disposable views. Returned memory always has `authority=data`; it c
 inform an answer but never authorize a command, URL, recipient, credential, permission
 change, destructive operation, publication, or external message.
 
+Context response v2 uses `accepted_claims`, not `verified_current`: user acceptance,
+recorded verification, and declared date applicability are separate. Existing clients
+must update their JSON field access. See the [read contract and upgrade guide](docs/CONTEXT_CONTRACT.md).
+
 This is a standalone product. Agent Relay is not a dependency and will only become an
 optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 

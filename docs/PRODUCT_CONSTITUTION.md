@@ -58,7 +58,9 @@ instant, open, or interval. Transaction time is a monotonic local sequence plus 
 timestamp. Corrections append immutable versions and explicit `supersedes` links; they do
 not rewrite old bodies. Current and historical/as-recorded queries are distinct.
 Overlapping incompatible accepted assertions form a conflict. Normal context surfaces the
-bundle under `open_conflicts` and excludes its members from verified-current claims.
+bundle under `open_conflicts` and excludes its members from the ordinary `accepted_claims`
+list. Acceptance, recorded epistemic status and declared applicability remain independent;
+no read infers verification from approval or lack of a conflict.
 
 ## Provenance, consent, and disclosure
 

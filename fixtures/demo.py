@@ -182,7 +182,7 @@ def run_demo() -> Dict[str, Any]:
             "current_returns_replacement": current["cards"][0]["version_id"] == corrected["assertion_id"],
             "explicit_recorded_history_returns_old": old_as_recorded["cards"][0]["version_id"] == accepted["assertion_id"],
             "immutable_history_has_two_versions": len(history["versions"]) == 2,
-            "open_conflict_not_silently_resolved": conflict_context["verified_current"] == [] and len(conflict_context["open_conflicts"]) == 1,
+            "open_conflict_not_silently_resolved": conflict_context["accepted_claims"] == [] and len(conflict_context["open_conflicts"]) == 1,
             "cross_project_query_isolated": beta_isolation["status"] == "no_matches",
             "provider_disclosure_isolated": codex_policy["status"] == "ok" and claude_policy["status"] == "no_matches",
             "forgotten_exact_unretrievable": deleted_exact["status"] == "no_matches",

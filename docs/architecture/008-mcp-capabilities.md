@@ -20,6 +20,11 @@ Returned context begins with a machine-readable `historical_untrusted_data` cont
 cannot perform any external action. Generic hosts may still misuse the data; universal
 host-side enforcement is impossible without host support.
 
+Context response v2 uses `accepted_claims` and an explicit `temporal_mode`; cards classify
+declared applicability independently of their stored epistemic label. The former
+`verified_current` field is removed. Inputs and envelope versions are unchanged; read the
+[client upgrade contract](../CONTEXT_CONTRACT.md) and [response schema](../../schemas/context-response.schema.json).
+
 JSON-RPC envelopes require `jsonrpc: "2.0"`, a bounded string method, and a bounded
 integer/string request ID when present. Explicit null, boolean, fractional, and
 container IDs are invalid. Request params must be objects; tool names and legacy

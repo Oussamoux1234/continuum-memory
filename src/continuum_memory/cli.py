@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("proposal_id")
     choice = review.add_mutually_exclusive_group(required=True)
     choice.add_argument("--accept", action="store_true")
-    choice.add_argument("--reject", action="store_true")
+    choice.add_argument("--reject", action="store_true", help="Reject and purge the reviewed proposal content.")
 
     search = sub.add_parser("search")
     _project(search)
@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     forget = sub.add_parser("forget")
     _project(forget)
-    forget.add_argument("target_id")
+    forget.add_argument("target_id", help="Proposal, assertion, or memory ID; the exact affected scope is previewed.")
 
     status = sub.add_parser("status")
     status.add_argument("--project", required=True)

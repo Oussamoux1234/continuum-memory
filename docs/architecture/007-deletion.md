@@ -26,3 +26,9 @@ Schema v3 previews bind the exact affected identifiers and a keyed dependent-sta
 digest. Apply rechecks that scope under the deletion transaction's writer lock. Changed
 versions, dependencies or evidence ownership return `stale_preview` and delete nothing;
 a new preview and approval are required. See [the exact-scope contract](../SNAPSHOT_AND_FORGET.md).
+
+Schema v4 extends exact owner forget to standalone proposals. Rejection and due proposal
+retention purge draft content; atomic content-free delivery tombstones suppress retries.
+Accepted canonical history and legitimately shared evidence retain their own lifecycle.
+See [proposal erasure and retry semantics](../PROPOSAL_ERASURE.md) for the scope, migration
+and new-input limitations.
