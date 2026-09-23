@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .admission import AdmissionPolicy
-from .errors import MemoryError
+from .errors import CommittedAuditError, MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
 from .security import (
     MAX_BODY_BYTES,
@@ -30,6 +30,7 @@ from .security import (
     token_hash,
     write_private,
 )
+from .transport import decode_frame
 
 POLICY_VERSION = "prototype-1"
 AUDIT_KEY_ID = "prototype-local-hmac-1"
@@ -334,15 +335,38 @@ class Store:
             write_private(path, encoded)
 
     def sync_audit_head(self) -> None:
-        self._sync_audit_head_raw(self.connection, self.files["audit_head"])
+        # Reacquire the writer lock after the caller's SQL commit. Another writer
+        # may have committed meanwhile: validate and publish the CURRENT head,
+        # never a captured older head. Bootstrap alone may create a missing anchor.
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            self._require_reconcilable_audit()
+            self._sync_audit_head_raw(self.connection, self.files["audit_head"])
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def _require_reconcilable_audit(self) -> None:
+        if self.verify_audit()["status"] not in {"valid", "external_anchor_stale"}:
+            raise MemoryError("audit_recovery_refused", "The audit chain and existing anchor cannot be reconciled safely.")
 
     def begin(self) -> None:
         self.connection.execute("BEGIN IMMEDIATE")
 
     def commit(self, sync_audit: bool = False) -> None:
+        if sync_audit:
+            # Inspect the pending chain while still holding the mutation lock.
+            # Never commit through a known missing, corrupt or ahead anchor.
+            self._require_reconcilable_audit()
         self.connection.commit()
         if sync_audit:
-            self.sync_audit_head()
+            try:
+                self.sync_audit_head()
+            except (OSError, sqlite3.Error, MemoryError) as exc:
+                # rollback() cannot undo this transaction. Keep the outcome
+                # distinct from validation/pre-commit failure without leaking IO.
+                raise CommittedAuditError() from exc
 
     def rollback(self) -> None:
         self.connection.rollback()
@@ -364,10 +388,24 @@ class Store:
         }
 
     def verify_audit(self) -> Dict[str, Any]:
+        # Audit rows and the filesystem head need a single writer-serialized view;
+        # a plain read snapshot alone can race a newer writer's anchor publication.
+        own_transaction = not self.connection.in_transaction
+        if own_transaction:
+            self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            return self._verify_audit_locked()
+        finally:
+            if own_transaction:
+                self.connection.rollback()
+
+    def _verify_audit_locked(self) -> Dict[str, Any]:
         previous = "GENESIS"
         count = 0
+        last_seq = 0
         for row in self.connection.execute("SELECT * FROM audit_events ORDER BY audit_seq"):
             count += 1
+            last_seq = int(row["audit_seq"])
             if row["previous_mac"] != previous:
                 return {"status": "invalid_internal_link", "first_invalid_audit_seq": row["audit_seq"]}
             payload = {
@@ -390,16 +428,25 @@ class Store:
                 return {"status": "invalid_event_mac", "first_invalid_audit_seq": row["audit_seq"]}
             previous = row["mac"]
         try:
-            anchor = json.loads(read_private(self.files["audit_head"], 1024).decode("utf-8"))
-        except (OSError, ValueError, MemoryError):
+            anchor = decode_frame(read_private(self.files["audit_head"], 1024))
+        except (OSError, ValueError, RecursionError, MemoryError):
             return {"status": "anchor_unavailable", "events": count}
-        anchor_seq = int(anchor.get("audit_seq", -1))
-        if anchor_seq > count:
+        if (not isinstance(anchor, dict) or set(anchor) != {"audit_seq", "mac"}
+                or type(anchor["audit_seq"]) is not int or anchor["audit_seq"] < 0
+                or not isinstance(anchor["mac"], str)):
+            return {"status": "anchor_malformed", "events": count}
+        anchor_seq = anchor["audit_seq"]
+        if (anchor_seq == 0 and anchor["mac"] != "GENESIS") or (anchor_seq > 0 and
+                (len(anchor["mac"]) != 64 or any(ch not in "0123456789abcdef" for ch in anchor["mac"]))):
+            return {"status": "anchor_malformed", "events": count}
+        if anchor_seq > last_seq:
             return {"status": "database_tail_rollback", "events": count, "anchor_audit_seq": anchor_seq}
-        if anchor_seq < count:
-            return {"status": "external_anchor_stale", "events": count, "anchor_audit_seq": anchor_seq}
-        if not hmac.compare_digest(str(anchor.get("mac", "")), previous):
+        anchored = self.connection.execute("SELECT mac FROM audit_events WHERE audit_seq=?", (anchor_seq,)).fetchone()
+        prefix_mac = "GENESIS" if anchor_seq == 0 else (anchored[0] if anchored else "")
+        if not hmac.compare_digest(anchor["mac"], prefix_mac):
             return {"status": "anchor_mismatch", "events": count}
+        if anchor_seq < last_seq:
+            return {"status": "external_anchor_stale", "events": count, "anchor_audit_seq": anchor_seq}
         return {"status": "valid", "events": count, "head": previous}
 
     def close(self) -> None:
