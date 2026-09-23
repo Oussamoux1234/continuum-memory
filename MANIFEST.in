@@ -1,5 +1,7 @@
 recursive-include packaging/linux *
+recursive-include packaging/sqlcipher *.json *.md *.pm *.py *.toml
 recursive-include fixtures *.py
+recursive-include sbom *.json
 recursive-include tests *.py
 recursive-include tests/fixtures *.sql
 include docs/SNAPSHOT_AND_FORGET.md
@@ -7,4 +9,11 @@ include docs/CONTEXT_CONTRACT.md
 include schemas/context-response.schema.json
 include docs/PROPOSAL_ERASURE.md
 include docs/LINUX_APPROVAL_BROKER.md
+include docs/PATCHED_SQLCIPHER_WHEELS.md
+include scripts/build_patched_sqlcipher_wheel.sh
+include scripts/fetch_patched_sqlcipher_sources.py
+include scripts/inspect_patched_sqlcipher_wheel.py
 include scripts/polkit_smoke.py
+include scripts/test_patched_sqlcipher_install.py
+include scripts/test_patched_sqlcipher_runtime.py
+include scripts/verify_patched_sqlcipher_inputs.py

@@ -1,0 +1,179 @@
+name: patched-sqlcipher-wheel
+
+on:
+  push:
+    paths:
+      - ".github/workflows/patched-sqlcipher-wheel.yml"
+      - "packaging/sqlcipher/**"
+      - "scripts/*patched_sqlcipher*"
+      - "sbom/patched-sqlcipher-sources.spdx.json"
+      - "tests/test_sqlcipher_supply_chain.py"
+  pull_request:
+    paths:
+      - ".github/workflows/patched-sqlcipher-wheel.yml"
+      - "packaging/sqlcipher/**"
+      - "scripts/*patched_sqlcipher*"
+      - "sbom/patched-sqlcipher-sources.spdx.json"
+      - "tests/test_sqlcipher_supply_chain.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUILDER_IMAGE: quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+  REVIEWED_PATH: /opt/_internal/pipx/venvs/auditwheel/bin:/opt/rh/gcc-toolset-14/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+jobs:
+  linux-x86-64:
+    name: linux-x86-64-${{ matrix.python_abi }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_key: linuxCp311
+            python_abi: cp311-cp311
+          - artifact_key: linuxCp312
+            python_abi: cp312-cp312
+          - artifact_key: linuxCp313
+            python_abi: cp313-cp313
+          - artifact_key: linuxCp314
+            python_abi: cp314-cp314
+    env:
+      ARTIFACT_KEY: ${{ matrix.artifact_key }}
+      PYTHON_ABI: ${{ matrix.python_abi }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Prepare isolated output directories
+        run: >-
+          mkdir -p
+          work/patched-sqlcipher/sources
+          work/patched-sqlcipher/build-a
+          work/patched-sqlcipher/build-b
+          work/patched-sqlcipher/evidence
+      - name: Pull immutable manylinux builder
+        run: docker pull "$BUILDER_IMAGE"
+      - name: Acquire and verify signed sources in pinned environment
+        run: >-
+          docker run --rm --pull=never
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=512m
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources"
+          -w /workspace
+          "$BUILDER_IMAGE"
+          /opt/python/cp314-cp314/bin/python -I
+          scripts/fetch_patched_sqlcipher_sources.py --destination /sources
+      - name: Independent network-disabled build A
+        run: >-
+          docker run --rm --pull=never --network=none
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=4g
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/output"
+          -w /workspace
+          "$BUILDER_IMAGE"
+          /bin/bash scripts/build_patched_sqlcipher_wheel.sh
+          /sources /output "$ARTIFACT_KEY"
+      - name: Independent network-disabled build B
+        run: >-
+          docker run --rm --pull=never --network=none
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=4g
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-b:/output"
+          -w /workspace
+          "$BUILDER_IMAGE"
+          /bin/bash scripts/build_patched_sqlcipher_wheel.sh
+          /sources /output "$ARTIFACT_KEY"
+      - name: Compare and inspect locked native payload
+        run: >-
+          docker run --rm --pull=never --network=none
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=512m
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/sources:/sources:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/build-a:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-b:/build-b:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/evidence:/evidence"
+          -w /workspace
+          "$BUILDER_IMAGE"
+          "/opt/python/${PYTHON_ABI}/bin/python" -I
+          scripts/inspect_patched_sqlcipher_wheel.py
+          --artifact-key "$ARTIFACT_KEY"
+          --build-a /build-a --build-b /build-b --evidence-dir /evidence
+          --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF"
+          --repository-commit "$GITHUB_SHA"
+          --run-attempt "$GITHUB_RUN_ATTEMPT" --run-id "$GITHUB_RUN_ID"
+          --source-evidence /sources/source-verification.json
+      - name: Test offline installation and encrypted runtime
+        run: >-
+          docker run --rm --pull=never --network=none
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=1g
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/patched-sqlcipher/build-a:/wheelhouse:ro"
+          -w /tmp
+          "$BUILDER_IMAGE"
+          "/opt/python/${PYTHON_ABI}/bin/python" -I
+          /workspace/scripts/test_patched_sqlcipher_install.py
+          --artifact-key "$ARTIFACT_KEY" --wheelhouse /wheelhouse
+          > "work/patched-sqlcipher/evidence/runtime.json"
+      - name: Capture immutable toolchain and reviewed material evidence
+        run: |
+          docker run --rm --pull=never --network=none \
+            --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=256m \
+            --cap-drop=ALL --security-opt=no-new-privileges \
+            --user "$(id -u):$(id -g)" --env HOME=/tmp \
+            --env PATH="$REVIEWED_PATH" \
+            "$BUILDER_IMAGE" \
+            /bin/bash -ceu '
+              set -o pipefail
+              python_bin="$1"
+              "$python_bin" --version
+              /opt/rh/gcc-toolset-14/root/usr/bin/gcc --version | /usr/bin/sed -n "1p"
+              /opt/rh/gcc-toolset-14/root/usr/bin/ld --version | /usr/bin/sed -n "1p"
+              /usr/bin/make --version | /usr/bin/sed -n "1p"
+              /usr/bin/perl --version | /usr/bin/sed -n "2p"
+              /usr/bin/gpg --version | /usr/bin/sed -n "1p"
+              /usr/bin/tar --version | /usr/bin/sed -n "1p"
+              /usr/bin/unzip -v | /usr/bin/sed -n "1p"
+              /opt/_internal/pipx/venvs/auditwheel/bin/auditwheel --version
+              test "$(command -v gcc)" = /opt/rh/gcc-toolset-14/root/usr/bin/gcc
+              test "$(command -v ar)" = /opt/rh/gcc-toolset-14/root/usr/bin/ar
+              test "$(command -v ranlib)" = /opt/rh/gcc-toolset-14/root/usr/bin/ranlib
+              test "$(command -v ld)" = /opt/rh/gcc-toolset-14/root/usr/bin/ld
+              /usr/bin/sha256sum /opt/rh/gcc-toolset-14/root/usr/bin/gcc /opt/rh/gcc-toolset-14/root/usr/bin/ar /opt/rh/gcc-toolset-14/root/usr/bin/ranlib /opt/rh/gcc-toolset-14/root/usr/bin/ld /opt/rh/gcc-toolset-14/root/usr/bin/readelf /opt/rh/gcc-toolset-14/root/usr/bin/nm /usr/bin/make /usr/bin/perl /usr/bin/gpg /usr/bin/tar /usr/bin/unzip
+              /usr/bin/sha256sum "$(/usr/bin/readlink -f "$python_bin")"
+            ' continuum-toolchain "/opt/python/${PYTHON_ABI}/bin/python" \
+            > "work/patched-sqlcipher/evidence/toolchain.txt"
+          cp work/patched-sqlcipher/sources/source-verification.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/manifest.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/osv-evidence-2026-09-07.json work/patched-sqlcipher/evidence/
+          cp packaging/sqlcipher/THIRD_PARTY_NOTICES.md work/patched-sqlcipher/evidence/
+          cp sbom/patched-sqlcipher-sources.spdx.json work/patched-sqlcipher/evidence/
+      - name: Retain only fully validated ephemeral test wheel and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: patched-sqlcipher-linux-x86-64-${{ matrix.python_abi }}
+          path: |
+            work/patched-sqlcipher/build-a/*.whl
+            work/patched-sqlcipher/evidence/*
+          if-no-files-found: error
+          retention-days: 7

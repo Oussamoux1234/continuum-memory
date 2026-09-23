@@ -98,19 +98,28 @@ native Codex or Claude Code compatibility.
 
 ## Storage notice
 
-The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 but no
-reproducible SQLCipher binding in this dependency-free slice. File permissions, strict
-date parsing, lifecycle expiry, and deletion semantics are tested, but plaintext can remain
-in filesystem or OS snapshots. The owner-only directory blocks other local accounts; it
-does not resist a malicious process already running as the same user. Do not store secrets
-or sensitive production data. The storage interface is isolated so a reviewed SQLCipher
-implementation can replace it later.
+The prototype application database is **not encrypted**. The quickstart still uses Python's
+bundled SQLite; the patched SQLCipher wheel pipeline is build/test infrastructure and is not
+an application dependency. File permissions, strict date parsing, lifecycle expiry, and
+deletion semantics are tested, but plaintext can remain in filesystem or OS snapshots. The
+owner-only directory blocks other local accounts; it does not resist a malicious process
+already running as the same user. Do not store secrets or sensitive production data.
+
+A separate CI gate builds ephemeral `continuum-sqlcipher3` test artifacts for Linux x86-64
+on CPython 3.11-3.14. Each matrix entry is built twice in the immutable manylinux builder,
+compared byte for byte, inspected, installed offline, and exercised against encrypted
+database, WAL, FTS5, temp-storage, wrong-key, recovery, integrity, and plaintext-canary
+checks. This validates the native artifact in its test harness; it does not prove Continuum
+Memory migration, key management, rollback, or release readiness. macOS arm64 is blocked
+until an immutable builder/toolchain can meet the same evidence standard. Windows remains
+future work. See `docs/PATCHED_SQLCIPHER_WHEELS.md`.
 
 ## Repository map
 
 - `docs/PRODUCT_CONSTITUTION.md` — durable product rules.
 - `docs/architecture/` — accepted architecture decisions.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
+- `docs/PATCHED_SQLCIPHER_WHEELS.md` — native test-artifact supply chain and its blockers.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.
