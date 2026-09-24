@@ -16,6 +16,7 @@ include docs/SECRET_ADMISSION.md
 include pyproject.toml
 include scripts/verify.py
 include scripts/release_package.py
+include scripts/macos_environment.py
 include packaging/build-requirements.txt
 include packaging/backend-requirements.txt
 include docs/LINUX_RELEASE.md
