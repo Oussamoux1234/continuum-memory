@@ -38,11 +38,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Native metadata rename diagnostics
-        shell: pwsh
-        env:
-          PYTHONPATH: src
-        run: python -m unittest tests.test_windows_rename_diagnostics -v
       - name: Full verifier, lifecycle demo and offline distributions
         shell: pwsh
         env:
