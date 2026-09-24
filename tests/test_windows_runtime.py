@@ -128,6 +128,27 @@ class NativeRuntimeTest(unittest.TestCase):
             client.send(DRAIN_ACK)
         self.assertEqual(exchange(self.binding, b"next\n"), b"next\n")
 
+    def test_nonreader_times_out_without_blocking_other_connections(self):
+        with connect(self.binding) as client:
+            client.send(b"x" * 65535 + b"\n")
+            self.assertEqual(exchange(self.binding, b"healthy\n"), b"healthy\n")
+            # More than the absolute write/ACK budget, less than client expiry.
+            time.sleep(2.3)
+            with self.assertRaises(MemoryError):
+                client.receive()
+        self.assertEqual(exchange(self.binding, b"recovered\n"), b"recovered\n")
+        self.stop()
+        self.assertEqual(json.loads(self.stats_path.read_text())["workers_after_stop"], 0)
+
+    def test_multiple_frames_are_rejected_before_dispatch(self):
+        with connect(self.binding) as client:
+            client.api.operation(client.handle, "write", client.deadline, data=b"first\nsecond\n")
+            with self.assertRaises(MemoryError):
+                client.receive()
+        self.assertEqual(exchange(self.binding, b"only\n"), b"only\n")
+        self.stop()
+        self.assertEqual(json.loads(self.stats_path.read_text())["requests"], 1)
+
     def test_saturation_refuses_excess_and_recovers_without_more_workers(self):
         from concurrent.futures import ThreadPoolExecutor
         ready, release = threading.Barrier(17, timeout=1.5), threading.Event()
