@@ -1,0 +1,3 @@
+# Keep source archives portable: Windows checkouts must not add CRLF to shell
+# helpers or silently change the bytes included in payload provenance.
+* text=auto eol=lf

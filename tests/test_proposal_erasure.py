@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from fixtures.harness import private_test_home
 from unittest.mock import patch
 
 from continuum_memory.errors import MemoryError
@@ -16,7 +17,7 @@ from continuum_memory.storage import Store, load_capability, paths
 class ProposalErasureTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="continuum-proposal-erasure-")
-        self.home = Path(self.temp.name)
+        self.home = private_test_home(self.temp.name)
         boot = Store.bootstrap(self.home, [
             {"name": name, "path_hint": "/synthetic/" + name, "providers": ["codex", "claude"]}
             for name in ("alpha", "beta")])

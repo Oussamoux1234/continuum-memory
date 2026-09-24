@@ -9,7 +9,7 @@ from pathlib import Path
 
 from continuum_memory.storage import Store
 from continuum_memory.errors import MemoryError
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, private_test_home
 
 
 class McpAndAuditTest(unittest.TestCase):
@@ -70,7 +70,7 @@ class McpAndAuditTest(unittest.TestCase):
 
     def test_audit_detects_internal_tamper(self) -> None:
         with tempfile.TemporaryDirectory(prefix="continuum-audit-test-") as temp:
-            data_dir = Path(temp)
+            data_dir = private_test_home(temp)
             Store.bootstrap(
                 data_dir,
                 [{"name": "audit", "path_hint": "/fixture/audit", "providers": ["codex"]}],
