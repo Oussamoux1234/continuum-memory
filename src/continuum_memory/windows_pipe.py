@@ -1,6 +1,6 @@
-"""Isolated Windows named-pipe candidate, not selected by the vault runtime.
+"""Peer-verified Windows named-pipe primitives used by the bounded native runtime.
 
-This provides one bounded connection, not the daemon's multi-client scheduler.
+This provides one bounded connection; windows_runtime owns the multi-client pool.
 It authenticates the local process account, never human presence or an agent.
 """
 
@@ -279,16 +279,24 @@ class PipeConnection:
 
 
 class PipeServer:
-    """One listener / one exchange. Closing its handle releases its pipe instance."""
+    """A reusable instance; followers require a held first-instance anchor."""
 
-    def __init__(self, binding):
+    def __init__(self, binding, max_instances=1, anchor=None):
         self.api = _PipeAPI()
         self.name = pipe_name(binding, self.api.sid)
         self.handle = None
+        if type(max_instances) is not int or not 1 <= max_instances <= 16:
+            raise _error("invalid_request")
+        self.max_instances = max_instances
+        if anchor is not None:
+            if (not isinstance(anchor, PipeServer) or anchor.handle is None
+                    or anchor.name != self.name or anchor.max_instances != max_instances):
+                raise _error("pipe_endpoint_occupied")
+            anchor.api._private_acl(anchor.handle)
         with self.api._attributes() as attributes:
             handle = self.api.kernel.CreateNamedPipeW(
-                self.name, 3 | OVERLAPPED_FLAG | FIRST_INSTANCE, REJECT_REMOTE_CLIENTS,
-                1, 8192, 8192, 0, ctypes.byref(attributes),
+                self.name, 3 | OVERLAPPED_FLAG | (FIRST_INSTANCE if anchor is None else 0), REJECT_REMOTE_CLIENTS,
+                max_instances, 8192, 8192, 0, ctypes.byref(attributes),
             )
         if handle in (None, INVALID_HANDLE):
             raise _error("pipe_endpoint_occupied")
@@ -300,12 +308,16 @@ class PipeServer:
             raise
 
     @contextmanager
-    def accept(self, timeout=5.0):
+    def accept(self, timeout=5.0, connect_timeout=None):
         self.api.require_process_context()
         deadline = _deadline(timeout)
         peer = None
         try:
-            self.api.operation(self.handle, "connect", deadline)
+            self.api.operation(self.handle, "connect", _deadline(connect_timeout) if connect_timeout is not None else deadline)
+            if connect_timeout is not None:
+                # Time spent waiting for any peer must not consume a newly
+                # connected peer's handshake/frame budget in a long-lived pool.
+                deadline = _deadline(timeout)
             peer = _Peer(self.api, self.handle, True)
             connection = PipeConnection(self.api, self.handle, peer, deadline)
             if connection.receive(len(HELLO)) != HELLO:

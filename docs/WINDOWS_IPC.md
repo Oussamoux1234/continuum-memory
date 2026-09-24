@@ -1,17 +1,19 @@
-# Isolated native Windows pipe candidate
+# Native Windows pipe boundary and runtime
 
-This is the second experimental slice of [issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1).
-It is **not selected by the vault, client, MCP bridge or daemon**. Native Windows
-application support remains blocked on storage, lifecycle, approval and full
-verification. It builds on the [filesystem boundary](WINDOWS_BOUNDARY.md).
+The Windows daemon and client select this boundary only on native Windows. It
+builds on the [filesystem boundary](WINDOWS_BOUNDARY.md). Native acceptance must
+cover the complete runtime and full verifier, not just these low-level primitives.
+Production owner mutation remains unavailable without an OS approval broker;
+the disposable fixture's explicit prototype broker is not production approval.
 
 ## Narrow contract
 
-The module provides one local named-pipe instance and one bounded exchange, not a
-multi-client daemon scheduler. Its opaque name is derived from a nonsecret random
+The primitive provides one local named-pipe instance and one bounded exchange.
+The runtime scheduler below owns the bounded multi-client pool. Its opaque name is derived from a nonsecret random
 32-byte vault binding and process user SID; no project path, content or capability
-belongs in this name. The caller must persist that binding separately before any
-future runtime integration. No TCP or AF_UNIX fallback exists.
+belongs in this name. Bootstrap persists the exact 32-byte binding separately;
+the daemon holds its validated file and ancestors with write/delete sharing denied
+before opening SQLite and until after shutdown. No TCP or AF_UNIX fallback exists.
 
 Creation supplies the process-user-only protected DACL, `FILE_FLAG_FIRST_PIPE_INSTANCE`
 and `PIPE_REJECT_REMOTE_CLIENTS`. An occupied name is refused, never adopted or
@@ -50,8 +52,38 @@ duplication and hostile administrators are not claimed to be distinguishable.
 
 ## Bounds and exceptional cleanup
 
-Each exchange has one absolute monotonic deadline, at most ten seconds, covering
-connect, handshake, reads and writes. Frames are at most 64 KiB including one
+The daemon creates exactly sixteen pipe instances before opening Store. The first
+uses `FILE_FLAG_FIRST_PIPE_INSTANCE`; subsequent instances require that still-held
+anchor. Existing endpoints are refused without adoption or removal. All handles
+remain held across requests and are non-inheritable. Shutdown order is workers,
+Store, pipe instances (anchor last), then binding/ancestor guards. A process crash
+releases its native handles; no persistent socket pathname is removed or trusted.
+
+Sixteen fixed workers perform only peer-verified raw I/O. Workers receive neither
+Store nor Kernel. An immutable frame/deadline plus a unique, locked reply state
+cross a sixteen-slot queue; only the owning main thread authenticates capabilities
+and dispatches application/SQLite operations. Expired/cancelled pending requests
+are dropped. A reply can never be attached to a recycled connection or worker slot.
+An unexpected worker failure stops the daemon instead of silently reducing capacity.
+
+Idle accept waits are bounded to 250 ms and do not consume a newly connected peer's
+two-second handshake/frame budget. Waiting for main-thread dispatch/reply is bounded
+to five seconds; response write and drain acknowledgment share a two-second budget.
+The client retains its five-second absolute exchange budget. A trickle cannot renew
+any phase. Application callbacks themselves are not a timed sandbox; a lost reply
+after a committed owner mutation still requires the existing commit-receipt lookup.
+
+After reading a complete response, the client sends a fixed, nonsecret drain ACK.
+This is not action authorization and failure to send it does not invalidate the
+obtained response (which still undergoes normal JSON/envelope validation).
+The server waits only until its response deadline before disconnecting. This is
+necessary because [DisconnectNamedPipe discards unread data](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-disconnectnamedpipe).
+It never calls synchronous pipe `FlushFileBuffers`, which could wait indefinitely
+for a stalled client.
+
+The standalone primitive and client each use one absolute monotonic deadline,
+at most ten seconds, covering connect, handshake, reads and writes. The runtime
+server uses the separately bounded phases above. Frames are at most 64 KiB including one
 terminal newline, with 8 KiB chunks. A busy/missing endpoint fails immediately;
 there is no unbounded `WaitNamedPipe`, retry loop, background thread or synchronous
 `FlushFileBuffers` on a pipe. The caller's application callback is not a sandbox
@@ -64,7 +96,10 @@ If completion remains unknown after that grace, the **entire process exits 74**.
 If `RevertToSelf` fails, the **entire process exits 75** so no caller continues in
 an uncertain impersonation context. These exceptional fail-stops are explicit
 prototype behavior, not normal timeout recovery or a crash-durability claim.
-Any future daemon integration must review this policy and its storage recovery.
+The runtime also exits 74 if workers cannot join within their bounded cancellation
+window, rather than closing handles beneath outstanding I/O. Normal timeout and
+shutdown tests must show worker/handle cleanup; fatal fixtures are not normal
+recovery evidence. Process-crash recovery is not a power-loss durability claim.
 
 ## Evidence boundaries
 
@@ -95,4 +130,6 @@ non-Windows and therefore do not supply native proof there.
 - [Pipe-bound client identification](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient)
 - [Cancellation does not mean completion](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)
 
-This document and isolated CI do not close issue #1 or claim native product support.
+Issue #1 remains open until complete native runtime and filesystem acceptance,
+including a genuine different-account peer fixture, has been reviewed. Isolated
+pipe CI alone is not native application acceptance.
