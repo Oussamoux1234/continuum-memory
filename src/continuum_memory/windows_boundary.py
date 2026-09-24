@@ -229,7 +229,7 @@ class WindowsBoundary:
             raise MemoryError("unsafe_file", "Private files must have exactly one hardlink.")
         return FileIdentity(info.volume, (info.index_high << 32) | info.index_low)
 
-    def _private_acl(self, handle, directory=False, inherited=False):
+    def _private_acl(self, handle, directory=False, inherited=False, require_inheritance=False):
         owner, dacl, descriptor = POINTER(), POINTER(), POINTER()
         status = self.security.GetSecurityInfo(
             handle, 1, 5, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor)
@@ -251,7 +251,8 @@ class WindowsBoundary:
             if not self.security.GetAce(dacl, 0, ctypes.byref(address)):
                 raise _failure()
             ace = _Ace.from_address(address.value)
-            explicit = bool(control.value & 0x1000) and ace.flags in ((0, 3) if directory else (0,))
+            flags = ((3,) if require_inheritance else (0, 3)) if directory else (0,)
+            explicit = bool(control.value & 0x1000) and ace.flags in flags
             # An inherited leaf is permitted only by open_private after validating
             # its immediate directory, not merely an arbitrary ancestor's ACL.
             inherited_leaf = inherited and not directory and ace.flags == 0x10

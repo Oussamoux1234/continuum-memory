@@ -194,11 +194,14 @@ def ensure_safe_ancestors(path: Path) -> None:
 def create_private_directory(path: Path, parents: bool = False) -> None:
     """Create owner-only directories; never tighten or adopt an existing object."""
     if os.name == "nt":
-        from .windows_boundary import WindowsBoundary
+        from .windows_boundary import WindowsBoundary, local_path
         boundary = WindowsBoundary()
+        boundary._volume(local_path(path)[:3])
         missing = [path]
         if parents:
             while not path_exists(missing[-1].parent):
+                if missing[-1].parent == missing[-1]:
+                    raise MemoryError("unsafe_directory", "The private directory has no existing local ancestor.")
                 missing.append(missing[-1].parent)
         for directory in reversed(missing):
             boundary.create_directory(directory)

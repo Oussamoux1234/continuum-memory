@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,48 @@ from fixtures.windows_acl import set_fixture_acl
 
 
 PROJECTS = [{"name": "native fixture", "path_hint": "/fixture/native", "providers": ["codex"]}]
+
+
+class ConnectionLifetimeTest(unittest.TestCase):
+    def test_failed_close_keeps_guard_until_owner_thread_closes(self):
+        from continuum_memory.windows_storage import GuardedConnection
+
+        class LifecycleGuard:
+            closed = False
+            validations = 0
+
+            def validate(self):
+                self.validations += 1
+
+            def close(self):
+                self.closed = True
+
+        # Real SQLite thread-affinity error, synthetic lifecycle guard only;
+        # native filesystem pinning is covered by NativeWindowsStorageTest.
+        connection = sqlite3.connect(":memory:", factory=GuardedConnection)
+        guard = connection.guard = LifecycleGuard()
+        errors = []
+
+        def wrong_thread():
+            try:
+                connection.close()
+            except sqlite3.ProgrammingError as error:
+                errors.append(type(error))
+
+        worker = threading.Thread(target=wrong_thread)
+        worker.start()
+        worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [sqlite3.ProgrammingError])
+        self.assertIs(connection.guard, guard)
+        self.assertFalse(guard.closed)
+        try:
+            self.assertEqual(connection.execute("SELECT 42").fetchone(), (42,))
+            self.assertEqual(guard.validations, 1)
+        finally:
+            connection.close()
+        self.assertTrue(guard.closed)
+        self.assertIsNone(connection.guard)
 
 
 @unittest.skipUnless(os.name == "nt", "Native Windows storage evidence requires Windows")
@@ -72,6 +115,11 @@ class NativeWindowsStorageTest(unittest.TestCase):
         create_private_directory(nested, parents=True)
         self.boundary.inspect(nested, directory=True)
         self.boundary.inspect(nested.parent, directory=True)
+        absent = next(chr(letter) + ":\\" for letter in range(90, 64, -1)
+                      if self.boundary.kernel.GetDriveTypeW(chr(letter) + ":\\") == 1)
+        with mock.patch("continuum_memory.security.path_exists", side_effect=AssertionError("must refuse volume first")):
+            with self.assertRaises(MemoryError):
+                create_private_directory(Path(absent) / "never-created" / "vault", parents=True)
 
     def test_atomic_replace_preserves_full_content_and_rename_abi(self):
         self.assertEqual(_RenameInfo.root.offset, 8)
@@ -175,6 +223,18 @@ print(json.dumps(failures))
         with self.assertRaises(MemoryError):
             _connect(db)
         self.assertEqual(target.read_bytes(), b"untouched")
+
+    def test_non_inheriting_vault_refused_before_sqlite_can_create_sidecars(self):
+        self.bootstrap()
+        db = paths(self.home)["db"]
+        set_fixture_acl(self.home)  # Private but intentionally not OI|CI.
+        before = {entry.name: entry.read_bytes() for entry in self.home.iterdir() if entry.is_file()}
+        with mock.patch("continuum_memory.windows_storage.sqlite3.connect") as connect:
+            with self.assertRaises(MemoryError):
+                _connect(db)
+            connect.assert_not_called()
+        after = {entry.name: entry.read_bytes() for entry in self.home.iterdir() if entry.is_file()}
+        self.assertEqual(after, before)
 
     def test_acl_and_hardlink_change_detected_before_later_statements(self):
         self.bootstrap()

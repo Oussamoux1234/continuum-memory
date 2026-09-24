@@ -29,7 +29,7 @@ class VaultGuard:
 
     def validate(self):
         self.boundary._info(self.directory, True)
-        self.boundary._private_acl(self.directory, directory=True)
+        self.boundary._private_acl(self.directory, directory=True, require_inheritance=True)
         self.boundary._info(self.database, False)
         self.boundary._private_acl(self.database, inherited=True)
         for suffix in ("-wal", "-shm", "-journal"):
@@ -72,12 +72,12 @@ class GuardedConnection(sqlite3.Connection):
         return super().rollback()
 
     def close(self):
-        try:
-            super().close()
-        finally:
-            if self.guard is not None:
-                guard, self.guard = self.guard, None
-                guard.close()
+        # A wrong-thread close raises while SQLite remains usable. Never release
+        # its lifetime pins unless the owning-thread close actually succeeded.
+        super().close()
+        if self.guard is not None:
+            guard, self.guard = self.guard, None
+            guard.close()
 
 
 class GuardedCursor(sqlite3.Cursor):
