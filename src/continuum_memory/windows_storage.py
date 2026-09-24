@@ -19,6 +19,7 @@ class VaultGuard:
     def __init__(self, path):
         self.path = Path(path)
         self.boundary = WindowsBoundary()
+        self.boundary.require_creation_owner()
         self.stack = ExitStack()
         try:
             self.directory = self.stack.enter_context(self.boundary.open_private(self.path.parent, directory=True))

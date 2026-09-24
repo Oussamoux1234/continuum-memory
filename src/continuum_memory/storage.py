@@ -155,6 +155,9 @@ class Store:
             admission_policy.check([name, path_hint] + providers)
             normalized_projects.append({"name": name, "path_hint": path_hint, "providers": providers})
         projects = normalized_projects
+        if os.name == "nt":
+            from .windows_boundary import WindowsBoundary
+            WindowsBoundary().require_creation_owner()
         if path_exists(data_dir):
             ensure_private_directory(data_dir)
         else:

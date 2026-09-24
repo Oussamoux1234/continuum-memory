@@ -158,21 +158,31 @@ class WindowsBoundary:
         finally:
             self.kernel.LocalFree(text)
 
-    def _process_sid(self):
+    def _process_sid(self, information_class=1):
         token = HANDLE()
         if not self.security.OpenProcessToken(self.kernel.GetCurrentProcess(), 0x8, ctypes.byref(token)):
             raise _failure()
         try:
             size = DWORD()
-            self.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+            # TokenUser (1) and TokenOwner (4) both begin with a SID pointer.
+            self.security.GetTokenInformation(token, information_class, None, 0, ctypes.byref(size))
             if not 0 < size.value <= 65536:
                 raise _failure()
             data = ctypes.create_string_buffer(size.value)
-            if not self.security.GetTokenInformation(token, 1, data, size, ctypes.byref(size)):
+            if not self.security.GetTokenInformation(token, information_class, data, size, ctypes.byref(size)):
                 raise _failure()
             return self._sid_string(POINTER.from_buffer(data).value)
         finally:
             self._close(token)
+
+    def require_creation_owner(self):
+        """SQLite uses the token's default owner, not our explicit file SDDL.
+
+        Elevated tokens can default to Administrators ownership. Refuse before
+        SQLite creates anything; production never rewrites token or file owners.
+        """
+        if self._process_sid(4) != self.sid:
+            raise MemoryError("unsupported_token_owner", "The process default file owner must be its own user SID.")
 
     @contextmanager
     def _attributes(self, directory=False):
