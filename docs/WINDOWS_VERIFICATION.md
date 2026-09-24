@@ -48,6 +48,23 @@ The migration writer-contention test uses real child processes on Windows too.
 Its bounded pipe barrier uses native `PeekNamedPipe` rather than POSIX `select`.
 This demonstrates process-crash recovery, not host power-loss durability.
 
+The native daemon lifecycle suite starts two complete daemons behind a shared
+release barrier and checks that the loser never opens Store. It also kills a
+marked synthetic-fixture daemon, restarts the production daemon, and checks the
+accepted Unicode claim, evidence, provenance and unchanged audit head before
+recall writes. Production approval must remain unavailable after restart.
+A separate live child intentionally uses `close_fds=False`; after its daemon
+parent dies, the vault must be movable and a replacement daemon must acquire the
+endpoint while the child remains alive. This checks ownership-handle inheritance,
+not a real different-account peer or power-loss recovery.
+
+Hosted CI's elevated default owner differs from a normal compatible user token.
+Only the explicitly authorized, narrowly gated
+[process-owner fixture](WINDOWS_BOUNDARY.md#explicit-ci-only-owner-fixture) adjusts
+the disposable verifier process and restores it. Do not run that wrapper on a
+personal Windows host or copy its opt-in environment settings. Production never
+changes token ownership; incompatible tokens are refused.
+
 The new Windows workflow uploads no packages, source archives, SBOMs, or vault
 files. Generated package checks remain on the disposable runner; ordinary job
 logs report the environment and pass/fail evidence. Local verification uses
