@@ -291,7 +291,7 @@ def _connect(
             if not query_only or int(query_only[0]) != 1:
                 raise MemoryError(
                     "storage_validation_failed",
-                    "The encrypted vault could not be validated without writes.",
+                    "The encrypted vault's query-only preflight could not be enabled.",
                 )
         # Force page authentication before applying any write-affecting pragmas.
         connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
@@ -342,6 +342,14 @@ class Store:
         self.owner_uid = int(directory_info.st_uid)
         if not allow_rotation:
             require_no_pending_rotation(data_dir)
+            # Normal operation uses WAL. A rollback journal belongs to offline
+            # maintenance or an unknown state: opening it can replay pages even
+            # with query_only enabled, before metadata admission is possible.
+            if path_exists(Path(str(self.files["db"]) + "-journal")):
+                raise MemoryError(
+                    "storage_recovery_required",
+                    "An unexpected rollback journal requires offline investigation.",
+                )
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
         ensure_private_regular(self.files["db"], "The vault database")
@@ -407,7 +415,9 @@ class Store:
             ensure_private_directory(data_dir)
         file_map = paths(data_dir)
         occupied = ("db", "socket", "storage_key", "audit_key", "audit_head", "control", "caps")
-        if any(path_exists(file_map[name]) for name in occupied):
+        sidecars = [Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+        if (any(path_exists(file_map[name]) for name in occupied)
+                or any(path_exists(path) for path in sidecars)):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         file_map["caps"].mkdir(mode=0o700)
         os.chmod(str(file_map["caps"]), 0o700)
