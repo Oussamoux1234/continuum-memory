@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from continuum_memory.errors import MemoryError
+from fixtures.windows_acl import set_fixture_acl
 from continuum_memory.windows_boundary import (
     BOOL, DWORD, HANDLE, POINTER, WindowsBoundary,
     _Acl, _Ace, _FileInfo, _SecurityAttributes, local_path,
@@ -109,6 +110,10 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
         for name, sddl in cases.items():
             with self.subTest(name=name):
                 path = self.directory_with_acl(name, sddl)
+                if name == "inherit_only":
+                    # No effective list/read right: Win32 rejects the open before
+                    # ACL parsing. Restore only this synthetic fixture for cleanup.
+                    self.addCleanup(set_fixture_acl, path)
                 if name == "unprotected":
                     # CreateDirectory can normalize a supplied descriptor to
                     # protected. Explicitly enable inheritance on this fixture.
@@ -125,7 +130,8 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
                         self.assertEqual(setter(str(path), 1, 0x20000004, None, None, dacl, None), 0)
                 with self.assertRaises(MemoryError) as error:
                     self.boundary.inspect(path, directory=True)
-                self.assertEqual(error.exception.code, "unsafe_permissions")
+                expected = "windows_boundary_error" if name == "inherit_only" else "unsafe_permissions"
+                self.assertEqual(error.exception.code, expected)
 
     def test_wrong_owner_is_rejected_on_native_admin_fixture(self):
         # GitHub's x64 Windows runner permits Administrators ownership on a
