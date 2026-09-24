@@ -74,7 +74,14 @@ Store or Kernel; see [runtime scheduling and shutdown](WINDOWS_IPC.md#bounds-and
 New private material uses `CREATE_NEW`, never truncation of an existing object.
 Metadata replacement writes and flushes a new private sibling, holds that exact
 source plus its parent, and uses `SetFileInformationByHandle` for same-directory
-replacement. A failed rename preserves the old target and requests deletion of
+replacement. The destination is the strictly validated absolute path with a null
+root-directory field; its non-reparse parent and every ancestor remain pinned
+throughout the native call. The Windows 2025
+[diagnostic run](https://github.com/Oussamoux1234/continuum-memory/actions/runs/36001151215/job/107637834225)
+rejected relative-name variants with error 87; the absolute form succeeded without
+relaxing handle sharing, ACLs or access checks. This does not add a same-user
+tamper guarantee.
+A failed rename preserves the old target and requests deletion of
 the held temporary object, not an unverified pathname. A failed initial write
 can leave an owner-only partial file requiring explicit inspection/cleanup.
 Failure after publication must be treated as an uncertain committed result.
@@ -122,10 +129,9 @@ to terminate every descendant after a timeout or abrupt process death. Residual
 test descendants are contained by disposal of the dedicated hosted CI VM; this
 is not a general-purpose local process-tree cleanup tool.
 
-CI runs numeric-only native rename diagnostics before the wrapper, so a refused
-owner fixture cannot hide that independent evidence. The full workflow uploads
-no artifacts. The CI fixture does not authorize a different-account process test,
-provide human approval, or make elevated production use supported. Its native
+The full workflow uploads no artifacts. The CI fixture does not authorize a
+different-account process test, provide human approval, or make elevated
+production use supported. Its native
 evidence must be reported separately from deterministic injected unit-test faults.
 
 Relevant APIs are [TokenOwner](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_owner),

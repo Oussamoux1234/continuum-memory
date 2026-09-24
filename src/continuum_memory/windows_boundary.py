@@ -370,11 +370,14 @@ class WindowsBoundary:
                 raise MemoryError("unsafe_file", "The IPC binding must contain exactly 32 bytes.")
             yield binding
 
-    def _rename(self, source, parent, name):
-        encoded = name.encode("utf-16-le")
-        buffer = ctypes.create_string_buffer(max(ctypes.sizeof(_RenameInfo), _RenameInfo.name.offset + len(encoded)))
+    def _rename(self, source, destination):
+        # The caller keeps the validated destination parent and every ancestor
+        # pinned. Use the native-tested absolute form: the Windows 2025 Win32
+        # wrapper rejected RootDirectory + basename with ERROR_INVALID_PARAMETER.
+        encoded = local_path(destination).encode("utf-16-le")
+        buffer = ctypes.create_string_buffer(ctypes.sizeof(_RenameInfo) + len(encoded) + 2)
         info = _RenameInfo.from_buffer(buffer)
-        info.replace, info.root, info.length = 1, parent, len(encoded)
+        info.replace, info.root, info.length = 1, None, len(encoded)
         ctypes.memmove(ctypes.addressof(buffer) + _RenameInfo.name.offset, encoded, len(encoded))
         if not self.kernel.SetFileInformationByHandle(source, 3, buffer, len(buffer)):
             raise _failure()
@@ -388,7 +391,7 @@ class WindowsBoundary:
         path = local_path(path)
         parent_path, name = path.rsplit("\\", 1)
         temporary = parent_path + "\\." + name + "." + secrets.token_hex(6) + ".tmp"
-        with self.open_private(parent_path, directory=True) as parent:
+        with self.open_private(parent_path, directory=True):
             if os.path.lexists(path):
                 self.inspect(path)
             self.write_new(temporary, data)
@@ -397,7 +400,7 @@ class WindowsBoundary:
             with self.open_private(temporary, access=GENERIC_WRITE | DELETE) as source:
                 identity = self._info(source, False)
                 try:
-                    self._rename(source, parent, name)
+                    self._rename(source, path)
                 except BaseException:
                     # Delete only our still-held, validated source object. This
                     # never unlinks a substituted pathname or the old target.

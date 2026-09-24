@@ -69,6 +69,44 @@ class ConnectionLifetimeTest(unittest.TestCase):
         self.assertIsNone(connection.guard)
 
 
+class RenameEncodingTest(unittest.TestCase):
+    """Pure Win32 call-boundary checks, not native filesystem evidence."""
+
+    def test_absolute_utf16_target_has_null_root_and_bounded_zero_padding(self):
+        boundary = object.__new__(WindowsBoundary)
+        boundary.kernel = mock.Mock()
+        destination = "C:\\fixture\\méta-" + chr(0x1F9E0) + ".head"
+        encoded = destination.encode("utf-16-le")
+        self.assertGreater(len(encoded), len(destination) * 2)
+
+        def capture(source, information_class, buffer, size):
+            info = _RenameInfo.from_buffer(buffer)
+            self.assertEqual(source, 123)
+            self.assertEqual(information_class, 3)
+            self.assertEqual(info.replace, 1)
+            self.assertIsNone(info.root)
+            self.assertEqual(info.length, len(encoded))
+            self.assertEqual(size, ctypes.sizeof(_RenameInfo) + len(encoded) + 2)
+            self.assertEqual(buffer.raw[_RenameInfo.name.offset:_RenameInfo.name.offset + info.length], encoded)
+            self.assertEqual(buffer.raw[_RenameInfo.name.offset + info.length:],
+                             b"\0" * (size - _RenameInfo.name.offset - info.length))
+            return True
+
+        boundary.kernel.SetFileInformationByHandle.side_effect = capture
+        boundary._rename(123, destination)
+        boundary.kernel.SetFileInformationByHandle.assert_called_once()
+
+    def test_ambiguous_destinations_never_reach_native_api(self):
+        boundary = object.__new__(WindowsBoundary)
+        boundary.kernel = mock.Mock()
+        for destination in ("relative.head", "C:relative.head", "\\\\server\\share\\head",
+                            "C:\\fixture\\head:stream", "C:\\fixture\\head\0suffix",
+                            "C:\\fixture\\head.", "C:\\fixture\\head "):
+            with self.subTest(destination=destination), self.assertRaises(MemoryError):
+                boundary._rename(123, destination)
+        boundary.kernel.SetFileInformationByHandle.assert_not_called()
+
+
 @unittest.skipUnless(os.name == "nt", "Native Windows storage evidence requires Windows")
 class NativeWindowsStorageTest(unittest.TestCase):
     def setUp(self):
@@ -131,6 +169,43 @@ class NativeWindowsStorageTest(unittest.TestCase):
         replace_private(path, b"after" * 100)
         self.assertEqual(read_private(path), b"after" * 100)
         self.assertNotEqual(before, self.boundary.inspect(path))
+        self.assertEqual(list(self.home.iterdir()), [path])
+
+    def test_absolute_replace_keeps_source_parent_and_ancestor_pinned_at_native_call(self):
+        path = self.home / ("méta-" + chr(0x1F9E0) + ".head")
+        write_private(path, b"before")
+        original = WindowsBoundary._rename
+        source_identities = []
+        program = """import json, pathlib, sys
+failures = []
+for raw in sys.argv[1:]:
+    source = pathlib.Path(raw)
+    try: source.rename(source.with_name(source.name + '-moved'))
+    except OSError: failures.append(True)
+    else: failures.append(False)
+print(json.dumps(failures))
+"""
+
+        def checked_rename(boundary, source, destination):
+            self.assertEqual(destination, str(path))
+            source_identities.append(boundary._info(source, False))
+            siblings = [entry for entry in self.home.iterdir() if entry != path]
+            self.assertEqual(len(siblings), 1)
+            result = subprocess.run(
+                [sys.executable, "-c", program, str(siblings[0]), str(self.home), str(self.root)],
+                capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout), [True, True, True])
+            # Real native rename follows the adversarial process attempts while
+            # exactly the same source/parent/ancestor handles remain held.
+            original(boundary, source, destination)
+            self.assertTrue(boundary._info(source, False) == source_identities[0])
+
+        with mock.patch.object(WindowsBoundary, "_rename", checked_rename):
+            replace_private(path, b"after")
+        self.assertEqual(len(source_identities), 1)
+        self.assertTrue(self.boundary.inspect(path) == source_identities[0])
+        self.assertEqual(read_private(path), b"after")
         self.assertEqual(list(self.home.iterdir()), [path])
 
     def test_failed_replace_preserves_old_target_and_removes_exact_temp(self):
