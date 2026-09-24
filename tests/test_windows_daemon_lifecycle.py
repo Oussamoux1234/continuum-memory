@@ -35,6 +35,7 @@ class WindowsDaemonLifecycleTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.environment = dict(os.environ, PYTHONPATH=os.pathsep.join([str(ROOT / "src"), str(ROOT)]))
         self.outputs = {}
+        self.before_collect = {}
 
     def vault(self):
         home = private_test_home(self.temporary.name)
@@ -43,18 +44,28 @@ class WindowsDaemonLifecycleTest(unittest.TestCase):
         ])["projects"][0]
         return home, project["id"], DaemonClient(home, paths(home)["control"])
 
-    def start(self, mode, *arguments):
+    def start(self, mode, *arguments, before_collect=None):
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), "--daemon-fixture", mode,
              *map(str, arguments)], env=self.environment,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        if before_collect is not None:
+            self.before_collect[process] = before_collect
         self.addCleanup(self.stop, process)
         return process
 
+    @staticmethod
+    def kill_and_wait(process):
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+
     def stop(self, process):
         if process not in self.outputs:
-            if process.poll() is None:
-                process.kill()
+            self.kill_and_wait(process)
+            before_collect = self.before_collect.pop(process, None)
+            if before_collect is not None:
+                before_collect()
             self.outputs[process] = process.communicate(timeout=5)
         return self.outputs[process]
 
@@ -168,10 +179,9 @@ class WindowsDaemonLifecycleTest(unittest.TestCase):
                     time.sleep(0.02)
                 self.assertTrue(child_ready.with_suffix(".exited").exists())
 
-        # Registered before the daemon cleanup: kill it first on an early failure,
-        # then release/reap the child, and only then remove the fixture directory.
-        self.addCleanup(release_child)
-        daemon = self.start("inherit", home, child_ready, stop)
+        # The deliberately inheriting child can keep the daemon's output pipe
+        # writers open. Cleanup must reap it after daemon death but before EOF.
+        daemon = self.start("inherit", home, child_ready, stop, before_collect=release_child)
         message = json.loads(read_line(daemon.stdout))
         self.assertEqual(set(message), {"child_pid"})
         child_announced.append(True)
@@ -185,7 +195,7 @@ class WindowsDaemonLifecycleTest(unittest.TestCase):
             time.sleep(0.02)
         self.assertTrue(child_ready.exists())
         self.ready(daemon, control, project)
-        self.stop(daemon)
+        self.kill_and_wait(daemon)
         self.assertEqual(api.kernel.WaitForSingleObject(handle, 0), WAIT_TIMEOUT)
         # Inherited binding/database/ancestor pins would keep these renames
         # blocked. An inherited first pipe instance would block the restart.
