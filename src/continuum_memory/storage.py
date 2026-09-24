@@ -48,9 +48,19 @@ def paths(data_dir: Path) -> Dict[str, Path]:
     }
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+def _validate_database_files(db_path: Path) -> None:
     ensure_private_directory(db_path.parent)
     ensure_private_regular(db_path, "The vault database")
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = Path(str(db_path) + suffix)
+        if path_exists(sidecar):
+            ensure_private_regular(sidecar, "The SQLite %s sidecar" % suffix[1:])
+
+
+def _connect(db_path: Path) -> sqlite3.Connection:
+    # Reject existing unsafe companions before SQLite can read/recover them.
+    # This is an observation, not a custom VFS or arbitrary-race prevention.
+    _validate_database_files(db_path)
     connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
@@ -75,11 +85,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
         connection.close()
         raise MemoryError("fts5_unavailable", "The SQLite runtime does not provide FTS5.") from exc
     try:
-        ensure_private_regular(db_path, "The vault database")
-        for suffix in ("-wal", "-shm"):
-            sidecar = Path(str(db_path) + suffix)
-            if path_exists(sidecar):
-                ensure_private_regular(sidecar, "The SQLite %s sidecar" % suffix[1:])
+        _validate_database_files(db_path)
     except Exception:
         connection.close()
         raise

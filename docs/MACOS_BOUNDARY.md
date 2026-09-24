@@ -16,7 +16,7 @@ signing credential, Keychain operation, privileged installation, or human prompt
 The native fixture test resolves the temporary directory's real device and checks
 `diskutil` reports APFS with ownership permissions enabled. An unavailable or different
 filesystem fails that native gate; it is not silently described as APFS. Intel Macs,
-network volumes, other macOS majors, case-sensitive variants, unusual inherited ACLs, and
+network volumes, other macOS majors, case-sensitive variants, custom ACL access policies, and
 actual user-presence hardware are outside this candidate matrix.
 
 ## Connected-peer identity
@@ -54,11 +54,52 @@ it returns only its hash, not key bytes. A same-user attacker can also read capa
 change files/permissions, or impersonate another same-user process. Observing one inode
 replacement is not proof against every substitution/ABA race or malicious writable ancestor.
 
-**Extended ACLs are not inspected by the current POSIX boundary.** An APFS ACL may grant
-access beyond the mode bits. Do not claim complete APFS access control, use inherited or
-custom ACLs, or store sensitive data in this prototype. Descriptor-bound ACL validation,
-ancestor identity pinning, malicious SQLite sidecar substitution, and stronger same-user
-process isolation require separate reviewed work. FileVault, APFS snapshots/clones, and
+### Extended ACL guard
+
+On macOS, private regular files and directories must also have **no extended ACL entries**.
+The guard deliberately refuses all entries, including owner-only, deny, and inherited
+entries; it does not interpret or repair them. Files with `600`/`700` mode bits can still
+carry ACL permissions. Existing synthetic homes with ACLs will now be refused; inspect
+them and choose a fresh owner-only evaluation directory instead of automatically stripping
+permissions from an existing path.
+
+Regular-file/directory preflights open a nofollow `O_EVTONLY` metadata descriptor and check
+the same device, inode, type/mode, link count, owner/group, and change timestamp before and
+after the native ACL query. Private content reads and writes independently query the actual
+content descriptor before bytes are read/written, and reads recheck before returning bytes.
+An ACL inherited between the parent preflight and new-file creation is rejected before
+payload bytes are written; an empty file may remain. No automatic cleanup/retry is claimed.
+The adapter binds Darwin's `O_EVTONLY` ABI constant directly because Python 3.9 does not
+export it; this uses the same native open mode, not a reduced-permission-check fallback.
+
+The adapter loads only `/usr/lib/libSystem.B.dylib` with explicit opaque-pointer ABI types.
+Darwin reports absent ACLs as `NULL`/`ENOENT`; only that fresh errno, corroborated by unchanged
+existing-object metadata, is accepted. Other query errors fail closed as `acl_unavailable`.
+For allocated ACLs, acceptance requires native validity, a bounded size equal to the same
+runtime's empty ACL, and an empty first-entry result with Darwin's exact status/errno and
+null output pointer. Allocations are freed on success and failure. There is no ACL text
+parser, opaque structure cast, permission-repair subprocess, or additional dependency.
+This contract is reviewed/tested on local APFS, not arbitrary network/filesystem drivers.
+
+Unix socket pathnames cannot be opened this way on macOS. Their ACL check uses nofollow
+`acl_get_link_np`, bracketed by matching `lstat` metadata. That is a **pathname observation**,
+not a descriptor-bound socket-path guarantee or protection against every ABA substitution.
+The connected-peer checks above still apply before any capability is sent.
+
+Existing database, WAL, SHM, and rollback-journal files are checked before SQLite connects
+and again after configuration, so a pre-existing unsafe companion is refused before engine
+access. Native tests cover real allow/deny/owner-only/inherited ACLs despite private mode
+bits, safe no-ACL objects, file/socket substitutions, read/create races, and each database
+companion. Injected ABI tests cover failed/malformed native responses and cleanup paths;
+they complement, rather than replace, the native fixtures.
+
+Ancestor identity pinning, arbitrary concurrent ACL/path changes, malicious SQLite sidecar
+substitution after preflight, and stronger same-user process isolation remain unresolved.
+An observed concurrent metadata change is refused, not silently retried; changes to directory
+entries during validation can reject a client operation or stop the daemon. Do not use the
+vault directory for unrelated files or sockets. Inspect the cause before retrying/restarting.
+Do not claim complete APFS access control or store sensitive data in this prototype.
+FileVault, APFS snapshots/clones, and
 `secure_delete` do not establish application encryption or physical erasure. Backup and
 restore protection is unimplemented, so no backup acceptance is claimed here.
 
@@ -147,6 +188,10 @@ policy. Hosted synthetic CI is not evidence for those hardware/UI/security prope
 ## Primary references
 
 - [Apple getpeereid contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/getpeereid.3.html)
+- [Apple descriptor and nofollow ACL query implementation](https://github.com/apple-oss-distributions/Libc/blob/main/posix1e/acl_file.c)
+- [Apple absent ACL property semantics](https://github.com/apple-oss-distributions/Libc/blob/main/gen/filesec.c)
+- [Apple ACL entry status semantics](https://github.com/apple-oss-distributions/Libc/blob/main/posix1e/acl_entry.c)
+- [Apple native ACL size implementation](https://github.com/apple-oss-distributions/Libc/blob/main/posix1e/acl_translate.c)
 - [Python socket API](https://docs.python.org/3/library/socket.html)
 - [Standard hosted runner labels and limitations](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 - [Secure Enclave key restrictions](https://developer.apple.com/documentation/security/protecting-keys-with-the-secure-enclave)
