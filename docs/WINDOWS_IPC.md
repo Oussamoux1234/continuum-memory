@@ -66,8 +66,11 @@ and dispatches application/SQLite operations. Expired/cancelled pending requests
 are dropped. A reply can never be attached to a recycled connection or worker slot.
 An unexpected worker failure stops the daemon instead of silently reducing capacity.
 
-Idle accept waits are bounded to 250 ms and do not consume a newly connected peer's
-two-second handshake/frame budget. Waiting for main-thread dispatch/reply is bounded
+An idle listener retains one pending overlapped connect and polls its event every
+250 ms for shutdown. It does not cancel/rearm at idle poll boundaries: doing so
+could disconnect a newly connecting peer before identity/hello validation. Shutdown
+cancels and drains the held operation. Idle time does not consume the connected
+peer's fresh two-second absolute handshake/frame budget. Waiting for main-thread dispatch/reply is bounded
 to five seconds; response write and drain acknowledgment share a two-second budget.
 The client retains its five-second absolute exchange budget. A trickle cannot renew
 any phase. Application callbacks themselves are not a timed sandbox; a lost reply

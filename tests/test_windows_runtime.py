@@ -1,6 +1,7 @@
 """Native runtime behavior, not a same-account or human-presence boundary."""
 
 import json
+import ctypes
 import os
 import secrets
 import subprocess
@@ -14,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from continuum_memory.errors import MemoryError
-from continuum_memory.windows_pipe import PipeServer, connect
+from continuum_memory.windows_pipe import PipeServer, _PipeAPI, connect
 from continuum_memory.windows_runtime import DRAIN_ACK, PipePool, Request, WindowsMemoryServer, exchange
 
 
@@ -61,6 +62,74 @@ class RequestStateTest(unittest.TestCase):
             self.assertEqual(exchange(b"b" * 32, b"{}\n"), b'{"id":1,"result":{}}\n')
 
 
+class IdleConnectStateTest(unittest.TestCase):
+    """Exact event ordering with a fake kernel, never presented as native proof."""
+
+    def api(self, stopping, stop=False):
+        api = _PipeAPI.__new__(_PipeAPI)
+        api.kernel = mock.Mock()
+        api.kernel.CreateEventW.return_value = 71
+        api.kernel.ConnectNamedPipe.return_value = False
+        api.kernel.GetOverlappedResult.return_value = True
+        calls = []
+
+        def wait(event, milliseconds):
+            calls.append((event, milliseconds))
+            if len(calls) < 4:
+                return 258
+            if stop:
+                stopping.set()
+                return 258
+            return 0
+
+        api.kernel.WaitForSingleObject.side_effect = wait
+        api._close = mock.Mock()
+        api.cancel_and_drain = mock.Mock()
+        return api, calls
+
+    def test_idle_timeout_edges_keep_one_operation_until_connection_completes(self):
+        stopping = threading.Event()
+        api, calls = self.api(stopping)
+        with mock.patch.object(ctypes, "get_last_error", return_value=997, create=True), \
+                mock.patch("continuum_memory.windows_pipe._remaining", side_effect=AssertionError("no idle expiry")):
+            api.operation(17, "connect", None, stopping=stopping)
+        api.kernel.ConnectNamedPipe.assert_called_once()
+        self.assertEqual(calls, [(71, 250)] * 4)
+        api.kernel.GetOverlappedResult.assert_called_once()
+        self.assertIs(api.kernel.ConnectNamedPipe.call_args.args[1]._obj,
+                      api.kernel.GetOverlappedResult.call_args.args[1]._obj)
+        api.cancel_and_drain.assert_not_called()
+        api._close.assert_called_once_with(71)
+
+    def test_stop_cancels_same_live_operation_before_event_is_closed(self):
+        stopping = threading.Event()
+        api, calls = self.api(stopping, stop=True)
+
+        def drain(handle, operation):
+            self.assertEqual(handle, 17)
+            self.assertEqual(operation.event, 71)
+            self.assertIs(operation, api.kernel.ConnectNamedPipe.call_args.args[1]._obj)
+            api._close.assert_not_called()  # OVERLAPPED/event must still be live.
+
+        api.cancel_and_drain.side_effect = drain
+        with mock.patch.object(ctypes, "get_last_error", return_value=997, create=True):
+            with self.assertRaises(MemoryError) as caught:
+                api.operation(17, "connect", None, stopping=stopping)
+        self.assertEqual(caught.exception.code, "pipe_stopping")
+        api.kernel.ConnectNamedPipe.assert_called_once()
+        api.cancel_and_drain.assert_called_once()
+        api._close.assert_called_once_with(71)
+
+    def test_shutdown_poll_mode_cannot_remove_a_read_or_write_deadline(self):
+        for kind in ("read", "write"):
+            stopping = threading.Event()
+            api, _ = self.api(stopping)
+            with self.subTest(kind=kind), self.assertRaises(MemoryError) as caught:
+                api.operation(17, kind, None, stopping=stopping)
+            self.assertEqual(caught.exception.code, "invalid_request")
+            api.kernel.CreateEventW.assert_not_called()
+
+
 @unittest.skipUnless(os.name == "nt", "Native Windows runtime evidence requires Windows")
 class NativeRuntimeTest(unittest.TestCase):
     def setUp(self):
@@ -90,12 +159,24 @@ class NativeRuntimeTest(unittest.TestCase):
             self.fail("Runtime did not stop within its bounded worker-drain deadline")
 
     def test_real_concurrent_clients_dispatch_on_only_the_owner_thread(self):
-        clients = [subprocess.Popen(
-            [sys.executable, "-c", "from continuum_memory.windows_runtime import exchange; "
-             "import sys; print(exchange(bytes.fromhex(sys.argv[1]), b'concurrent\\n').decode().strip())",
-             self.binding.hex()], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=dict(os.environ, PYTHONPATH=str(ROOT / "src"))) for _ in range(8)]
+        self.concurrent_clients(8)
+        self.stop()
+        stats = json.loads(self.stats_path.read_text())
+        self.assertEqual(stats["dispatch_threads"], [stats["owner_thread"]])
+        self.assertEqual(stats["active_max"], 1)
+        self.assertEqual(stats["workers_after_stop"], 0)
+        self.assertEqual(stats["created_workers"], 16)
+        self.assertEqual(stats["requests"], 8)
+
+    def concurrent_clients(self, count):
+        clients = []
         try:
+            for _ in range(count):
+                clients.append(subprocess.Popen(
+                    [sys.executable, "-c", "from continuum_memory.windows_runtime import exchange; "
+                     "import sys; print(exchange(bytes.fromhex(sys.argv[1]), b'concurrent\\n').decode().strip())",
+                     self.binding.hex()], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env=dict(os.environ, PYTHONPATH=str(ROOT / "src"))))
             for client in clients:
                 output, error = client.communicate(timeout=7)
                 self.assertEqual(client.returncode, 0, error)
@@ -104,14 +185,22 @@ class NativeRuntimeTest(unittest.TestCase):
             for client in clients:
                 if client.poll() is None:
                     client.kill()
-                    client.communicate(timeout=3)
+                client.communicate(timeout=3)
+
+    def test_idle_poll_boundaries_do_not_rearm_or_disconnect_healthy_clients(self):
+        # Span many former 250ms cancel/rearm boundaries, then perform real
+        # concurrent process handshakes. No retry hides a dropped connection.
+        for _ in range(3):
+            time.sleep(0.55)
+            self.concurrent_clients(4)
+            self.assertEqual(exchange(self.binding, b"healthy\n"), b"healthy\n")
         self.stop()
         stats = json.loads(self.stats_path.read_text())
-        self.assertEqual(stats["dispatch_threads"], [stats["owner_thread"]])
-        self.assertEqual(stats["active_max"], 1)
+        self.assertEqual(stats["requests"], 15)
+        # One initial native connect per worker plus at most one rearm per
+        # completed request, never one rearm for every idle poll timeout.
+        self.assertLessEqual(stats["connect_operations"], 16 + stats["requests"])
         self.assertEqual(stats["workers_after_stop"], 0)
-        self.assertEqual(stats["created_workers"], 16)
-        self.assertEqual(stats["requests"], 8)
 
     def test_partial_request_does_not_hold_up_a_healthy_client(self):
         with connect(self.binding) as stalled:
@@ -329,8 +418,18 @@ class NativeVaultRuntimeTest(unittest.TestCase):
 def runtime_child(binding, stop_path, stats_path):
     sys.stdout.reconfigure(newline="\n")
     stats = {"owner_thread": threading.get_ident(), "dispatch_threads": set(),
-             "active_max": 0, "requests": 0}
+             "active_max": 0, "requests": 0, "connect_operations": 0}
     active = 0
+    connect_lock = threading.Lock()
+    original_operation = _PipeAPI.operation
+
+    def counted_operation(api, handle, kind, *args, **kwargs):
+        if kind == "connect":
+            with connect_lock:
+                stats["connect_operations"] += 1
+        return original_operation(api, handle, kind, *args, **kwargs)
+
+    _PipeAPI.operation = counted_operation  # Observe only; every native call runs.
 
     def handler(raw):
         nonlocal active

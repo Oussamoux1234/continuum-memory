@@ -16,7 +16,6 @@ from .transport import CLIENT_TIMEOUT, MAX_CONNECTIONS, READ_TIMEOUT, WRITE_TIME
 from .windows_pipe import CANCEL_GRACE_MS, FATAL_CANCEL_EXIT, PipeServer, connect
 
 DRAIN_ACK = b"continuum-response-read-v1\n"
-ACCEPT_POLL = 0.25
 SHUTDOWN_TIMEOUT = max(READ_TIMEOUT, WRITE_TIMEOUT) + CANCEL_GRACE_MS / 1000 + 1
 
 
@@ -85,7 +84,7 @@ class _Worker:
             while not self.stopping.is_set():
                 request = None
                 try:
-                    with self.pipe.accept(timeout=READ_TIMEOUT, connect_timeout=ACCEPT_POLL) as connection:
+                    with self.pipe.accept(timeout=READ_TIMEOUT, stopping=self.stopping) as connection:
                         raw = connection.receive()
                         request = Request(raw[:-1], time.monotonic() + CLIENT_TIMEOUT)
                         if self.stopping.is_set():

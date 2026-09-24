@@ -32,6 +32,7 @@ ERROR_PIPE_CONNECTED = 535
 CANCEL_GRACE_MS = 1000
 FATAL_CANCEL_EXIT = 74
 FATAL_REVERT_EXIT = 75
+IDLE_CONNECT_POLL_MS = 250
 
 
 class _Overlapped(ctypes.Structure):
@@ -146,8 +147,15 @@ class _PipeAPI(WindowsBoundary):
                 and ctypes.get_last_error() == 996):  # ERROR_IO_INCOMPLETE contradicts completion.
             os._exit(FATAL_CANCEL_EXIT)
 
-    def operation(self, pipe, kind, deadline, data=None, size=0):
-        _remaining(deadline)
+    def operation(self, pipe, kind, deadline, data=None, size=0, stopping=None):
+        idle_connect = stopping is not None
+        if idle_connect:
+            if kind != "connect":
+                raise _error("invalid_request")
+            if stopping.is_set():
+                raise _error("pipe_stopping")
+        else:
+            _remaining(deadline)
         event = self.kernel.CreateEventW(None, True, False, None)
         if not event:
             raise _error()
@@ -174,14 +182,25 @@ class _PipeAPI(WindowsBoundary):
                 raise _error()
             pending = not bool(succeeded)
             if pending:
-                wait = self.kernel.WaitForSingleObject(event, _remaining(deadline))
-                if wait != WAIT_OBJECT_0:
+                while True:
+                    if idle_connect and stopping.is_set():
+                        raise _error("pipe_stopping")
+                    wait = self.kernel.WaitForSingleObject(
+                        event, IDLE_CONNECT_POLL_MS if idle_connect else _remaining(deadline))
+                    if wait == WAIT_OBJECT_0:
+                        break
+                    if wait == WAIT_TIMEOUT and idle_connect:
+                        # Keep this same native operation/event alive. Cancelling
+                        # at every idle poll can disconnect a just-arriving peer
+                        # between its open and identity/hello validation.
+                        continue
                     raise _error("pipe_timeout" if wait == WAIT_TIMEOUT else "pipe_unavailable")
             if not self.kernel.GetOverlappedResult(pipe, ctypes.byref(operation), ctypes.byref(transferred), False):
                 pending = ctypes.get_last_error() == 996
                 raise _error()
             pending = False
-            _remaining(deadline)
+            if not idle_connect:
+                _remaining(deadline)
             if kind == "read":
                 return buffer.raw[:transferred.value]
             return transferred.value
@@ -308,13 +327,16 @@ class PipeServer:
             raise
 
     @contextmanager
-    def accept(self, timeout=5.0, connect_timeout=None):
+    def accept(self, timeout=5.0, connect_timeout=None, stopping=None):
         self.api.require_process_context()
+        if stopping is not None and connect_timeout is not None:
+            raise _error("invalid_request")
         deadline = _deadline(timeout)
         peer = None
         try:
-            self.api.operation(self.handle, "connect", _deadline(connect_timeout) if connect_timeout is not None else deadline)
-            if connect_timeout is not None:
+            self.api.operation(self.handle, "connect", _deadline(connect_timeout) if connect_timeout is not None else deadline,
+                               stopping=stopping)
+            if connect_timeout is not None or stopping is not None:
                 # Time spent waiting for any peer must not consume a newly
                 # connected peer's handshake/frame budget in a long-lived pool.
                 deadline = _deadline(timeout)
