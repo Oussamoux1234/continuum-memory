@@ -35,7 +35,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Full verification failed' }
 The gate runs all applicable tests, real MCP subprocess fixtures and lifecycle
 demo, two fresh deterministic source/wheel builds, fresh offline installations of
 both artifacts, all four installed entrypoint help/version checks, and independent
-SPDX validation. Checking the Linux-only helper's `--help` does not enable it on
+SPDX validation. Both installed artifacts also run ordinary CLI initialization in
+fresh synthetic vaults, checking compact and pretty UTF-8 JSON with non-ASCII
+project names under a legacy `cp1252` stream configuration. The CLI explicitly
+emits UTF-8 even when redirected to a pipe or file; this check injects no approval
+provider. Checking the Linux-only helper's `--help` does not enable it on
 Windows: its operational commands remain refused. POSIX root-helper/file-lock and
 Unix-socket tests stay in their native gates; common contracts and Windows-native
 boundary tests must run, not be replaced by mocks or broad skips.

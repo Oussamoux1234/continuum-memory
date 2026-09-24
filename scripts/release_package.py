@@ -243,6 +243,22 @@ def install_smoke(artifact, directory, wheelhouse, epoch):
     for entry, flag in ENTRY_POINTS.items():
         executable = bin_dir / (entry + (".exe" if os.name == "nt" else ""))
         run([executable, flag], cwd=directory, env=environment)
+    # Exercise the installed launcher, not checkout imports, with a real normal
+    # bootstrap. No approval provider is injected and no existing vault is used.
+    project = "Décision — 東京 — مرحبا — 🧠"
+    for compact in (False, True):
+        vault = directory / ("unicode-compact-vault" if compact else "unicode-pretty-vault")
+        command = [bin_dir / ("continuum.exe" if os.name == "nt" else "continuum"), "--data-dir", vault]
+        if compact:
+            command.append("--json")
+        command.extend(["init", "--project-name", project, "--project-path", directory])
+        result = subprocess.run(list(map(str, command)), cwd=directory,
+            env=dict(environment, PYTHONIOENCODING="cp1252", PYTHONUTF8="0"),
+            capture_output=True, timeout=15, check=True)
+        output = result.stdout.decode("utf-8")
+        if (result.stderr or project not in output or json.loads(output)["projects"][0]["name"] != project
+                or (len(output.splitlines()) == 1) != compact):
+            raise ValueError("installed CLI UTF-8 bootstrap verification failed")
     # The fresh environment must import its installed payload, not this checkout.
     run([python, "-I", "-c", "import continuum_memory; print(continuum_memory.__file__)"], cwd=directory, env=environment)
     if artifact.name.endswith(".whl"):
@@ -312,6 +328,7 @@ def build_release(output, wheelhouse):
         "build_tools": {name: metadata.version(name) for name in ("setuptools", "wheel", "build", "spdx-tools")},
         "reproducible_builds": 2, "offline_installs": [artifact.name for artifact in artifacts],
         "entrypoints_per_artifact": sorted(ENTRY_POINTS),
+        "utf8_cli_init_per_artifact": ["compact", "pretty"],
         "relocated_wheel_helper_module_smoke": True,
         "subjects": {path.name: sha256(path.read_bytes()) for path in artifacts + [sbom_path]},
     }
