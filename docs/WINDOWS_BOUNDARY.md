@@ -29,9 +29,11 @@ retains its own UID/mode and socket checks.
   metadata-only handles do not enforce the needed sharing restriction. A path
   whose ancestor denies directory-list access is refused.
 - Private directories require the process token's user SID as owner and a
-  protected DACL containing exactly one full-control allow ACE for that SID,
-  with **object and container inheritance**. A non-inheritable private directory
-  is refused before SQLite may create sidecars. Creation supplies this descriptor
+  protected DACL containing exactly one full-control allow ACE for that SID.
+  Newly created directories use **object and container inheritance**; the vault
+  guard requires both flags before SQLite may create sidecars. The lower-level
+  inspection primitive also accepts a non-inheritable explicit owner-only ACE.
+  Creation supplies its descriptor
   atomically; existing objects are never adopted by repairing ACLs or ownership.
 - Private files require either the protected explicit owner-only ACE or exactly
   the owner-only ACE inherited from their **validated, held immediate private
