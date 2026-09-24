@@ -38,11 +38,12 @@ class Eligibility:
     recorded: int
     mode: str = "current"
     valid: Optional[str] = None
+    owner_read: bool = False
 
     def sql(self):
         conditions = ["a.project_id=?", "a.ingest_seq<=?"]
         args = [self.project, self.recorded]
-        if self.provider != "user_control":
+        if not self.owner_read:
             conditions.append("EXISTS (SELECT 1 FROM assertion_disclosures ad "
                               "WHERE ad.assertion_id=a.id AND ad.provider IN (?, '*'))")
             args.append(self.provider)

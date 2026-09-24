@@ -37,13 +37,16 @@ from .security import (
     MIN_CONTEXT_BYTES,
     bounded_id,
     bounded_int,
+    bounded_provider,
     bounded_text,
     canonical_json,
     digest_json,
     fts_literal_query,
+    is_owner_capability,
     parse_disclosure,
     random_id,
     require_keys,
+    validate_capability_authority,
     verify_grant,
 )
 from .storage import POLICY_VERSION, Store
@@ -110,6 +113,7 @@ class Kernel:
 
     @staticmethod
     def _require_permission(capability: Dict[str, Any], permission: str) -> None:
+        validate_capability_authority(capability)
         if permission not in capability["permissions"]:
             raise MemoryError("forbidden", "The capability does not permit this operation.")
 
@@ -252,13 +256,14 @@ class Kernel:
         require_keys(params, ["project"] if capability["project_id"] is None else [])
         project = self._project(capability, params)
         self._expire_due(project)
-        watermark = self._watermark(self._eligibility(project, capability["provider"]))
+        watermark = self._watermark(self._eligibility(project, capability["provider"],
+                                                      owner_read=is_owner_capability(capability)))
         return {
             "status": "available",
             "project_bound": project,
             "provider": capability["provider"],
             "projection_watermark": watermark,
-            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
+            "recorded_sequence_domain": "vault_v1" if is_owner_capability(capability) else "project_provider_v1",
             "storage_mode": "plaintext_prototype",
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
@@ -560,6 +565,8 @@ class Kernel:
             raise NOT_FOUND
         if row["status"] != "proposed":
             raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
+        if operation == "accept_proposal":
+            bounded_provider(row["source_agent"], "source_agent")
         preview = {
             "schema_version": 1,
             "operation": operation,
@@ -813,6 +820,7 @@ class Kernel:
         row = self.db.execute("SELECT status,source_agent FROM proposals WHERE id=?", (proposal_id,)).fetchone()
         if not row or row["status"] != "proposed":
             raise MemoryError("invalid_transition", "The proposal is no longer pending review.")
+        bounded_provider(row["source_agent"], "source_agent")
         result = self._accept_preview(preview, row["source_agent"], None, approval_method)
         self.db.execute(
             "UPDATE proposals SET status='accepted',reviewed_at=?,accepted_assertion_id=? WHERE id=?",
@@ -854,6 +862,7 @@ class Kernel:
         # Recheck at the final write boundary: policy may have tightened since
         # preview/legacy proposal creation. admin_apply rolls back a denied grant.
         self._check_content_preview(preview)
+        agent_authored = preview["operation"] == "accept_proposal"
         project = preview["project_id"]
         scope_id = preview["scope"]["id"]
         subject = preview["subject"]
@@ -898,7 +907,7 @@ class Kernel:
                     self.store.keyed_digest("evidence-body", evidence_data["body"]),
                     evidence_data["source_handle"],
                     now,
-                    "user_authored" if author == "user_control" else "agent_provided",
+                    "agent_provided" if agent_authored else "user_authored",
                     author,
                     sequence,
                 ),
@@ -937,7 +946,7 @@ class Kernel:
             "INSERT INTO assertion_fts(assertion_id,project_id,subject,body) VALUES (?,?,?,?)",
             (assertion_id, project, subject, preview["claim"]),
         )
-        roles = [(author, "author", "proposal" if author != "user_control" else "terminal")]
+        roles = [(author, "author", "proposal" if agent_authored else "terminal")]
         roles.extend(
             [
                 ("memoryd", "recorder", "serialized_writer"),
@@ -1002,7 +1011,8 @@ class Kernel:
             )
         record_audience_change(self.db, project, sequence,
                                [assertion_id] + ([supersedes_id] if supersedes_id else []))
-        eligibility = self._eligibility(project, "user_control")
+        # This path is reached only by an already-approved owner mutation.
+        eligibility = self._eligibility(project, "user_control", owner_read=True)
         membership, _ = self._conflict_projection(eligibility, [thread_id])
         conflict_id = membership.get(thread_id, membership.get(assertion_id))
         operation = "assertion_corrected" if supersedes_id else "assertion_accepted"
@@ -1188,7 +1198,7 @@ class Kernel:
             "cards": cards,
             "recall_id": recall_id,
             "projection_watermark": watermark,
-            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
+            "recorded_sequence_domain": "vault_v1" if is_owner_capability(capability) else "project_provider_v1",
             **({"next_cursor": next_cursor} if next_cursor else {}),
         }
 
@@ -1196,28 +1206,30 @@ class Kernel:
         binding = self.store.keyed_digest("read-cursor", canonical_json({
             "capability": capability["id"], "provider": capability["provider"], "project": project,
             "operation": operation, "query": query, "mode": mode, "recorded": recorded, "valid": valid,
+            "owner_read": is_owner_capability(capability),
         }))
         if "cursor" in params:
             state = self._cursors.read(params["cursor"], binding)
             return self._eligibility(project, capability["provider"], mode, state["recorded"], valid,
-                                     internal_recorded=True), state["after"], binding
-        return self._eligibility(project, capability["provider"], mode, recorded, valid), None, binding
+                                     internal_recorded=True, owner_read=is_owner_capability(capability)), state["after"], binding
+        return self._eligibility(project, capability["provider"], mode, recorded, valid,
+                                 owner_read=is_owner_capability(capability)), None, binding
 
     def _eligibility(self, project, provider, mode="current", recorded=None, valid=None,
-                     internal_recorded=False):
+                     internal_recorded=False, owner_read=False):
         latest = int(self.db.execute("SELECT value FROM sequence WHERE singleton=1").fetchone()[0])
         if recorded is None:
             recorded = latest
-        elif provider != "user_control" and not internal_recorded:
+        elif not owner_read and not internal_recorded:
             row = self.db.execute(
                 "SELECT max(recorded_seq) FROM audience_sequences "
                 "WHERE project_id=? AND provider=? AND local_seq<=?",
                 (project, provider, recorded)).fetchone()
             recorded = row[0] or 0
-        return Eligibility(project, provider, min(recorded, latest), mode, valid)
+        return Eligibility(project, provider, min(recorded, latest), mode, valid, owner_read)
 
     def _watermark(self, eligibility):
-        if eligibility.provider == "user_control":
+        if eligibility.owner_read:
             return eligibility.recorded
         return self.db.execute(
             "SELECT coalesce(max(local_seq),0) FROM audience_sequences "
@@ -1225,7 +1237,7 @@ class Kernel:
             (eligibility.project, eligibility.provider, eligibility.recorded)).fetchone()[0]
 
     def _visible_sequence(self, eligibility, recorded):
-        if recorded is None or eligibility.provider == "user_control":
+        if recorded is None or eligibility.owner_read:
             return recorded
         row = self.db.execute(
             "SELECT local_seq FROM audience_sequences WHERE project_id=? AND provider=? AND recorded_seq=?",
@@ -1410,7 +1422,7 @@ class Kernel:
             "accepted_claims": [],
             "open_conflicts": [],
             "projection_watermark": watermark,
-            "recorded_sequence_domain": "vault_v1" if capability["provider"] == "user_control" else "project_provider_v1",
+            "recorded_sequence_domain": "vault_v1" if is_owner_capability(capability) else "project_provider_v1",
             "recall_id": recall_id,
             "byte_budget": budget,
             "omitted_items": 0,
@@ -1502,7 +1514,8 @@ class Kernel:
                 assertion_id,
                 include_evidence=True,
                 eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
-                                              recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
+                                              recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True,
+                                              owner_read=is_owner_capability(capability)),
                 assessed_at=assessed_at,
             )
             if record is None:
@@ -1639,7 +1652,7 @@ class Kernel:
         return card
 
     def _visible_inputs(self, eligibility, identifiers):
-        if eligibility.provider == "user_control" or not identifiers:
+        if eligibility.owner_read or not identifiers:
             return identifiers
         references = Eligibility(eligibility.project, eligibility.provider, eligibility.recorded, "history")
         visible = {row["id"] for row in references.rows(
@@ -1667,7 +1680,8 @@ class Kernel:
         if self._get_assertion(
             project, capability["provider"], item_id, include_evidence=False,
             eligibility=self._eligibility(project, capability["provider"], recall["temporal_mode"],
-                                          recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True),
+                                          recall["as_of_recorded"], recall["as_of_valid"], internal_recorded=True,
+                                          owner_read=is_owner_capability(capability)),
         ) is None:
             raise NOT_FOUND
         feedback_id = random_id("fbk")

@@ -111,6 +111,13 @@ Project and provider identity come from that owner-only capability file, never m
 arguments. The checked-in clients under `fixtures/` are conformance fixtures, not proof of
 native Codex or Claude Code compatibility.
 
+Provider names are labels, not permissions. `user_control` is reserved for the
+unbound owner capability; custom providers cannot use it. Existing project-bound
+capabilities with that label fail closed. Pending proposals with that reserved
+source cannot be accepted, but the owner can still reject or forget them. This
+hardening does not rewrite previously accepted history; inspect proposal-acceptance
+provenance when reviewing older records, whose evidence/author labels may be wrong.
+
 ## Storage notice
 
 The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 but no
