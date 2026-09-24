@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from continuum_memory import macos_acl
+from continuum_memory.daemon_lock import DaemonLock
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import (
     ensure_private_directory, ensure_private_regular, ensure_private_socket,
@@ -309,6 +310,28 @@ class NativeMacOSACLTest(unittest.TestCase):
         with self.assertRaises(MemoryError):
             write_private(target, b"synthetic")
         self.assertFalse(target.exists())
+
+    def test_directory_entry_change_refuses_daemon_before_lock_creation(self):
+        original_open = os.open
+        changed = False
+
+        def change_before_metadata_open(path, flags, *args, **kwargs):
+            nonlocal changed
+            if Path(path) == self.home and not changed:
+                changed = True
+                fd = original_open(self.home / "synthetic-concurrent-entry",
+                                   os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch.object(macos_acl.os, "open", side_effect=change_before_metadata_open):
+            with self.assertRaises(MemoryError) as caught:
+                with DaemonLock(self.home):
+                    self.fail("changed directory must not acquire a daemon lock")
+        self.assertTrue(changed)
+        self.assertEqual(caught.exception.code, "unsafe_file")
+        self.assertEqual(caught.exception.message, "Private material changed during permission validation.")
+        self.assertFalse((self.home / "memoryd.lock").exists())
 
     def test_inherited_acl_raced_into_new_file_is_refused_before_bytes(self):
         target = self.home / "empty-residue"

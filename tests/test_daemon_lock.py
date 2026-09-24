@@ -1,6 +1,7 @@
 """Synthetic local vaults, real process locks/sockets, bounded fault injection."""
 
 import errno
+import json
 import os
 import signal
 import socket
@@ -242,7 +243,18 @@ class DaemonLockTest(unittest.TestCase):
         losers = [p for p in (first, second) if p.poll() is not None]
         self.assertEqual(len(losers), 1)
         self.assertEqual(losers[0].returncode, 2)
-        self.assertIn(b"already_running", losers[0].stderr.read())
+        failure = json.loads(losers[0].stderr.read())
+        self.assertEqual(set(failure), {"error"})
+        self.assertEqual(set(failure["error"]), {"code", "message"})
+        allowed = {"already_running"}
+        if sys.platform == "darwin":
+            # The winner's lock/socket creation can invalidate the contender's
+            # metadata snapshot before it reaches flock. It still must lose.
+            allowed.add("unsafe_file")
+        self.assertIn(failure["error"]["code"], allowed)
+        if failure["error"]["code"] == "unsafe_file":
+            self.assertEqual(failure["error"]["message"],
+                             "Private material changed during permission validation.")
         self.ready(second if losers[0] is first else first)
 
     def test_sigstop_owner_blocks_contender_then_sigkill_allows_restart(self):
