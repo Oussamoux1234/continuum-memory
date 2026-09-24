@@ -7,6 +7,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -16,7 +17,7 @@ from unittest.mock import patch
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import MAX_FRAME_BYTES, canonical_json
-from continuum_memory.storage import paths
+from continuum_memory.storage import Store, paths
 from fixtures.harness import EphemeralHarness
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -428,12 +429,18 @@ class DaemonTransportTests(unittest.TestCase):
 @unittest.skipUnless(hasattr(socket, "AF_UNIX") and os.name == "posix", "Unix daemon client")
 class DaemonClientTransportTests(unittest.TestCase):
     def setUp(self):
-        self.harness = EphemeralHarness()
-        self.addCleanup(self.harness.close)
+        # These tests impersonate the server. An unrelated live daemon would
+        # concurrently validate the same directory as we add/remove fake sockets.
+        temporary = tempfile.TemporaryDirectory(prefix="continuum-fake-response-")
+        self.addCleanup(temporary.cleanup)
+        self.data_dir = Path(temporary.name)
+        Store.bootstrap(self.data_dir, [
+            {"name": "transport", "path_hint": "/fixture/transport", "providers": ["codex"]}
+        ])
 
     def fake_response(self, payload, trickle=False):
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        path = self.harness.data_dir / "fixture-reply.sock"
+        path = self.data_dir / "fixture-reply.sock"
         listener.bind(str(path))
         os.chmod(str(path), 0o600)
         listener.listen(1)
@@ -455,7 +462,7 @@ class DaemonClientTransportTests(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
         server = threading.Thread(target=reply, daemon=True)
-        client = DaemonClient(self.harness.data_dir, paths(self.harness.data_dir)["control"])
+        client = DaemonClient(self.data_dir, paths(self.data_dir)["control"])
         client.socket_path = path
         server.start()
         started = time.monotonic()

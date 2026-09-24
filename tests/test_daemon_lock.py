@@ -4,6 +4,7 @@ import errno
 import os
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -143,7 +144,11 @@ class DaemonLockTest(unittest.TestCase):
         real_fstat = os.fstat
 
         def foreign_file(fd):
-            fields = list(real_fstat(fd))
+            info = real_fstat(fd)
+            # Target the lock, not the macOS parent-directory metadata FD.
+            if not stat.S_ISREG(info.st_mode):
+                return info
+            fields = list(info)
             fields[4] = os.getuid() + 1
             return os.stat_result(fields)
 
