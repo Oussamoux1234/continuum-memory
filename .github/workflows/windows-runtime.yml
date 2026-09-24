@@ -38,10 +38,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Native metadata rename diagnostics
+        shell: pwsh
+        env:
+          PYTHONPATH: src
+        run: python -m unittest tests.test_windows_rename_diagnostics -v
       - name: Full verifier, lifecycle demo and offline distributions
         shell: pwsh
         env:
           CONTINUUM_RELEASE_OUTPUT: work/release
-        run: python scripts/verify.py
+          CONTINUUM_CI_OWNER_FIXTURE: approved-process-only-v1
+        # Explicitly approved disposable-process TokenOwner fixture. Production
+        # rejects incompatible tokens; it never changes token/account policy.
+        run: python fixtures/windows_test_owner.py
       # Explicitly no artifact upload: source packages, wheels and SBOMs remain
       # on the disposable runner. Logs report verification, never vault content.

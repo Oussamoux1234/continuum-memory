@@ -13,6 +13,13 @@ explicit synthetic approval is not human presence. This port adds neither a
 Windows approval broker nor encryption, SQLCipher, protected key custody or
 encrypted backup/restore.
 
+The process's default file owner (`TokenOwner`) must equal its user SID
+(`TokenUser`). Elevated processes can instead default to Administrators ownership.
+Production refuses that configuration before bootstrap metadata writes or SQLite
+opening with `unsupported_token_owner`; it never changes tokens or repairs owners.
+Use a compatible non-elevated process for normal operation. This requirement is
+separate from filesystem DACL inheritance.
+
 ## Filesystem contract
 
 `windows_boundary.WindowsBoundary` uses Win32 handles through the Python standard
@@ -91,6 +98,39 @@ entrypoint and provenance checks. CI records its actual Windows image, Python
 and SQLite versions: `windows-2025` is a mutable runner label, not an immutable
 or reproducibly built Windows distribution. Final support claims require exact
 integrated-head native evidence; skipped native tests on macOS/Linux provide none.
+
+### Explicit CI-only owner fixture
+
+The owner authorized the disposable GitHub-hosted Windows CI process to temporarily
+set **only its own token's default owner to its existing user SID**, then restore
+the exact previous owner. `fixtures/windows_test_owner.py` wraps the fixed verifier;
+it is outside production and absent from the runtime wheel. It requires the exact
+reviewed checkout, native x64 hosted Windows Actions markers, and the workflow's
+explicit process-only opt-in. These environment checks prevent accidental use;
+they are not a security boundary or replacement for authorization.
+
+Before mutation, the fixture queries a held parent token and requires a distinct
+token-object identity. It never writes the parent token, changes a privilege,
+group, default DACL, account, host policy or macOS setting, and never accepts an
+arbitrary SID or command. Native preflight checks production refusal under an
+incompatible original owner, real child-process/file-owner inheritance, exact
+restoration after success and a deliberate exception, and an unchanged parent
+owner. Unexpected restoration failure exits the fixture process with status 79.
+It must not report a normal verification success after uncertain restoration.
+The verifier subprocess has a bounded timeout, but this wrapper does not claim
+to terminate every descendant after a timeout or abrupt process death. Residual
+test descendants are contained by disposal of the dedicated hosted CI VM; this
+is not a general-purpose local process-tree cleanup tool.
+
+CI runs numeric-only native rename diagnostics before the wrapper, so a refused
+owner fixture cannot hide that independent evidence. The full workflow uploads
+no artifacts. The CI fixture does not authorize a different-account process test,
+provide human approval, or make elevated production use supported. Its native
+evidence must be reported separately from deterministic injected unit-test faults.
+
+Relevant APIs are [TokenOwner](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_owner),
+[TokenId](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_statistics),
+and [token access rights](https://learn.microsoft.com/en-us/windows/win32/secauthz/access-rights-for-access-token-objects).
 
 All fixtures use synthetic temporary vaults. Symlink and wrong-object-owner
 tests need hosted-runner privileges; failure to establish their fixtures is a

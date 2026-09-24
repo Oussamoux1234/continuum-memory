@@ -28,7 +28,7 @@ class McpAndAuditTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(completed.returncode, 2)
-            self.assertIn("already_running", completed.stderr)
+            self.assertIn("pipe_endpoint_occupied" if os.name == "nt" else "already_running", completed.stderr)
 
     def test_modern_mcp_surface_is_exact_and_strict(self) -> None:
         with EphemeralHarness() as harness:
