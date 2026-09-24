@@ -1,8 +1,9 @@
 """Guard the plaintext SQLite runtime on native Windows; no encryption claim.
 
 The vault and database are pinned against replacement until SQLite closes. Each
-operation revalidates their ACLs and all present sidecars before SQLite can use
-them. A hostile process running as this same user or administrator is outside
+application SQL dispatch and explicit commit/rollback revalidates their ACLs and
+all present sidecars; cursor fetches do not repeat that check. A hostile process
+running as this same user or administrator is outside
 this boundary: it can change ACLs or bytes, and needs OS key custody separately.
 """
 
