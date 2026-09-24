@@ -21,6 +21,12 @@ networked preparation obtains hash-pinned verification dependencies first. The a
 build/install verifier uses offline dependency resolution and emits host/tool versions.
 Every matrix job must pass for the exact candidate revision before a release decision.
 
+The separate `macOS boundary` workflow exercises the complete gate on macOS 14/15 arm64,
+Python 3.11–3.14, recording actual runner versions and requiring native APFS fixture evidence.
+This is a candidate native verification matrix, not completed macOS support. Read
+[the macOS boundary/runbook](MACOS_BOUNDARY.md) for the missing approval, key isolation,
+extended-ACL, packaging/signing, and same-user security gates. Issue #10 remains open.
+
 ## What the gate exercises
 
 - Ledger proposal, review, correction/history, recorded-time queries, conflicts, retention,
