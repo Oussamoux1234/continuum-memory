@@ -1,4 +1,4 @@
-"""Native filesystem evidence only: these tests do not enable the Windows runtime."""
+"""Native filesystem primitives; runtime integration has its own test module."""
 
 import ctypes
 import os
@@ -102,7 +102,7 @@ class NativeWindowsBoundaryTest(unittest.TestCase):
             "broad": "O:%sD:P(A;;FA;;;%s)(A;;FR;;;WD)" % (sid, sid),
             "null": "O:%sD:NO_ACCESS_CONTROL" % sid,
             "unprotected": "O:%sD:(A;;FA;;;%s)" % (sid, sid),
-            "inheritable": "O:%sD:P(A;OICI;FA;;;%s)" % (sid, sid),
+            "inherit_only": "O:%sD:P(A;OICIIO;FA;;;%s)" % (sid, sid),
             "insufficient": "O:%sD:P(A;;FR;;;%s)" % (sid, sid),
             "different_principal": "O:%sD:P(A;;FA;;;BA)" % sid,
         }

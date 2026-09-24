@@ -19,9 +19,9 @@ from .security import (
     bounded_provider,
     bounded_text,
     canonical_json,
+    create_private_directory,
     ensure_private_directory,
     ensure_private_regular,
-    ensure_safe_ancestors,
     now_iso,
     path_exists,
     random_id,
@@ -45,13 +45,27 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "audit_head": data_dir / "audit.head",
         "control": data_dir / "control.cap",
         "caps": data_dir / "capabilities",
+        "ipc_binding": data_dir / "ipc.binding",
     }
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
     ensure_private_directory(db_path.parent)
     ensure_private_regular(db_path, "The vault database")
-    connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
+    if os.name == "nt":
+        from .windows_storage import connect
+        connection = connect(db_path)
+    else:
+        connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
+    try:
+        _configure_connection(connection, db_path)
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _configure_connection(connection, db_path):
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA trusted_schema=OFF")
@@ -102,27 +116,25 @@ class Store:
         self.data_dir = data_dir
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
-        self.owner_uid = int(directory_info.st_uid)
+        self.owner_uid = None if os.name == "nt" else int(directory_info.st_uid)
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
         ensure_private_regular(self.files["db"], "The vault database")
         audit_key = read_private(self.files["audit_key"], 128)
         self.connection = _connect(self.files["db"])
-        version = self.connection.execute("PRAGMA user_version").fetchone()[0]
         try:
+            version = self.connection.execute("PRAGMA user_version").fetchone()[0]
             version = migrate(self.connection, version)
-        except Exception:
+            if version != SCHEMA_VERSION:
+                raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
+            vault = self.connection.execute("SELECT value FROM metadata WHERE key='vault_id'").fetchone()
+            if not vault:
+                raise MemoryError("integrity_error", "The vault identity is unavailable.")
+            self.vault_id = bounded_id(vault[0], "vault_id")
+            self.audit_key = audit_key
+        except BaseException:
             self.connection.close()
             raise
-        if version != SCHEMA_VERSION:
-            self.connection.close()
-            raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
-        vault = self.connection.execute("SELECT value FROM metadata WHERE key='vault_id'").fetchone()
-        if not vault:
-            self.connection.close()
-            raise MemoryError("integrity_error", "The vault identity is unavailable.")
-        self.vault_id = bounded_id(vault[0], "vault_id")
-        self.audit_key = audit_key
 
     @classmethod
     def bootstrap(cls, data_dir: Path, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -146,17 +158,14 @@ class Store:
         if path_exists(data_dir):
             ensure_private_directory(data_dir)
         else:
-            ensure_safe_ancestors(data_dir.parent)
-            data_dir.mkdir(mode=0o700, parents=True)
-            os.chmod(str(data_dir), 0o700)
-            ensure_private_directory(data_dir)
+            create_private_directory(data_dir, parents=True)
         file_map = paths(data_dir)
-        occupied = ("db", "socket", "audit_key", "audit_head", "control", "caps")
+        occupied = ("db", "socket", "audit_key", "audit_head", "control", "caps", "ipc_binding")
         if any(path_exists(file_map[name]) for name in occupied):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
-        file_map["caps"].mkdir(mode=0o700)
-        os.chmod(str(file_map["caps"]), 0o700)
-        ensure_private_directory(file_map["caps"])
+        create_private_directory(file_map["caps"])
+        if os.name == "nt":
+            write_private(file_map["ipc_binding"], secrets.token_bytes(32))
         audit_key = secrets.token_bytes(32)
         write_private(file_map["audit_key"], audit_key)
         control_token = secrets.token_urlsafe(32)
