@@ -12,6 +12,7 @@ from unittest.mock import patch
 from continuum_memory import approval, storage
 from continuum_memory.security import canonical_json
 from tests.test_snapshot_forget import SnapshotForgetTest
+from fixtures.key_custody import custody_fault
 
 
 CANARY = "ROTATIONCANARYa541026cfa3991"
@@ -233,7 +234,14 @@ def boundary_fault(boundary, *, crash=False):
     def wrap(name, original):
         def invoke(*args, **kwargs):
             trigger(name + ":before")
-            result = original(*args, **kwargs)
+            if name == "publish":
+                with custody_fault(boundary, crash=crash) as custody_fired:
+                    try:
+                        result = original(*args, **kwargs)
+                    finally:
+                        fired.extend(custody_fired)
+            else:
+                result = original(*args, **kwargs)
             trigger(name + ":after")
             return result
         return invoke
@@ -241,7 +249,7 @@ def boundary_fault(boundary, *, crash=False):
     write_journal = rotation._write_journal
     record_rotation = rotation._record_rotation
     sync_anchor = storage.Store.sync_audit_head
-    unlink = Path.unlink
+    unlink = os.unlink
 
     def journal(data_dir, state, audit_key):
         result = write_journal(data_dir, state, audit_key)
@@ -268,9 +276,9 @@ def boundary_fault(boundary, *, crash=False):
 
     def remove(path, *args, **kwargs):
         result = unlink(path, *args, **kwargs)
-        if path.name == "storage.key.next":
+        if Path(path).name == "storage.key.next":
             trigger("cleanup:next_unlinked")
-        elif path.name == "storage.rotation.json":
+        elif Path(path).name == "storage.rotation.json":
             trigger("cleanup:state_unlinked")
         return result
 
@@ -281,7 +289,7 @@ def boundary_fault(boundary, *, crash=False):
             stack.enter_context(patch.object(rotation, function, side_effect=wrap(name, getattr(rotation, function))))
         stack.enter_context(patch.object(rotation, "_record_rotation", side_effect=record))
         stack.enter_context(patch.object(storage.Store, "sync_audit_head", anchor))
-        stack.enter_context(patch.object(Path, "unlink", remove))
+        stack.enter_context(patch.object(os, "unlink", remove))
         yield fired
 
 

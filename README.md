@@ -16,7 +16,7 @@ capsules are disposable views. Returned memory always has `authority=data`; it c
 inform an answer but never authorize a command, URL, recipient, credential, permission
 change, destructive operation, publication, or external message.
 
-Context response v2 uses `accepted_claims`, not `verified_current`: user acceptance,
+Context response v3 uses `accepted_claims`, not `verified_current`: user acceptance,
 recorded verification, and declared date applicability are separate. Existing clients
 must update their JSON field access. See the [read contract and upgrade guide](docs/CONTEXT_CONTRACT.md).
 
@@ -38,6 +38,8 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
 - agents can search, read, propose, send feedback, and inspect status, but cannot accept,
   correct, forget, export, or change policy through MCP;
 - immutable correction history and explicit open conflicts are returned honestly;
+- bounded search/context/history continuations preserve a recorded snapshot while rechecking
+  forget and disclosure on every page; see the [read contract](docs/CONTEXT_CONTRACT.md);
 - retention deadlines are strict UTC values and due assertions receive an audited,
   monotonic `expired` transition before current reads;
 - project and provider-disclosure filters are applied inside retrieval queries;
@@ -47,17 +49,24 @@ optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
   group/world-accessible modes at the access boundary;
 - two deterministic stdio MCP clients can share approved project memory.
 
-## Five-minute safe quickstart
+Context clients must now support `response_version: 3`: conflict fragments can be partial
+or not fully assessed. Strict v2 consumers must upgrade with the service. Tiny budgets
+that cannot fit a result return `budget_too_small`, not an empty continuation.
+
+## Held Linux candidate evaluation
 
 This held candidate requires Linux x86-64, CPython 3.11–3.14, and the exact
 project-built `continuum-sqlcipher3` 0.6.2.post2 wheel. There is no published
-package or stdlib SQLite fallback. Complete the reviewed offline setup in
-[encrypted storage](docs/SQLCIPHER_STORAGE.md) before the commands below.
+package or stdlib SQLite fallback. Combined native application verification remains
+pending. Complete the reviewed offline runtime setup in
+[encrypted storage](docs/SQLCIPHER_STORAGE.md) and prepare the separate hash-locked
+build tools in [distribution verification](docs/LINUX_RELEASE.md) before these
+synthetic-only evaluation commands.
 Use only a temporary directory while evaluating the candidate:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --no-deps -e .
+.venv/bin/python -m pip install --no-index --no-deps --no-build-isolation -e .
+export PATH="$PWD/.venv/bin:$PATH"
 export CONTINUUM_HOME="$(mktemp -d)"
 continuum init --project-name demo --project-path "$PWD" --providers codex,claude
 memoryd --data-dir "$CONTINUUM_HOME"
@@ -67,9 +76,6 @@ In another terminal, using the project ID printed by `init`:
 
 ```bash
 export CONTINUUM_HOME=/path/printed/above
-continuum remember --project PROJECT_ID --subject database \
-  --claim "This project uses SQLite because the local slice must stay offline." \
-  --evidence "Milestone 1 build decision"
 continuum search --project PROJECT_ID --query SQLite
 continuum context --project PROJECT_ID --query database
 continuum status --project PROJECT_ID
@@ -78,18 +84,27 @@ continuum audit verify
 
 Administrative commands require an interactive OS-backed confirmation over the exact
 preview. There is deliberately no `--yes` bypass, and live use fails closed when no native
-broker is provisioned. Linux users can install and provision the broker described in
-`docs/LINUX_APPROVAL_BROKER.md`. The old same-UID terminal/HMAC seam is injectable only by
+broker is provisioned. The current privileged helper stager rejects all runtime
+dependencies and must refuse the encrypted application wheel; installation compatibility
+needs separate review before live owner writes. See
+[the broker boundary](docs/LINUX_APPROVAL_BROKER.md). The old same-UID terminal/HMAC seam is injectable only by
 the temporary test harness; the packaged daemon and CLI never select it.
 
-To run the verified fixture demo and complete local test suite:
+The prepared fixture demo, application suite and reproducible PEP 517/SPDX gate use two
+separate reviewed wheelhouses: exactly the selected native wheel plus setuptools/wheel,
+and the full hash-locked build-tool set. In the prepared Linux environment, run:
 
 ```bash
-python3 scripts/verify.py
+CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/native-wheelhouse \
+  CONTINUUM_BUILD_WHEELHOUSE=/absolute/reviewed/build-tool-wheelhouse \
+  .venv/bin/python scripts/verify.py
 ```
 
 The demo prints an ephemeral directory, assertion/version IDs, provenance, correction
 history, conflict output, deletion receipt, replay rejection, and isolation checks.
+This command is not a recorded native application pass. The proposed Linux allowance for
+30 exact platform-only skip IDs/reasons (11 Windows filesystem, 15 Windows IPC, four macOS
+application tests) has passed independent source review; encryption and cryptographic skips are forbidden.
 
 Native agent installers and plugins are roadmap work. Nothing here mutates real Codex,
 Claude Code, Antigravity, or Agent Relay profiles.
@@ -105,6 +120,13 @@ Project and provider identity come from that owner-only capability file, never m
 arguments. The checked-in clients under `fixtures/` are conformance fixtures, not proof of
 native Codex or Claude Code compatibility.
 
+Provider names are labels, not permissions. `user_control` is reserved for the
+unbound owner capability; custom providers cannot use it. Existing project-bound
+capabilities with that label fail closed. Pending proposals with that reserved
+source cannot be accepted, but the owner can still reject or forget them. This
+hardening does not rewrite previously accepted history; inspect proposal-acceptance
+provenance when reviewing older records, whose evidence/author labels may be wrong.
+
 ## Storage notice
 
 This branch is a **held encrypted-storage candidate** for issue #7. New synthetic
@@ -117,16 +139,22 @@ vault and key. Do not store production secrets.
 The candidate preserves schema-5 migrations, secret admission, daemon locking,
 operation receipts and audit recovery. Existing plaintext vaults are never
 silently converted. See [storage and migration boundaries](docs/SQLCIPHER_STORAGE.md).
-The native pipeline and all application tests must pass independently; human
-security/license acceptance and artifact signing/trust decisions remain open.
-Native macOS and Windows application support is not established by Linux CI.
+The native pipeline and all applicable application tests must pass independently. Main's
+reproducible source/wheel/SPDX pipeline is retained with the exact external post2 dependency;
+combined native application verification, human security/license acceptance, privileged
+installer compatibility, and artifact signing/publication decisions remain open.
+macOS is limited to planned source-only peer checks until an approved native artifact
+exists; prepared APFS application tests remain pending. Neither macOS nor Windows encrypted
+application support is established by Linux CI.
 
 ## Repository map
 
 - `docs/PRODUCT_CONSTITUTION.md` — durable product rules.
 - `docs/architecture/` — accepted architecture decisions.
-- `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
+- `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit boundary, blocked encrypted-installer compatibility, controlled smoke test, and removal.
+- `docs/LINUX_RELEASE.md` — separate locked tool/native inputs, reproducible packaging, SPDX evidence, and release holds.
 - `docs/PATCHED_SQLCIPHER_WHEELS.md` — native test-artifact supply chain and its blockers.
+- `docs/MACOS_BOUNDARY.md` — source-only peer checks and pending native artifact, APFS, approval/key/ACL gates.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.

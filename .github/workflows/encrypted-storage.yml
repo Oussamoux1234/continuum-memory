@@ -5,7 +5,7 @@ on:
     paths:
       - ".github/workflows/encrypted-storage.yml"
       - ".github/workflows/patched-sqlcipher-wheel.yml"
-      - "packaging/sqlcipher/**"
+      - "packaging/**"
       - "scripts/**"
       - "sbom/**"
       - "src/**"
@@ -23,7 +23,7 @@ on:
     paths:
       - ".github/workflows/encrypted-storage.yml"
       - ".github/workflows/patched-sqlcipher-wheel.yml"
-      - "packaging/sqlcipher/**"
+      - "packaging/**"
       - "scripts/**"
       - "sbom/**"
       - "src/**"
@@ -76,6 +76,7 @@ jobs:
           work/encrypted-application/sources
           work/encrypted-application/build-a
           work/encrypted-application/build-b
+          work/encrypted-application/build-tools
           work/encrypted-application/evidence
       - name: Pull immutable manylinux builder
         run: docker pull "$BUILDER_IMAGE"
@@ -92,6 +93,20 @@ jobs:
           "$BUILDER_IMAGE"
           /opt/python/cp314-cp314/bin/python -I
           scripts/fetch_patched_sqlcipher_sources.py --destination /sources
+      - name: Acquire separate hash-pinned application build tools
+        run: >-
+          docker run --rm --pull=never
+          --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777,size=512m
+          --cap-drop=ALL --security-opt=no-new-privileges
+          --user "$(id -u):$(id -g)" --env HOME=/tmp
+          --env PATH="$REVIEWED_PATH"
+          -v "$GITHUB_WORKSPACE:/workspace:ro"
+          -v "$GITHUB_WORKSPACE/work/encrypted-application/build-tools:/build-tools"
+          -w /workspace
+          "$BUILDER_IMAGE"
+          "/opt/python/${PYTHON_ABI}/bin/python" -I -m pip --isolated download
+          --no-cache-dir --only-binary=:all: --require-hashes
+          -r packaging/build-requirements.txt --dest /build-tools
       - name: Independent network-disabled build A
         run: >-
           docker run --rm --pull=never --network=none
@@ -204,10 +219,12 @@ jobs:
           -v "$GITHUB_WORKSPACE:/workspace:ro"
           -v "$GITHUB_WORKSPACE/work/encrypted-application/sources:/sources:ro"
           -v "$GITHUB_WORKSPACE/work/encrypted-application/build-a:/wheelhouse:ro"
+          -v "$GITHUB_WORKSPACE/work/encrypted-application/build-tools:/build-tools:ro"
           -w /tmp
           "$BUILDER_IMAGE"
           "/opt/python/${PYTHON_ABI}/bin/python" -I
           /workspace/scripts/verify_encrypted_application.py
           --artifact-key "$ARTIFACT_KEY"
           --sources /sources --wheelhouse /wheelhouse
+          --build-wheelhouse /build-tools
           --repository-commit "$GITHUB_SHA"

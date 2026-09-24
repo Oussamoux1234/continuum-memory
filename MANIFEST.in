@@ -4,6 +4,8 @@ recursive-include fixtures *.py
 recursive-include sbom *.json
 recursive-include tests *.py
 recursive-include tests/fixtures *.sql
+recursive-include docs *.md
+recursive-include schemas *.json
 include docs/SNAPSHOT_AND_FORGET.md
 include docs/CONTEXT_CONTRACT.md
 include docs/COMMIT_RECOVERY.md
@@ -22,3 +24,13 @@ include scripts/test_patched_sqlcipher_runtime.py
 include scripts/verify_patched_sqlcipher_inputs.py
 include docs/SQLCIPHER_STORAGE.md
 include scripts/verify_encrypted_application.py
+include pyproject.toml
+include scripts/verify.py
+include scripts/release_package.py
+include scripts/macos_environment.py
+include packaging/build-requirements.txt
+include packaging/backend-requirements.txt
+include docs/LINUX_RELEASE.md
+include scripts/application_inputs.py
+include scripts/application_test_results.py
+include tests/platform-skips-linux.json

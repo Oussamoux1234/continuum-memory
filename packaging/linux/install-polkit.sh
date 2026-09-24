@@ -22,7 +22,11 @@ done
 
 SCRIPT_PATH=$(/usr/bin/readlink -f -- "$0")
 SCRIPT_DIRECTORY=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$SCRIPT_PATH")" && pwd)
-SOURCE_DIRECTORY=$(CDPATH= cd -- "$SCRIPT_DIRECTORY/../.." && pwd)
+if [ "$#" -ne 1 ]; then
+  echo "usage: install-polkit.sh /absolute/path/to/verified/continuum_memory-0.1.0.dev0-py3-none-any.whl" >&2
+  exit 2
+fi
+REVIEWED_WHEEL=$1
 RUNTIME_DIRECTORY=/opt/continuum-memory-polkit
 HELPER_DIRECTORY=/usr/libexec/continuum-memory
 POLICY_DIRECTORY=/usr/share/polkit-1/actions
@@ -44,11 +48,15 @@ trap cleanup 0
 
 BUILD_DIRECTORY=$(/usr/bin/mktemp -d /opt/.continuum-memory-polkit-build.XXXXXX)
 /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C \
+  /usr/bin/python3 -I "$SCRIPT_DIRECTORY/stage-polkit-wheel.py" \
+  "$REVIEWED_WHEEL" "$BUILD_DIRECTORY/continuum_memory-0.1.0.dev0-py3-none-any.whl"
+/usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C \
   /usr/bin/python3 -I -m venv "$BUILD_DIRECTORY"
 /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C PIP_CONFIG_FILE=/dev/null \
   PIP_NO_INDEX=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
   "$BUILD_DIRECTORY/bin/python" -I -m pip install --no-cache-dir --no-deps \
-  --force-reinstall "$SOURCE_DIRECTORY"
+  --no-index --force-reinstall "$BUILD_DIRECTORY/continuum_memory-0.1.0.dev0-py3-none-any.whl"
+/usr/bin/rm -- "$BUILD_DIRECTORY/continuum_memory-0.1.0.dev0-py3-none-any.whl"
 /usr/bin/chown -R root:root "$BUILD_DIRECTORY"
 /usr/bin/chmod -R go-w "$BUILD_DIRECTORY"
 

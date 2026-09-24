@@ -16,6 +16,8 @@ MODERN_PROTOCOL = "2026-07-28"
 LEGACY_PROTOCOLS = {"2025-11-25"}
 
 QUERY_PROPERTIES = {
+    "cursor": {"type": "string", "minLength": 1, "maxLength": 64,
+               "description": "Opaque continuation from this same capability/query/temporal filter. Expires after ten minutes."},
     "query": {"type": "string", "minLength": 1, "maxLength": 256},
     "temporal_mode": {"type": "string", "enum": ["current", "history"]},
     "as_of_recorded": {

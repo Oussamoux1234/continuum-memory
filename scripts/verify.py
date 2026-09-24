@@ -9,13 +9,18 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import stat
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if __package__ in (None, ""):
+    sys.path.insert(0, str(ROOT))
+
+from scripts.application_inputs import application_verification_wheels
+
+
 ENV = dict(os.environ)
 ENV["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
 ENV["PYTHONPYCACHEPREFIX"] = str(ROOT / "work" / "pycache")
@@ -28,6 +33,7 @@ REQUIRED_SDIST_FILES = (
     "docs/PATCHED_SQLCIPHER_WHEELS.md",
     "docs/SQLCIPHER_STORAGE.md",
     "fixtures/rotation.py",
+    "fixtures/key_custody.py",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
@@ -49,12 +55,14 @@ REQUIRED_SDIST_FILES = (
     "src/continuum_memory/audit_validation.py",
     "src/continuum_memory/polkit_helper.py",
     "src/continuum_memory/storage_rotation.py",
+    "src/continuum_memory/storage_key_custody.py",
     "tests/test_approval.py",
     "tests/test_audit_validation.py",
     "tests/test_sqlcipher_supply_chain.py",
     "tests/test_encrypted_storage.py",
     "tests/test_encrypted_export_contract.py",
     "tests/test_storage_rotation.py",
+    "tests/test_storage_key_custody.py",
     "tests/test_verify.py",
     "schemas/context-response.schema.json",
     "docs/CONTEXT_CONTRACT.md",
@@ -64,6 +72,15 @@ REQUIRED_SDIST_FILES = (
     "tests/test_daemon_lock.py",
     "tests/fixtures/schema-v4.sql",
     "src/continuum_memory/results.py",
+    "pyproject.toml",
+    "scripts/release_package.py",
+    "scripts/application_inputs.py",
+    "scripts/application_test_results.py",
+    "tests/platform-skips-linux.json",
+    "tests/test_application_test_results.py",
+    "packaging/build-requirements.txt",
+    "packaging/backend-requirements.txt",
+    "docs/LINUX_RELEASE.md",
 )
 
 
@@ -237,83 +254,24 @@ def require_sdist_files(archive: Path, required: tuple[str, ...] = REQUIRED_SDIS
 
 
 def packaging_smoke() -> None:
+    from scripts.release_package import build_release
+
     with tempfile.TemporaryDirectory(prefix="continuum-package-", dir=str(ROOT / "work")) as temp:
-        artifacts = Path(temp) / "dist"
-        artifacts.mkdir()
-        run(
-            [
-                sys.executable,
-                "setup.py",
-                "--quiet",
-                "sdist",
-                "--dist-dir",
-                str(artifacts),
-            ]
-        )
+        artifacts = Path(os.environ.get("CONTINUUM_RELEASE_OUTPUT", str(Path(temp) / "dist"))).resolve()
+        wheelhouse = Path(os.environ.get("CONTINUUM_BUILD_WHEELHOUSE", ROOT / "work" / "build-wheels"))
+        build_release(artifacts, wheelhouse.resolve())
         archive = find_sdist(artifacts)
         require_sdist_files(archive)
-        environment = str(Path(temp) / "venv")
-        run([sys.executable, "-m", "venv", environment])
-        python = str(Path(environment) / "bin" / "python")
-        package_environment = dict(ENV)
-        package_environment.pop("PYTHONPATH", None)
-        locked_wheels = application_verification_wheels()
-        run(
-            [python, "-I", "-m", "pip", "--isolated", "install", "--no-index",
-             "--no-cache-dir", "--no-compile", "--no-deps"] + [str(path) for path in locked_wheels],
-            package_environment,
-        )
-        run(
-            [python, "-I", "-m", "pip", "--isolated", "install", "--no-index",
-             "--no-build-isolation", "--no-cache-dir", "--no-deps", str(archive)],
-            package_environment,
-        )
-        run([python, "-I", "-c",
-             "from continuum_memory.storage import _require_sqlcipher_runtime; "
-             "_require_sqlcipher_runtime()"], package_environment)
-        run([str(Path(environment) / "bin" / "continuum"), "--version"], package_environment)
-        run([str(Path(environment) / "bin" / "memoryd"), "--help"], package_environment)
-        run([str(Path(environment) / "bin" / "continuum-mcp"), "--help"], package_environment)
-        run(
-            [str(Path(environment) / "bin" / "continuum-polkit-helper"), "--help"],
-            package_environment,
-        )
-
-
-def application_verification_wheels() -> List[Path]:
-    """Require the three reviewed offline inputs before creating a package test environment."""
-    directory = os.environ.get("CONTINUUM_SQLCIPHER_WHEELHOUSE")
-    if not directory:
-        raise RuntimeError("encrypted application verification requires its reviewed offline wheelhouse")
-    wheelhouse = Path(directory)
-    if wheelhouse.is_symlink() or not wheelhouse.is_dir():
-        raise RuntimeError("application wheelhouse must be a real directory")
-    manifest = json.loads((ROOT / "packaging/sqlcipher/manifest.json").read_text())
-    target = "linuxCp%d%d" % sys.version_info[:2]
-    if target not in manifest["expectedArtifacts"]:
-        raise RuntimeError("encrypted application verification requires a supported CPython ABI")
-    locks = [manifest["expectedArtifacts"][target]] + list(manifest["buildDependencies"].values())
-    if {path.name for path in wheelhouse.iterdir()} != {lock["filename"] for lock in locks}:
-        raise RuntimeError("application wheelhouse must contain exactly the three reviewed wheels")
-    wheels = []
-    for lock in locks:
-        path = wheelhouse / lock["filename"]
-        info = path.lstat()
-        if path.is_symlink() or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise RuntimeError("application input must be an unlinked regular wheel")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != lock["sha256"]:
-            raise RuntimeError("application input SHA-256 does not match the reviewed lock")
-        wheels.append(path)
-    return wheels
 
 
 def main() -> int:
+    (ROOT / "work").mkdir(exist_ok=True)
     schema_check()
     whitespace_check()
     sqlcipher_supply_chain_check()
     application_verification_wheels()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])
-    run([sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests", "-v"])
+    run([sys.executable, "-W", "error::ResourceWarning", "-m", "scripts.application_test_results"])
     run([sys.executable, "-m", "fixtures.demo"])
     packaging_smoke()
     run(["git", "diff", "--check"])

@@ -1,30 +1,38 @@
-# Verification record
+# Verification gates and evidence
 
-Historical plaintext prototype baseline recorded 2026-09-03; native supply-chain and held
-application checkpoints recorded 2026-09-23. Results below identify their separate scopes.
+Integration state recorded 2026-09-24: current main's context/pagination, provider authority,
+platform primitives and release packaging are combined with the held encrypted
+application and offline rotation candidate. Native application verification has not run
+successfully. Source-only checks, historical plaintext results and native-artifact passes
+remain separate evidence; none establishes a pass for this combined application.
 
-Current application checkpoint: `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4`.
-The 28 source/supply-chain verification tests passed locally. Initial native application CI
-is pending; no successful encrypted application execution is claimed for this checkpoint.
+The earlier checkpoint `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4` recorded 28 passing
+source/supply-chain tests. That count is historical, not the integrated suite's result.
 
 ## Supported application verification
 
 Use Linux x86-64 and a supported CPython 3.11-3.14 interpreter in an isolated environment
-with the exact manifest-locked `continuum-sqlcipher3` 0.6.2.post2 wheel, setuptools 80.9.0,
-and wheel 0.45.1 installed. The wheelhouse must contain exactly those three matching wheels;
-the verifier checks their filenames, regular-file status, and hashes. The controlled setup
+with the exact manifest-locked `continuum-sqlcipher3` 0.6.2.post2 wheel, SQLCipher 4.19.0 /
+SQLite 3.53.4, setuptools 80.9.0, and wheel 0.45.1. The native wheelhouse must contain exactly
+those three matching wheels; filenames, regular-file status, and hashes are checked.
+The separate build-tool wheelhouse must satisfy `packaging/build-requirements.txt` for
+PEP 517 and SPDX validation; `packaging/backend-requirements.txt` locks the source-install
+backend subset. Do not merge the two wheelhouse directories. The controlled setup
 is implemented in `.github/workflows/encrypted-storage.yml` and
 `scripts/verify_encrypted_application.py`. In an equivalent offline environment, run:
 
 ```bash
 CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/wheelhouse \
+  CONTINUUM_BUILD_WHEELHOUSE=/absolute/reviewed/build-tool-wheelhouse \
   /absolute/isolated/venv/bin/python scripts/verify.py
 ```
 
 The command parses the checked-in JSON schemas, checks source whitespace, compiles every Python
 module, runs the unit/integration suite with resource warnings promoted to errors, executes
-the complete two-client fixture demo, builds a source distribution, installs that exact
-archive offline into a temporary virtual environment, exercises its entry points, and runs
+the complete two-client fixture demo, builds a normalized PEP 517 source distribution and
+wheel twice, requires identical hashes, validates their SPDX payload inventory and external
+native dependency link, installs each artifact with the strict runtime into a fresh offline
+environment, checks entry points and installed runtime origins, and runs
 `git diff --check`. It also validates the checked-in patched-SQLCipher manifest, source SBOM,
 recipe hashes, and negative regression tests. It requires the reviewed native backend and
 offline build tools; it does not compile native wheels itself. The ordinary `verify` workflow
@@ -37,41 +45,6 @@ Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
 The following records predate the encrypted application candidate. They are not evidence
 that the current candidate runs on this host or supports Python 3.9. The prior plaintext
 verifier also ran on GitHub-hosted Ubuntu 24.04; the current workflow split is described above.
-
-- 46 unit/integration tests: passed.
-- MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
-  size rejection: passed.
-- Pinned legacy fixture protocol `2025-11-25`: initialization and tool listing passed.
-- Lifecycle demo: 17 checks passed, including Agent A proposal, exact user review, Agent B
-  provenance recall, correction/history, recorded-time lookup, conflict surfacing,
-  grant/idempotency replay resistance, two-project and provider-policy isolation,
-  forget/exact/FTS cleanup, and content-free audit/deletion receipts.
-- SQLite `integrity_check`: `ok`; audit HMAC chain: valid; deliberate audit mutation:
-  detected at the first invalid event.
-- Secret canary rejection, FTS syntax generation, changed-preview rejection, feedback
-  non-mutation, context byte budget, and second-daemon fail-closed behavior: passed.
-- Forget regression: one contentful feedback canary deleted, all affected recall-result
-  arrays pruned, and the pre-delete recall handle returned `not_found`: passed.
-- Retention regression with an injected UTC clock: fixed-width normalization, one persisted
-  `expired` transition and audit event, current recall denial, historical retrieval, and
-  preview/apply deadline checks: passed.
-- Strict time validation: invalid calendar dates, naive/space-separated timestamps,
-  invalid 24-hour values, unknown/out-of-range offsets, and trailing data rejected; UTC
-  offset and date-only normalization: passed.
-- Filesystem boundary: data-directory/ancestor/database/capability/socket symlinks,
-  database and capability hardlinks, and group/world-accessible directory/file modes
-  rejected: passed.
-- Portable hyphen/underscore source-distribution discovery, exact filename and embedded
-  name/version validation, invalid/multiple artifact rejection, offline archive install,
-  and the `continuum`, `memoryd`, `continuum-mcp`, and `continuum-polkit-helper` entry
-  points: passed.
-- Linux approval regressions: exact request binding, stdin-only broker transport,
-  cancellation/malformed-helper failure, caller mismatch, fixed root-helper policy,
-  per-UID key selection, real RSA sign/verify, HMAC downgrade rejection, cross-challenge
-  rejection, replay rejection, unprovisioned-runtime failure, explicit test-only prototype
-  injection, exact signed-field and daemon-expiry rejection, policy validation, locked
-  provisioning and umask isolation, Unicode-safe preview rendering, isolated installer
-  environment, and agent denial: passed without invoking polkit.
 
 ## Native SQLCipher artifact gate
 
@@ -94,15 +67,30 @@ a target.
 The separate `encrypted-storage` workflow repeats signed-source verification, A/B native
 builds, strict wheel comparison/inspection, and the installed native regression suite for
 all four supported ABIs. It then creates a fresh offline virtual environment with the three
-hash-locked wheels, verifies the installed backend's version and origin, and runs the full
-application verifier in a disposable copy of the current checkout. All tests, all 17 demo
-checks, and source-package installation must pass. Skipped tests or incomplete results fail
-the gate. This workflow uploads no wheels.
+hash-locked native wheels plus the separate locked build tools, verifies the installed
+backend's version and origin, and runs the full application verifier in a disposable copy
+of the checkout. All applicable tests, all 17 demo checks, reproducible distributions and
+fresh offline installs must pass. This workflow uploads no wheels.
 
-This is implemented verification behavior, not a recorded application pass. At local
-checkpoint `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4`, the 28 passing source tests do not
-replace pending native application execution, independent human acceptance, or the open
-license, signing, macOS, migration, and backup/restore gates.
+The integrated Linux skip policy has passed independent source review: exactly 30 identified tests with
+their expected platform reasons, comprising 11 Windows filesystem, 15 Windows IPC and four
+macOS application tests. Unknown, missing, duplicate or changed skip IDs/reasons must fail;
+a count of 30 alone is insufficient. No cryptographic, encryption, rotation, recovery or
+missing-runtime skip is allowed. This is a reviewed platform inventory, not a native pass.
+
+The reproducible PEP 517/SPDX pipeline is implemented; combined application execution
+remains pending. No source-test count replaces native evidence, independent human
+acceptance, or the open license, privileged-installer compatibility, signing, macOS,
+migration and backup/restore gates. Rotation tests prepare real native crash boundaries;
+death observed inside the rekey call and power-loss durability are not demonstrated.
+
+## Other platform checks
+
+The macOS workflow runs source-only peer primitives. Four prepared macOS
+application/APFS tests await an approved native artifact; no encrypted macOS startup or
+full-verifier result is claimed. Windows filesystem and IPC primitives are isolated
+experiments, not an application port. See [macOS](MACOS_BOUNDARY.md),
+[Windows filesystem](WINDOWS_BOUNDARY.md), and [Windows IPC](WINDOWS_IPC.md).
 
 ## Historical initial-slice and native-only checklist
 

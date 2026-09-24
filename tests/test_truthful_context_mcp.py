@@ -1,4 +1,4 @@
-"""The v2 read contract is identical through both existing MCP fixture modes."""
+"""The v3 read contract is identical through both existing MCP fixture modes."""
 
 import unittest
 
@@ -6,6 +6,30 @@ from fixtures.harness import EphemeralHarness
 
 
 class TruthfulContextMcpTest(unittest.TestCase):
+    def test_modern_and_legacy_clients_traverse_scoped_search_pages(self):
+        with EphemeralHarness() as harness:
+            project = harness.projects["alpha"]["id"]
+            for i in range(4):
+                harness.approve({"operation": "remember", "project": project, "subject": "paging %d" % i,
+                    "claim": "Paging evidence.", "evidence": "Synthetic only."})
+            for provider in ("codex", "claude"):
+                client = harness.mcp("alpha", provider)
+                if provider == "claude":
+                    client.request_legacy("initialize", {"protocolVersion": "2025-11-25",
+                        "capabilities": {}, "clientInfo": {"name": "pagination-fixture", "version": "1"}})
+
+                def call(arguments):
+                    if provider == "codex":
+                        return client.call("memory_search", arguments)
+                    return client.request_legacy("tools/call", {"name": "memory_search", "arguments": arguments})[
+                        "result"]["structuredContent"]
+
+                first = call({"query": "paging", "limit": 2})
+                second = call({"query": "paging", "limit": 2, "cursor": first["next_cursor"]})
+                self.assertEqual(second["completeness"], "complete")
+                ids = [card["version_id"] for page in (first, second) for card in page["cards"]]
+                self.assertEqual(len(set(ids)), 4)
+
     def test_modern_and_legacy_clients_receive_truthful_categories(self):
         with EphemeralHarness() as harness:
             project = harness.projects["alpha"]["id"]
@@ -20,10 +44,10 @@ class TruthfulContextMcpTest(unittest.TestCase):
                         result = client.call("memory_context", args)
                     else:
                         client.request_legacy("initialize", {"protocolVersion": "2025-11-25",
-                            "capabilities": {}, "clientInfo": {"name": "v2-context-fixture", "version": "1"}})
+                            "capabilities": {}, "clientInfo": {"name": "v3-context-fixture", "version": "1"}})
                         result = client.request_legacy("tools/call", {
                             "name": "memory_context", "arguments": args})["result"]["structuredContent"]
-                    self.assertEqual(result["response_version"], 2)
+                    self.assertEqual(result["response_version"], 3)
                     self.assertNotIn("verified_current", result)
                     card = result["accepted_claims"][0]
                     self.assertEqual(card["epistemic"], "asserted")

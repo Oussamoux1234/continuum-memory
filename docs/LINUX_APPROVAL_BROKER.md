@@ -2,7 +2,8 @@
 
 Status: implemented but not yet exercised by a real interactive polkit run in project CI.
 Unprovisioned live vaults fail closed; the terminal signer is retained only as an explicitly
-injected temporary-test fixture.
+injected temporary-test fixture. Installing the current encrypted application wheel into
+the privileged helper environment is blocked by the dependency compatibility gate below.
 
 ## Boundary
 
@@ -29,25 +30,36 @@ administrative preview/apply calls fail closed. HMAC grants are accepted only by
 explicitly injected temporary test kernel. Existing nonce consumption, expiry,
 exact-preview verification, and replay protection remain enforced by the daemon.
 
-## Source installation
+## Reviewed-wheel installation: compatibility gate closed
 
-This development installer is intentionally separate from application initialization. It
-must be reviewed and run explicitly on Linux from a clean checkout:
+The privileged stager `packaging/linux/stage-polkit-wheel.py` requires a wheel with no
+runtime dependencies. The encrypted application wheel requires exactly
+`continuum-sqlcipher3==0.6.2.post2` and must therefore be refused. Do not invoke the installer
+with this candidate or strip its dependency metadata. A separately reviewed helper package
+or dependency-aware privilege boundary is required. Reproducible application builds and
+SPDX evidence from [the distribution guide](LINUX_RELEASE.md) do not satisfy that gate.
 
-```bash
-sudo packaging/linux/install-polkit.sh
-```
+The following preserves the dependency-free installer's design and existing-installation
+diagnostics. It is not a supported installation path for the encrypted candidate.
 
 It creates an offline root-owned helper environment under `/opt/continuum-memory-polkit`,
 installs the fixed launcher at `/usr/libexec/continuum-memory/approval-helper`, and installs
 the polkit policy under `/usr/share/polkit-1/actions`. It canonicalizes its own source path,
 uses fixed system executables, and starts Python/pip with an isolated environment. It does
-not execute an existing runtime: it builds in a new root-created staging directory, rejects
+not execute an existing runtime or source build: it stages the explicit wheel in a new
+root-created directory, rejects
 an unsafe existing runtime, and swaps the staged runtime into place only after the offline
-install succeeds. It does not create approval keys. The reviewed checkout is still trusted
-installation input; signed distribution artifacts remain issue #2.
+install succeeds. It rejects non-canonical paths, links, wrong metadata, and redirected
+helper entry points. The fixed launcher uses the activated environment's absolute Python
+interpreter with `-I -m continuum_memory.polkit_helper`, so moving the staged environment
+does not leave it executing a stale console-script shebang. It does not create approval keys.
+Both the reviewed checkout's policy
+and launcher and the exact verified wheel from the same revision remain trusted
+installation inputs. These checks are not signatures; signed release authorization is
+still a separate owner decision.
 
-With `memoryd` running for the selected vault, provision the per-user key through polkit:
+For a separately accepted, compatible installation only, with `memoryd` running for the
+selected vault, the provisioning sequence is:
 
 ```bash
 continuum approval status
@@ -82,7 +94,8 @@ end-to-end diagnostic; file checks alone are insufficient.
 ## Opt-in real smoke test
 
 Project CI uses deterministic fake-process and real-signature tests and never opens an OS
-authentication prompt. On a Linux workstation, copy the vault ID from `continuum approval
+authentication prompt. After the installation compatibility gate is accepted on a controlled
+Linux workstation, copy the vault ID from `continuum approval
 status`, then run this explicit non-mutating check from a terminal:
 
 ```bash
@@ -91,6 +104,9 @@ python3 scripts/polkit_smoke.py --vault-id vlt_EXAMPLE
 
 The command requests real polkit authorization, displays only a synthetic preview, verifies
 the returned signature, and does not contact `memoryd` or change memory.
+Use the [owner acceptance checklist](LOCAL_ACCEPTANCE_CHECKLIST.md) to capture
+controlled-host, cancellation, policy/path, and signature evidence without recording
+credentials. Preparing that checklist does not count as executing the test.
 
 ## Removal
 
@@ -116,13 +132,15 @@ irreversible unless separately backed up; this is not part of ordinary uninstall
 
 ## Remaining limitations
 
-- This is not an encryption boundary; the database and current control capability remain
-  plaintext prototype material.
+- Approval and storage encryption are separate boundaries. The held application uses the
+  exact Linux post2 SQLCipher runtime with a co-located owner-only storage key; capability
+  files remain readable to the owning user. Neither boundary protects against same-user malware.
 - The real interactive path still needs controlled Linux-host evidence before issue #3 or
   trustworthy local v1 can be marked complete. The independent review is recorded in the
   issue and its focused pull request.
-- OpenSSL and polkit are Linux system dependencies. Distribution packaging, SBOM, and
-  signing remain issue #2.
+- OpenSSL and polkit are Linux system dependencies. Reproducible PEP 517 application
+  packaging and SPDX generation are implemented; encrypted native application execution,
+  privileged installer compatibility, license acceptance, signing and publication remain held.
 - A local administrator can override polkit policy through system rules or replace
   root-owned files; root/admin remains outside this boundary.
 - macOS and Windows require their own OS-specific approval designs in issues #10 and #1.

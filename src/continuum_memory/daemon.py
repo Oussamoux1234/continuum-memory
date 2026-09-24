@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict
 from .daemon_lock import DaemonLock, same_inode
 from .errors import MemoryError
 from .kernel import Kernel
+from .peer import verify_peer_owner
 from .security import (
     ContentSafeArgumentParser,
     MAX_FRAME_BYTES,
@@ -136,12 +137,13 @@ class MemoryServer:
                 sock.close()
                 continue
             try:
+                verify_peer_owner(sock)
                 sock.setblocking(False)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, CHUNK_BYTES)
                 connection = _Connection(sock)
                 self.selector.register(sock, selectors.EVENT_READ, connection)
                 self.connections[sock] = connection
-            except OSError:
+            except (OSError, MemoryError):
                 sock.close()
 
     def _read(self, connection: _Connection) -> None:

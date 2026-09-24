@@ -37,13 +37,20 @@ same-user process, a copy containing both files, old backups or OS snapshots.
 Python byte objects do not promise reliable key erasure. No secure-erasure claim is
 made for existing filesystem blocks or snapshots.
 
-A process killed during atomic key-file replacement can also leave an owner-only
-`.storage.key.<random>.tmp` file containing raw key bytes in the private vault
-directory. Recovery removes the tracked `storage.key.next` and rotation journal;
-it does not discover or retire every such temporary or historical key copy.
-This is retained file content, separate from residual disk blocks. Deterministic
-temporary-key custody and cleanup remain a real-vault acceptance gate; this
-candidate makes no key-destruction or old-ciphertext revocation claim.
+The local custody candidate publishes by renaming the already-durable
+`storage.key.next` inode onto `storage.key`; it creates no third raw-key file.
+It syncs the key inode and parent before rename and the parent again afterward.
+A crash can leave the authenticated journal in `prepared` with the new active key
+and no next-key file; only independently validated, freshly approved recovery may
+continue that state. Missing next with an old active key is refused, never regenerated.
+
+Older code could leave owner-only `.storage.key.<random>.tmp` files containing
+raw key bytes. The new bounded, nonrecursive guard refuses that reserved filename
+namespace, including malformed names and dangling links, without reading or deleting
+the entries. More than 4096 top-level vault entries also fails closed. It does not
+discover historical copies elsewhere or make existing residues safe: owner investigation
+is required. Recovery only removes exact authenticated fixed-path material. There is no
+glob cleanup, key-destruction, physical-erasure or old-ciphertext revocation claim.
 
 ## Repeatable candidate verification
 
@@ -51,17 +58,23 @@ The `encrypted-storage` workflow builds the exact native wheel twice per ABI,
 checks byte equality and strict hashes, verifies native/source evidence and the
 installed native regression suite, then installs that wheel and the pinned build
 tools into a fresh isolated environment. Full application tests, fixture demo and
-source-package installation run in a disposable checkout with network disabled.
-Skipped tests, wrong native imports or incomplete verifier output fail the gate.
+reproducible source/wheel packaging and both fresh installations run in a disposable
+checkout with network disabled. The structured report admits exactly 30 reviewed
+Linux platform exclusions (11 Windows filesystem, 15 Windows pipe, 4 macOS/APFS),
+bound to explicit test IDs and reasons in `tests/platform-skips-linux.json`. Every
+other skip, missing required crypto suite, wrong native import or incomplete result
+fails the gate. This policy never admits a missing encryption backend as a skip.
 That workflow does not upload native wheels.
 
 For an equivalent offline Linux environment, provide a real directory containing
 exactly the selected ABI wheel plus the manifest-pinned setuptools 80.9.0 and wheel
 0.45.1 wheels. Every filename and digest must match the manifest. After those exact
-inputs are installed into the selected interpreter, run:
+inputs and the separate hash-locked `packaging/build-requirements.txt` tool closure
+are installed into the selected interpreter, run:
 
 ```bash
 CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/wheelhouse \
+CONTINUUM_BUILD_WHEELHOUSE=/absolute/reviewed/build-tools \
   /absolute/isolated/venv/bin/python scripts/verify.py
 ```
 
@@ -89,7 +102,7 @@ Backup callers must use the same `require_no_pending_rotation` admission check.
 | Phase | Required durable state |
 | --- | --- |
 | Preparing | The authenticated operation journal exists before the new key is created. |
-| Prepared | The distinct next key and journal are durable before checkpoint and native rekey. The active key remains available. |
+| Prepared | Before rekey: old active plus durable distinct next key. After publication rename: new active and next absent are allowed only after unique copied native integrity/audit/generation proof. The journal remains pending. |
 | Published | A fresh new-key open and integrity checks succeeded, the active key was published durably, and the generation plus one audit event committed with a verified audit anchor. Cleanup can finish. |
 
 Recovery probes each distinct candidate key against its own complete private copy
@@ -124,6 +137,18 @@ process death observed inside the native rekey call is not yet demonstrated.
 The implementation and synthetic proof fixtures do not establish genuine human
 polkit acceptance, power-loss durability or permission to rotate a real vault.
 Do not replace key files manually to clear an error.
+
+The separately runnable filesystem suite uses only synthetic key bytes and real
+file operations/subprocess deaths, not a fake cipher or approval provider:
+
+```bash
+PYTHONPATH=src:. python3 -m unittest tests.test_storage_key_custody -v
+```
+
+It covers key-inode custody before/after fsync and rename, SIGKILL, cleanup boundaries,
+unsafe paths and preserved legacy residue. Passing this suite does not establish native
+SQLCipher rotation, owner presence, Linux power-loss durability or release readiness.
+The expanded native rotation fixture remains a separate required gate.
 
 ## Plaintext migration plan: no conversion command
 

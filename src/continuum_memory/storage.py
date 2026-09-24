@@ -21,6 +21,7 @@ from .admission import AdmissionPolicy
 from .audit_validation import verify_audit_snapshot
 from .errors import CommittedAuditError, MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
+from .storage_key_custody import require_no_legacy_key_residue
 from .security import (
     MAX_BODY_BYTES,
     MAX_SUBJECT_BYTES,
@@ -37,6 +38,7 @@ from .security import (
     read_private,
     replace_private,
     token_hash,
+    validate_capability_authority,
     write_private,
 )
 from .transport import decode_frame
@@ -74,6 +76,7 @@ def paths(data_dir: Path) -> Dict[str, Path]:
 
 
 def require_no_pending_rotation(data_dir: Path) -> None:
+    require_no_legacy_key_residue(data_dir)
     file_map = paths(data_dir)
     if any(path_exists(file_map[name]) for name in ("rotation_state", "next_storage_key")):
         raise MemoryError(
@@ -649,13 +652,15 @@ class Store:
         ).fetchone()
         if not row:
             raise MemoryError("unauthorized", "The capability is invalid or revoked.")
-        return {
+        capability = {
             "id": row["id"],
             "project_id": row["project_id"],
             "provider": row["provider"],
             "permissions": json.loads(row["permissions_json"]),
             "token": token,
         }
+        validate_capability_authority(capability)
+        return capability
 
     def verify_audit(self) -> Dict[str, Any]:
         # Audit rows and the filesystem head need a single writer-serialized view;

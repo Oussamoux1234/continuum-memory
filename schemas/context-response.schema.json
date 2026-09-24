@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://continuum-memory.invalid/schemas/context-response.schema.json",
-  "title": "Continuum Memory context response v2",
+  "title": "Continuum Memory context response v3",
   "description": "Accepted historical data, not independently verified current truth. See docs/CONTEXT_CONTRACT.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["response_version", "temporal_mode", "memory_contract", "status", "completeness", "accepted_claims", "open_conflicts", "projection_watermark", "recorded_sequence_domain", "recall_id", "byte_budget", "omitted_items"],
   "properties": {
-    "response_version": {"const": 2},
+    "response_version": {"const": 3},
     "temporal_mode": {"enum": ["current", "history"]},
     "memory_contract": {
       "type": "object",
@@ -31,17 +31,21 @@
         "required": ["conflict_id", "status", "resolution", "members"],
         "properties": {
           "conflict_id": {"type": "string"},
-          "status": {"enum": ["open", "historical"]},
+          "memory_id": {"type": "string", "description": "Use as a search query to traverse all audience-visible versions in this thread at the same temporal scope."},
+          "member_count": {"type": ["integer", "null"], "minimum": 2, "description": "Eligible group size when assessed; null when the bounded assessment cannot determine membership."},
+          "status": {"enum": ["open", "historical", "not_fully_assessed"]},
           "resolution": {"const": "user_review_required"},
-          "members": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/card"}}
+          "membership_completeness": {"enum": ["complete", "partial"]},
+          "members": {"type": "array", "minItems": 1, "maxItems": 25, "items": {"$ref": "#/$defs/card"}}
         }
       }
     },
     "projection_watermark": {"type": "integer", "minimum": 0},
     "recorded_sequence_domain": {"enum": ["vault_v1", "project_provider_v1"]},
     "recall_id": {"type": "string"},
+    "next_cursor": {"type": "string", "maxLength": 64},
     "byte_budget": {"type": "integer", "minimum": 256, "maximum": 8192},
-    "omitted_items": {"type": "integer", "minimum": 0, "description": "Cards plus whole conflict groups removed for byte packing, not a total count of omitted matches."}
+    "omitted_items": {"type": "integer", "minimum": 0, "description": "Candidate cards deferred for byte packing, not a total count of remaining matches or undisplayed conflict members."}
   },
   "$defs": {
     "card": {
@@ -70,6 +74,7 @@
         "valid_time": {"type": "object"},
         "recorded_interval": {"type": "object"},
         "conflict_id": {"type": ["string", "null"]},
+        "conflict_assessment": {"const": "not_fully_assessed"},
         "provenance": {"type": "object"},
         "why_matched": {"type": "string"},
         "requires_current_verification": {"const": true}

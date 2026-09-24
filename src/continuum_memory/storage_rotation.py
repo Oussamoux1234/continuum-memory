@@ -38,6 +38,9 @@ from .security import (
     write_private,
 )
 from .transport import decode_frame
+from .storage_key_custody import (
+    promote_prepared_key, remove_verified_rotation_material, require_no_legacy_key_residue,
+)
 
 
 MAX_JOURNAL_BYTES = 4096
@@ -136,6 +139,7 @@ def _fingerprint(path: Path, destination: Path | None = None) -> dict:
 def _snapshot(data_dir: Path) -> dict:
     files = storage.paths(data_dir)
     ensure_private_directory(data_dir)
+    require_no_legacy_key_residue(data_dir)
     required = ("db", "storage_key", "audit_key", "audit_head")
     for name in required:
         ensure_private_regular(files[name], "Storage rotation material")
@@ -383,10 +387,9 @@ def _rekey_database(store: storage.Store, next_key: bytes) -> None:
     connection.execute('PRAGMA rekey = "x\'%s\'"' % next_key.hex())
 
 
-def _publish_key(data_dir: Path, next_key: bytes) -> None:
-    # Keep .next until the published journal is durable, so every crash has a key.
-    replace_private(storage.paths(data_dir)["storage_key"], next_key)
-    storage._sync_private_directory(data_dir)
+def _publish_key(data_dir: Path, state: dict) -> None:
+    # Promote the existing durable inode: no anonymous third raw-key copy.
+    promote_prepared_key(data_dir, state["old_key_sha256"], state["new_key_sha256"])
 
 
 def _write_next_key(data_dir: Path, next_key: bytes) -> None:
@@ -452,14 +455,22 @@ def _record_rotation(data_dir: Path, state: dict) -> None:
         store.close()
 
 
-def _cleanup(data_dir: Path) -> None:
+def _cleanup(data_dir: Path, state: dict, audit_key: bytes) -> None:
     files = storage.paths(data_dir)
-    for name in ("next_storage_key", "rotation_state"):
-        path = files[name]
-        if path_exists(path):
-            ensure_private_regular(path, "Storage rotation material")
-            path.unlink()
-            storage._sync_private_directory(data_dir)
+    if state["phase"] not in {"preparing", "published"}:
+        _refuse()
+    if _read_journal(data_dir, audit_key) != state:
+        _refuse()
+    active_hash = _key_hash(storage._read_storage_key(files["storage_key"]))
+    expected_active = state["new_key_sha256"] if state["phase"] == "published" else state["old_key_sha256"]
+    if active_hash != expected_active:
+        _refuse()
+    if path_exists(files["next_storage_key"]):
+        if state["phase"] != "published":
+            _refuse()
+        remove_verified_rotation_material(data_dir, "storage.key.next", state["new_key_sha256"])
+    encoded = (canonical_json(state) + "\n").encode("utf-8")
+    remove_verified_rotation_material(data_dir, "storage.rotation.json", hashlib.sha256(encoded).hexdigest())
 
 
 def _finish(
@@ -506,20 +517,17 @@ def _finish(
     lock.check()
     if path_exists(files["next_storage_key"]):
         _durable_next_key(data_dir, next_key)
-    elif state["phase"] != "published":
+    elif not (state["phase"] in {"prepared", "published"}
+              and _key_hash(active) == state["new_key_sha256"]):
         _refuse()
-    if _key_hash(storage._read_storage_key(files["storage_key"])) != state["new_key_sha256"]:
-        _publish_key(data_dir, next_key)
-    else:
-        # The previous attempt may have renamed the key and then failed its
-        # directory fsync. Do not infer publication durability from visibility.
-        _sync_file(files["storage_key"])
-        storage._sync_private_directory(data_dir)
+    # Includes a repeat inode/directory sync when a prior rename was visible but
+    # its directory sync failed. The unique native probe above is still required.
+    _publish_key(data_dir, state)
     _record_rotation(data_dir, state)
     lock.check()
     state["phase"] = "published"
     _write_journal(data_dir, state, audit_key)
-    _cleanup(data_dir)
+    _cleanup(data_dir, state, audit_key)
     return {"status": "rotated", "operation_id": state["operation_id"],
             "vault_id": state["vault_id"], "storage_generation": state["operation_id"]}
 
@@ -593,7 +601,7 @@ def recover_storage_key(data_dir: Path) -> dict:
                     _refuse()
             if state["phase"] == "preparing" and active_hash != state["old_key_sha256"]:
                 _refuse()
-            if state["phase"] == "prepared" and next_key is None:
+            if state["phase"] == "prepared" and next_key is None and active_hash != state["new_key_sha256"]:
                 _refuse()
             if state["phase"] == "published" and active_hash != state["new_key_sha256"]:
                 _refuse()
@@ -613,11 +621,13 @@ def recover_storage_key(data_dir: Path) -> dict:
                     _refuse()
                 # The copy already proved the unchanged old-key snapshot. Abort
                 # only this preparation; never replay a preexisting hot journal.
-                _cleanup(data_dir)
+                _cleanup(data_dir, state, audit_key)
                 return {"status": "aborted", "operation_id": state["operation_id"],
                         "vault_id": state["vault_id"], "storage_generation": state["current_generation"]}
             if next_key is None:
-                next_key = active  # Only the already-published, uniquely valid new key may reach here.
+                # Prepared post-rename or published: unique copied native proof
+                # and fresh OS approval above are mandatory before reuse.
+                next_key = active
             return _finish(data_dir, state, audit_key, next_key, selected_hash, lock, expires_at)
     except MemoryError:
         raise

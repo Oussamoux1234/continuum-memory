@@ -34,6 +34,9 @@ from scripts.test_patched_sqlcipher_install import (  # noqa: E402
 from scripts.verify_patched_sqlcipher_inputs import verify_bundle  # noqa: E402
 
 
+from scripts.application_test_results import validate_report  # noqa: E402
+
+
 MAX_LOG_BYTES = 8 * 1024 * 1024
 BACKEND_CHECK = """
 import json
@@ -119,14 +122,8 @@ def copy_checkout(destination: Path, expected_commit: str, environment: dict[str
         raise RuntimeError("disposable checkout does not match the workflow commit")
 
 
-def require_complete_verification(output: str) -> dict:
-    summaries = re.findall(r"(?m)^Ran ([0-9]+) tests in [0-9.]+s$", output)
-    if len(summaries) != 1 or int(summaries[0]) == 0:
-        raise RuntimeError("full application test count is missing or ambiguous")
-    if re.search(r"(?m)^OK \(|\.\.\. skipped\b", output):
-        raise RuntimeError("application verification must not skip tests or expect failures")
-    if len(re.findall(r"(?m)^OK$", output)) != 1:
-        raise RuntimeError("full application tests did not report an unqualified success")
+def require_complete_verification(output: str, report: dict) -> dict:
+    evidence = validate_report(report, python_minor="%d.%d" % sys.version_info[:2])
     if output.splitlines().count("verification: PASSED") != 1:
         raise RuntimeError("application verifier did not complete all gates")
 
@@ -150,7 +147,7 @@ def require_complete_verification(output: str) -> dict:
         or not all(value is True for value in checks.values())
     ):
         raise RuntimeError("all 17 application demo checks must pass")
-    return {"testsRun": int(summaries[0]), "testsSkipped": 0, "demoChecksPassed": len(checks)}
+    return {**evidence, "demoChecksPassed": len(checks), "testReport": report}
 
 
 def main() -> int:
@@ -159,12 +156,15 @@ def main() -> int:
     parser.add_argument("--sources", type=Path, required=True)
     parser.add_argument("--wheelhouse", type=Path, required=True)
     parser.add_argument("--repository-commit", required=True)
+    parser.add_argument("--build-wheelhouse", type=Path, required=True)
     arguments = parser.parse_args()
 
     if sys.platform != "linux" or platform.machine() != "x86_64" or os.geteuid() == 0:
         raise RuntimeError("application CI requires a non-root native Linux x86-64 builder")
     sources = arguments.sources.absolute()
     wheelhouse = arguments.wheelhouse.absolute()
+    build_wheelhouse = arguments.build_wheelhouse.absolute()
+    require_real_directory(build_wheelhouse, "application build-tool wheelhouse")
     require_real_directory(sources, "verified source bundle")
     require_real_directory(wheelhouse, "locked native wheelhouse")
     verify_bundle(sources, DEFAULT_MANIFEST)
@@ -215,6 +215,7 @@ def main() -> int:
             lines.append("%s --hash=sha256:%s" % (copied.as_uri(), digest))
         requirements.write_text("\n".join(lines) + "\n", encoding="utf-8")
         environment["CONTINUUM_SQLCIPHER_WHEELHOUSE"] = str(offline_wheels)
+        environment["CONTINUUM_BUILD_WHEELHOUSE"] = str(build_wheelhouse)
         virtualenv = temporary_root / "venv"
         run_logged([sys.executable, "-I", "-m", "venv", str(virtualenv)], temporary_root, environment)
         python = virtualenv / "bin" / "python"
@@ -228,6 +229,13 @@ def main() -> int:
             temporary_root,
             environment,
         )
+        run_logged(
+            [str(python), "-I", "-m", "pip", "--isolated", "install", "--no-index",
+             "--no-cache-dir", "--only-binary=:all:", "--require-hashes",
+             "--find-links", str(build_wheelhouse), "--requirement",
+             str(checkout / "packaging/build-requirements.txt")],
+            temporary_root, environment,
+        )
         backend = subprocess.check_output(
             [str(python), "-I", "-c", BACKEND_CHECK],
             cwd=str(temporary_root), env=environment, text=True,
@@ -239,7 +247,10 @@ def main() -> int:
             # application's src path. Its direct-script imports need scripts/.
             [str(python), "-s", "scripts/verify.py"], checkout, environment
         )
-        evidence = require_complete_verification(output)
+        report_path = checkout / "work/application-tests.json"
+        if not is_single_regular_file(report_path) or report_path.stat().st_size > MAX_LOG_BYTES:
+            raise RuntimeError("application test report is missing or exceeds its bound")
+        evidence = require_complete_verification(output, load_json_strict(report_path))
         evidence.update(
             {
                 "artifactKey": arguments.artifact_key,
@@ -251,6 +262,7 @@ def main() -> int:
                     for label in ("setuptools", "wheel")
                 },
                 "nativeBackend": backend_evidence,
+                "applicationBuildRequirementsSha256": sha256(checkout / "packaging/build-requirements.txt"),
                 "status": "passed",
             }
         )

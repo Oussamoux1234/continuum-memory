@@ -2,12 +2,12 @@
 
 import os
 import socket
-import struct
 import time
 from pathlib import Path
 from typing import Any, Dict
 
 from .errors import MemoryError, UNAVAILABLE
+from .peer import verify_peer_owner
 from .security import MAX_FRAME_BYTES, ensure_private_directory, ensure_private_socket
 from .storage import load_capability, paths
 from .transport import CHUNK_BYTES, CLIENT_TIMEOUT, decode_frame, encode_frame
@@ -86,12 +86,4 @@ class DaemonClient:
 
     @staticmethod
     def _verify_peer_owner(sock: socket.socket) -> None:
-        peer_uid = None
-        getpeereid = getattr(sock, "getpeereid", None)
-        if getpeereid is not None:
-            peer_uid, _peer_gid = getpeereid()
-        elif hasattr(socket, "SO_PEERCRED"):
-            credentials = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
-            _pid, peer_uid, _gid = struct.unpack("3i", credentials)
-        if peer_uid is not None and peer_uid != os.getuid():
-            raise MemoryError("unsafe_owner", "The daemon process is not owned by the current user.")
+        verify_peer_owner(sock)

@@ -1,0 +1,36 @@
+name: macOS peer primitives
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.os }} Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        os: [macos-14, macos-15]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: arm64
+      - name: Check and record actual native environment
+        run: python3 scripts/macos_environment.py --expected-runner '${{ matrix.os }}'
+      - name: Verify isolated peer and parser primitives (no encrypted application claim)
+        env:
+          PYTHONPATH: src:.
+        run: |
+          python3 -m compileall -q src fixtures tests scripts
+          python3 -W error::ResourceWarning -m unittest tests.test_peer.PeerCredentialTest tests.test_json_depth tests.test_windows_boundary.WindowsPathTest tests.test_windows_pipe.PipeInputTest -v
+          git diff --check

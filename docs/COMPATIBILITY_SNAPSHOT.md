@@ -1,10 +1,10 @@
 # Compatibility snapshot
 
-Historical plaintext application baseline recorded 2026-09-03; native supply-chain and
-held application state updated 2026-09-23. The current application checkpoint is
-`79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4`: 28 source tests passed locally, while initial
-native application CI is pending. Earlier prototype/native results do not establish a pass
-for this application candidate.
+Integration state updated 2026-09-24. Main's context/pagination, provider authority,
+platform primitives and reproducible packaging are combined with the held encrypted
+application/rotation candidate. Native application CI remains pending. The earlier
+`79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4` checkpoint's 28 passing source tests and the
+2026-09-03 plaintext baseline do not establish a pass for this integration.
 The application runtime makes no network requests. The patched-wheel workflow permits network
 access only in its pinned source-acquisition container and disables it for build and test.
 
@@ -21,7 +21,11 @@ no Rust toolchain. This is not the current encrypted application's runtime contr
 Codex, Claude Code, and Antigravity versions/configurations were not probed or modified.
 
 The held application test slice is Linux x86-64 with CPython 3.11-3.14 and the exact pinned
-native/build wheels. It refuses a missing or mismatched SQLCipher backend and plaintext
+post2 backend. Its native wheelhouse contains exactly that ABI wheel, setuptools 80.9.0
+and wheel 0.45.1. PEP 517/SPDX build tools have a separate hash-locked wheelhouse.
+Reproducible sdist/wheel creation and external native-dependency SBOM links are implemented;
+combined execution, license acceptance, signing and publication remain pending.
+The application refuses a missing or mismatched SQLCipher backend and plaintext
 databases; there is no standard-library SQLite fallback. See
 [SQLCIPHER_STORAGE.md](SQLCIPHER_STORAGE.md) and [VERIFICATION.md](VERIFICATION.md).
 
@@ -34,4 +38,11 @@ databases; there is no standard-library SQLite fallback. See
 | GitHub-hosted Ubuntu 24.04 x86-64, Python 3.11 | Ordinary `verify` workflow checks source/supply-chain consistency; full application execution belongs to the four-ABI encrypted workflow |
 | manylinux_2_28 x86-64, CPython 3.11-3.14 | Strict native artifact gate passed for `2e90daa`; separate held application workflow repeats the native gates and runs full offline application tests, with initial application CI pending |
 | macOS arm64, CPython 3.11-3.14 native wheel | Blocked: no approved immutable macOS builder/toolchain currently satisfies the Linux evidence standard |
-| Windows | Unsupported: POSIX IPC and filesystem security assumptions require a separate design; tracked in issue #1 |
+| macOS peer/APFS boundary | Source-only peer workflow integration is pending; prepared encrypted application/APFS tests are not a macOS application pass |
+| Windows | Unsupported application runtime; isolated experimental [filesystem](WINDOWS_BOUNDARY.md) and [pipe](WINDOWS_IPC.md) primitives do not establish encrypted application support. Issue #1 remains open. |
+
+The proposed Linux skip policy remains under review: exactly 30 named platform-only
+tests (11 Windows filesystem, 15 Windows IPC, four macOS application), with exact reasons
+and no encryption/cryptographic skips. The privileged Linux helper stager still rejects
+all runtime dependencies; the encrypted application wheel must fail that separate
+compatibility gate. See [verification](VERIFICATION.md) and [release gates](LINUX_RELEASE.md).

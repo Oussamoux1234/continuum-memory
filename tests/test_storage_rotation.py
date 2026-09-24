@@ -144,6 +144,8 @@ class StorageRotationTest(unittest.TestCase):
         for name, (_mode, value) in file_snapshot(self.home).items():
             if isinstance(value, bytes) and name not in {"storage.key", "audit.key"}:
                 self.assertNotIn(CANARY.encode(), value, name)
+                self.assertNotIn(key, value, name)
+                self.assertNotIn(self.vault.old_key, value, name)
         return key
 
     def start_daemon(self):
@@ -207,15 +209,16 @@ class StorageRotationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="continuum-provider-authority-") as temporary:
             home = Path(temporary)
             boot = Store.bootstrap(home, [{"name": "authority", "path_hint": "/fixture/authority",
-                                           "providers": ["user_control"]}])
+                                           "providers": ["codex"]}])
             project = boot["projects"][0]
             with synthetic_approval(self.proof_dir):
                 result = rotation.rotate_storage_key(home)
             store = Store(home)
             try:
                 owner = store.authenticate(load_capability(paths(home)["control"])["token"])
-                scoped = store.authenticate(load_capability(Path(project["capabilities"]["user_control"]))["token"])
-                self.assertEqual(owner["provider"], scoped["provider"])
+                scoped = store.authenticate(load_capability(Path(project["capabilities"]["codex"]))["token"])
+                self.assertEqual(owner["provider"], "user_control")
+                self.assertEqual(scoped["provider"], "codex")
                 self.assertIsNone(owner["project_id"])
                 self.assertEqual(scoped["project_id"], project["id"])
                 self.assertNotIn("control", scoped["permissions"])
@@ -223,6 +226,9 @@ class StorageRotationTest(unittest.TestCase):
                 self.assertEqual(kernel.status(owner, {"project": project["id"]})["storage_generation"],
                                  result["operation_id"])
                 self.assertNotIn("storage_generation", kernel.status(scoped, {}))
+                with self.assertRaises(MemoryError) as caught:
+                    kernel.status(dict(scoped, provider="user_control"), {})
+                self.assertEqual(caught.exception.code, "forbidden")
             finally:
                 store.close()
 
@@ -259,7 +265,9 @@ class StorageRotationTest(unittest.TestCase):
         boundaries = ("next:after", "state:prepared", "rekey:before", "rekey:after",
                       "database_sync:before", "database_sync:after", "publish:before",
                       "publish:after", "record:before", "audit:after_commit", "audit:after_anchor",
-                      "record:after", "state:published", "cleanup:next_unlinked", "cleanup:state_unlinked")
+                      "record:after", "state:published", "cleanup:state_unlinked") + tuple(
+            name + side for name in ("custody:next_fsync", "custody:pre_rename_dir_fsync", "custody:rename",
+                                    "custody:post_rename_dir_fsync") for side in (":before", ":after"))
         for boundary in boundaries:
             with self.subTest(boundary=boundary):
                 vault = RotationVault()
@@ -330,11 +338,41 @@ class StorageRotationTest(unittest.TestCase):
 
     def test_published_duplicate_key_and_missing_next_cleanup_are_idempotent(self):
         self.interrupt("state:published")
+        self.assertFalse(self.files["next_storage_key"].exists())
+        # A legacy successful publication could retain a matching duplicate.
+        write_private(self.files["next_storage_key"], self.files["storage_key"].read_bytes())
         self.assertEqual(self.files["storage_key"].read_bytes(), self.files["next_storage_key"].read_bytes())
         self.assert_pending()
-        self.files["next_storage_key"].unlink()
+        completed = self.child("recover", "cleanup:next_unlinked")
+        self.assertEqual(completed.returncode, CRASH_EXIT, completed.stderr)
+        self.assertFalse(self.files["next_storage_key"].exists())
         self.approved("recover")
         self.assert_clean_rotation()
+
+    def test_prepared_active_new_without_next_requires_native_proof_and_fresh_approval(self):
+        completed = self.child("rotate", "custody:rename:after")
+        self.assertEqual(completed.returncode, CRASH_EXIT, completed.stderr)
+        self.assertEqual(json.loads(self.files["rotation_state"].read_bytes())["phase"], "prepared")
+        self.assertFalse(self.files["next_storage_key"].exists())
+        self.assertNotEqual(self.files["storage_key"].read_bytes(), self.vault.old_key)
+        before = file_snapshot(self.home)
+        with patch.object(rotation, "linux_public_key", return_value=None):
+            with self.assertRaises(MemoryError):
+                rotation.recover_storage_key(self.home)
+        self.assertEqual(file_snapshot(self.home), before)
+        self.approved("recover")
+        self.assert_clean_rotation()
+
+    def test_prepared_active_new_without_next_rejects_audit_corruption_before_approval(self):
+        completed = self.child("rotate", "custody:rename:after")
+        self.assertEqual(completed.returncode, CRASH_EXIT, completed.stderr)
+        self.files["audit_head"].write_bytes(b'{"audit_seq":999999,"mac":"' + b"0" * 64 + b'"}\n')
+        before = file_snapshot(self.home)
+        broker = SyntheticBroker(self.proof_dir)
+        with self.assertRaises(MemoryError):
+            self.approved("recover", broker)
+        self.assertEqual(broker.challenges, [])
+        self.assertEqual(file_snapshot(self.home), before)
 
     def test_orphan_next_key_blocks_store_bootstrap_and_recovery(self):
         write_private(self.files["next_storage_key"], os.urandom(32))
@@ -652,7 +690,8 @@ class StorageRotationTest(unittest.TestCase):
             with self.assertRaises(MemoryError):
                 self.approved()
         self.assertEqual(fired, [True])
-        self.assertEqual(self.files["storage_key"].read_bytes(), self.files["next_storage_key"].read_bytes())
+        self.assertNotEqual(self.files["storage_key"].read_bytes(), self.vault.old_key)
+        self.assertFalse(self.files["next_storage_key"].exists())
         self.assert_pending()
         self.approved("recover")
         self.assert_clean_rotation()
@@ -676,23 +715,30 @@ class StorageRotationTest(unittest.TestCase):
         self.approved("recover")
         self.assertEqual(self.files["storage_key"].read_bytes(), self.vault.old_key)
 
-        sync = storage._sync_private_directory
+        sync = os.fsync
         fired = []
+        cleanup_started = []
+        cleanup = rotation._cleanup
 
-        def fail_cleanup(directory):
+        def entered_cleanup(*args, **kwargs):
+            cleanup_started.append(True)
+            return cleanup(*args, **kwargs)
+
+        def fail_cleanup(descriptor):
             state = self.files["rotation_state"]
-            if (not fired and state.exists() and not self.files["next_storage_key"].exists()
-                    and json.loads(state.read_bytes())["phase"] == "published"):
+            if cleanup_started and not fired and stat.S_ISDIR(os.fstat(descriptor).st_mode) and not state.exists():
                 fired.append(True)
                 raise OSError("Synthetic cleanup directory sync failure")
-            return sync(directory)
+            return sync(descriptor)
 
-        with patch.object(storage, "_sync_private_directory", side_effect=fail_cleanup):
-            with self.assertRaises(MemoryError):
-                self.approved()
+        with patch.object(rotation.os, "fsync", side_effect=fail_cleanup):
+            with patch.object(rotation, "_cleanup", side_effect=entered_cleanup):
+                with self.assertRaises(MemoryError):
+                    self.approved()
         self.assertEqual(fired, [True])
-        self.assert_pending()
-        self.approved("recover")
+        # The final journal unlink was visible; source key/data/audit were
+        # already durable. Do not claim its directory fsync succeeded.
+        self.assertFalse(self.files["rotation_state"].exists())
         self.assert_clean_rotation()
 
     def test_real_reader_blocks_checkpoint_and_preserves_key(self):
@@ -737,7 +783,7 @@ class StorageRotationTest(unittest.TestCase):
                 self.approved()
         self.assertEqual(denied, ["audit_events"])
         self.assertNotEqual(self.files["storage_key"].read_bytes(), self.vault.old_key)
-        self.assertEqual(self.files["storage_key"].read_bytes(), self.files["next_storage_key"].read_bytes())
+        self.assertFalse(self.files["next_storage_key"].exists())
         self.assert_pending()
         connection = open_keyed_readonly(self.files["db"], self.files["storage_key"].read_bytes())
         try:
