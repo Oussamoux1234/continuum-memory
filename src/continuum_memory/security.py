@@ -70,9 +70,32 @@ def bounded_id(value: Any, field: str) -> str:
 
 def bounded_provider(value: Any, field: str = "provider") -> str:
     value = bounded_text(value, field, 32)
-    if not PROVIDER_RE.fullmatch(value):
+    if not PROVIDER_RE.fullmatch(value) or value == "user_control":
         raise invalid("Provider format is invalid.", field)
     return value
+
+
+def is_owner_capability(capability: Dict[str, Any]) -> bool:
+    """Only authenticated, unbound control authority can request owner views."""
+    return ("project_id" in capability and capability["project_id"] is None
+            and capability.get("provider") == "user_control"
+            and isinstance(capability.get("permissions"), list)
+            and "control" in capability["permissions"])
+
+
+def validate_capability_authority(capability: Dict[str, Any]) -> None:
+    """Refuse legacy reserved-label collisions, including already-issued tokens."""
+    permissions = capability.get("permissions")
+    if not isinstance(permissions, list) or not all(isinstance(item, str) for item in permissions):
+        raise MemoryError("forbidden", "The capability authority is invalid.")
+    if is_owner_capability(capability):
+        return
+    if capability.get("project_id") is None or "control" in permissions:
+        raise MemoryError("forbidden", "The capability authority is invalid.")
+    try:
+        bounded_provider(capability.get("provider"))
+    except MemoryError:
+        raise MemoryError("forbidden", "The capability authority is invalid.") from None
 
 
 def require_keys(value: Any, allowed: Iterable[str], required: Iterable[str] = ()) -> Dict[str, Any]:

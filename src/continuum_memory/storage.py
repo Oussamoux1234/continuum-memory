@@ -28,6 +28,7 @@ from .security import (
     read_private,
     replace_private,
     token_hash,
+    validate_capability_authority,
     write_private,
 )
 from .transport import decode_frame
@@ -379,13 +380,15 @@ class Store:
         ).fetchone()
         if not row:
             raise MemoryError("unauthorized", "The capability is invalid or revoked.")
-        return {
+        capability = {
             "id": row["id"],
             "project_id": row["project_id"],
             "provider": row["provider"],
             "permissions": json.loads(row["permissions_json"]),
             "token": token,
         }
+        validate_capability_authority(capability)
+        return capability
 
     def verify_audit(self) -> Dict[str, Any]:
         # Audit rows and the filesystem head need a single writer-serialized view;
