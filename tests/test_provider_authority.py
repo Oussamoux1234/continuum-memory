@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from fixtures.harness import private_test_home
 
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
@@ -16,7 +17,7 @@ class ProviderAuthorityTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="continuum-provider-authority-")
         self.addCleanup(self.temp.cleanup)
-        self.home = Path(self.temp.name)
+        self.home = private_test_home(self.temp.name)
         boot = Store.bootstrap(self.home, [
             {"name": name, "path_hint": "/synthetic/" + name,
              "providers": ["codex", "claude", "custom_agent-2"]} for name in ("alpha", "beta")])

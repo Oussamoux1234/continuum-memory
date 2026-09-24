@@ -1,4 +1,4 @@
-"""Owner-only Unix socket daemon with a serialized request loop."""
+"""Owner-only local daemon with platform I/O and serialized application dispatch."""
 
 import os
 import selectors
@@ -222,6 +222,8 @@ class MemoryServer:
 
 
 def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:
+    if os.name == "nt":
+        return _serve_windows(data_dir, kernel_factory)
     ensure_private_directory(data_dir)
     file_map = paths(data_dir)
     socket_path = file_map["socket"]
@@ -240,6 +242,35 @@ def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) ->
             cleanup.callback(signal.signal, signum, previous)
         try:
             server.serve_forever(poll_interval=0.25, ownership_check=ownership.check)
+        except KeyboardInterrupt:
+            pass
+
+
+def _serve_windows(data_dir: Path, kernel_factory: Callable[[Store], Kernel]) -> None:
+    from .security import hold_private_binding
+    from .windows_runtime import PipePool, WindowsMemoryServer
+
+    def stop(_signum: int, _frame: Any) -> None:
+        raise KeyboardInterrupt
+
+    with ExitStack() as cleanup:
+        # Guards and native endpoint ownership precede all SQLite opening. In
+        # reverse order: workers, Store, pipe ownership, binding/ancestor guards.
+        binding = cleanup.enter_context(hold_private_binding(paths(data_dir)["ipc_binding"]))
+        pool = cleanup.enter_context(PipePool(binding))
+        store = Store(data_dir)
+        cleanup.callback(store.close)
+        handler = RequestHandler(store, kernel_factory(store))
+        server = WindowsMemoryServer(pool, handler.handle)
+        cleanup.callback(server.server_close)
+        signals = [signal.SIGINT, signal.SIGTERM]
+        if hasattr(signal, "SIGBREAK"):
+            signals.append(signal.SIGBREAK)
+        for signum in signals:
+            previous = signal.signal(signum, stop)
+            cleanup.callback(signal.signal, signum, previous)
+        try:
+            server.serve_forever(ownership_check=lambda: ensure_private_directory(data_dir))
         except KeyboardInterrupt:
             pass
 

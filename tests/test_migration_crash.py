@@ -5,7 +5,6 @@ atomicity, not host power-loss durability or an encrypted storage provider.
 """
 
 import os
-import select
 import shutil
 import sqlite3
 import subprocess
@@ -15,6 +14,7 @@ import unittest
 from pathlib import Path
 
 from continuum_memory.migrations import SCHEMA_VERSION, migrate
+from fixtures.process_io import read_line
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,7 +108,7 @@ class MigrationProcessCrashTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="continuum-migration-crash-")
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
-        self.environment = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
+        self.environment = dict(os.environ, PYTHONPATH=os.pathsep.join([str(ROOT / "src"), str(ROOT)]))
 
     def command(self, path, version, point):
         return [sys.executable, str(Path(__file__).resolve()), "--migration-child", str(path),
@@ -169,11 +169,8 @@ class MigrationProcessCrashTest(unittest.TestCase):
         return child
 
     def line(self, child):
-        ready, _, _ = select.select([child.stdout], [], [], 10)
-        self.assertTrue(ready, "Synthetic migration process did not reach its barrier")
-        return child.stdout.readline().strip()
+        return read_line(child.stdout).strip()
 
-    @unittest.skipUnless(os.name == "posix", "Pipe-barrier test requires the current POSIX runtime")
     def test_stale_opener_rechecks_version_after_competing_migration_commits(self):
         for version in (2, 3, 4):
             with self.subTest(version=version):
@@ -255,6 +252,7 @@ def child_main():
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--migration-child":
+        sys.stdout.reconfigure(newline="\n")
         child_main()
     else:
         unittest.main()

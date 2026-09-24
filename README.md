@@ -136,6 +136,8 @@ implementation can replace it later.
 - `docs/architecture/` — accepted architecture decisions.
 - `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
 - `docs/MACOS_BOUNDARY.md` — native macOS verification, evaluation runbook, and unresolved approval/key/ACL gates.
+- [Windows verification](docs/WINDOWS_VERIFICATION.md) — native PowerShell evaluation and CI for disposable synthetic vaults; candidate status, not production approval or encryption.
+- [Windows security boundary](docs/WINDOWS_BOUNDARY.md) — NTFS ownership, named-pipe runtime, and remaining security acceptance gates.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.

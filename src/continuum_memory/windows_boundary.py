@@ -1,14 +1,16 @@
-"""Experimental Windows filesystem boundary; not enabled by the vault runtime.
+"""Native Windows filesystem boundary for the plaintext prototype.
 
 Only local fixed NTFS volumes and unambiguous DOS drive paths are accepted.
-Private objects have one protected, explicit full-control ACE for the process
-user. Ancestors are held without delete sharing during the entire operation.
+Directories have one protected, inheritable full-control ACE for the process
+user. Files may inherit exactly that ACE from a pinned private parent.
+Ancestors are held without delete sharing during the entire operation.
 This module does not establish a boundary against the same user or an admin.
 """
 
 import ctypes
 import os
 import re
+import secrets
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 
@@ -26,6 +28,7 @@ READ_CONTROL = 0x00020000
 FILE_READ_ATTRIBUTES = 0x80
 GENERIC_READ = 0x80000000
 GENERIC_WRITE = 0x40000000
+DELETE = 0x00010000
 FILE_ALL_ACCESS = 0x001F01FF
 FILE_ATTRIBUTE_DIRECTORY = 0x10
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
@@ -54,6 +57,10 @@ class _Acl(ctypes.Structure):
 
 class _Ace(ctypes.Structure):
     _fields_ = [("kind", BYTE), ("flags", BYTE), ("size", WORD), ("mask", DWORD)]
+
+
+class _RenameInfo(ctypes.Structure):
+    _fields_ = [("replace", DWORD), ("root", HANDLE), ("length", DWORD), ("name", ctypes.c_uint16 * 1)]
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,7 @@ class WindowsBoundary:
             (self.kernel, "ReadFile", BOOL, [HANDLE, POINTER, DWORD, POINTER, POINTER]),
             (self.kernel, "WriteFile", BOOL, [HANDLE, POINTER, DWORD, POINTER, POINTER]),
             (self.kernel, "FlushFileBuffers", BOOL, [HANDLE]),
+            (self.kernel, "SetFileInformationByHandle", BOOL, [HANDLE, DWORD, POINTER, DWORD]),
             (self.security, "OpenProcessToken", BOOL, [HANDLE, DWORD, POINTER]),
             (self.security, "GetTokenInformation", BOOL, [HANDLE, DWORD, POINTER, DWORD, POINTER]),
             (self.security, "ConvertSidToStringSidW", BOOL, [POINTER, POINTER]),
@@ -150,27 +158,37 @@ class WindowsBoundary:
         finally:
             self.kernel.LocalFree(text)
 
-    def _process_sid(self):
+    def _process_sid(self, information_class=1):
         token = HANDLE()
         if not self.security.OpenProcessToken(self.kernel.GetCurrentProcess(), 0x8, ctypes.byref(token)):
             raise _failure()
         try:
             size = DWORD()
-            self.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+            # TokenUser (1) and TokenOwner (4) both begin with a SID pointer.
+            self.security.GetTokenInformation(token, information_class, None, 0, ctypes.byref(size))
             if not 0 < size.value <= 65536:
                 raise _failure()
             data = ctypes.create_string_buffer(size.value)
-            if not self.security.GetTokenInformation(token, 1, data, size, ctypes.byref(size)):
+            if not self.security.GetTokenInformation(token, information_class, data, size, ctypes.byref(size)):
                 raise _failure()
             return self._sid_string(POINTER.from_buffer(data).value)
         finally:
             self._close(token)
 
+    def require_creation_owner(self):
+        """SQLite uses the token's default owner, not our explicit file SDDL.
+
+        Elevated tokens can default to Administrators ownership. Refuse before
+        SQLite creates anything; production never rewrites token or file owners.
+        """
+        if self._process_sid(4) != self.sid:
+            raise MemoryError("unsupported_token_owner", "The process default file owner must be its own user SID.")
+
     @contextmanager
-    def _attributes(self):
+    def _attributes(self, directory=False):
         descriptor = POINTER()
         # No inherited ACEs, group grants, generic rights, or default owner.
-        sddl = "O:%sD:P(A;;FA;;;%s)" % (self.sid, self.sid)
+        sddl = "O:%sD:P(A;%s;FA;;;%s)" % (self.sid, "OICI" if directory else "", self.sid)
         if not self.security.ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl, 1, ctypes.byref(descriptor), None
         ):
@@ -195,11 +213,11 @@ class WindowsBoundary:
         if name.value != "NTFS" or not flags.value & 8:
             raise MemoryError("unsupported_filesystem", "NTFS with persistent ACLs is required.")
 
-    def _open(self, path, access=READ_CONTROL | FILE_READ_ATTRIBUTES, create=False, attributes=None):
+    def _open(self, path, access=READ_CONTROL | FILE_READ_ATTRIBUTES, create=False, attributes=None, share=3):
         handle = self.kernel.CreateFileW(
             # Metadata-only opens do NOT participate in sharing checks. Include
             # FILE_READ_DATA / FILE_LIST_DIRECTORY so no-delete-sharing pins it.
-            path, access | 1, 3, ctypes.byref(attributes) if attributes is not None else None,
+            path, access | 1, share, ctypes.byref(attributes) if attributes is not None else None,
             1 if create else 3,  # CREATE_NEW / OPEN_EXISTING; never truncate.
             FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, None,
         )
@@ -221,7 +239,7 @@ class WindowsBoundary:
             raise MemoryError("unsafe_file", "Private files must have exactly one hardlink.")
         return FileIdentity(info.volume, (info.index_high << 32) | info.index_low)
 
-    def _private_acl(self, handle):
+    def _private_acl(self, handle, directory=False, inherited=False, require_inheritance=False):
         owner, dacl, descriptor = POINTER(), POINTER(), POINTER()
         status = self.security.GetSecurityInfo(
             handle, 1, 5, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor)
@@ -234,7 +252,7 @@ class WindowsBoundary:
             control, revision = WORD(), DWORD()
             if not self.security.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)):
                 raise _failure()
-            if control.value & 0x1004 != 0x1004 or not dacl:
+            if not control.value & 4 or not dacl:
                 raise MemoryError("unsafe_permissions", "A protected owner-only DACL is required.")
             acl = _Acl.from_address(dacl.value)
             if acl.count != 1:
@@ -243,7 +261,13 @@ class WindowsBoundary:
             if not self.security.GetAce(dacl, 0, ctypes.byref(address)):
                 raise _failure()
             ace = _Ace.from_address(address.value)
-            if ace.kind != 0 or ace.flags != 0 or ace.mask != FILE_ALL_ACCESS or ace.size < 16:
+            flags = ((3,) if require_inheritance else (0, 3)) if directory else (0,)
+            explicit = bool(control.value & 0x1000) and ace.flags in flags
+            # An inherited leaf is permitted only by open_private after validating
+            # its immediate directory, not merely an arbitrary ancestor's ACL.
+            inherited_leaf = inherited and not directory and ace.flags == 0x10
+            if (not (explicit or inherited_leaf) or ace.kind != 0
+                    or ace.mask != FILE_ALL_ACCESS or ace.size < 16):
                 raise MemoryError("unsafe_permissions", "The private ACE is unsupported.")
             sid = address.value + ctypes.sizeof(_Ace)
             if not self.security.IsValidSid(sid) or self.security.GetLengthSid(sid) + ctypes.sizeof(_Ace) != ace.size:
@@ -267,17 +291,19 @@ class WindowsBoundary:
             yield
 
     @contextmanager
-    def open_private(self, path, directory=False, access=READ_CONTROL | FILE_READ_ATTRIBUTES):
+    def open_private(self, path, directory=False, access=READ_CONTROL | FILE_READ_ATTRIBUTES, share=3):
         """Keep leaf and ancestors pinned for the caller's complete operation."""
         path = local_path(path)
-        with self._parents(path):
-            handle = self._open(path, access | READ_CONTROL | FILE_READ_ATTRIBUTES)
+        with self._parents(path), ExitStack() as parent:
+            if not directory:
+                parent.enter_context(self.open_private(path.rsplit("\\", 1)[0], directory=True))
+            handle = self._open(path, access | READ_CONTROL | FILE_READ_ATTRIBUTES, share=share)
             try:
                 self._info(handle, directory)
-                self._private_acl(handle)
+                self._private_acl(handle, directory, inherited=not directory)
                 yield handle
                 self._info(handle, directory)
-                self._private_acl(handle)
+                self._private_acl(handle, directory, inherited=not directory)
             finally:
                 self._close(handle)
 
@@ -288,7 +314,7 @@ class WindowsBoundary:
     def create_directory(self, path):
         """Create one private directory under existing ancestors; never chmod an existing object."""
         path = local_path(path)
-        with self._parents(path), self._attributes() as attributes:
+        with self._parents(path), self._attributes(directory=True) as attributes:
             if not self.kernel.CreateDirectoryW(path, ctypes.byref(attributes)):
                 raise _failure()
             return self.inspect(path, directory=True)
@@ -320,14 +346,67 @@ class WindowsBoundary:
         if type(maximum) is not int or not 0 <= maximum <= 65536:
             raise MemoryError("invalid_request", "The private read bound is invalid.")
         with self.open_private(path, access=GENERIC_READ) as handle:
-            result = bytearray()
-            while len(result) <= maximum:
-                size = min(4096, maximum + 1 - len(result))
-                buffer, received = ctypes.create_string_buffer(size), DWORD()
-                if not self.kernel.ReadFile(handle, buffer, size, ctypes.byref(received), None):
+            return self._read_handle(handle, maximum)
+
+    def _read_handle(self, handle, maximum):
+        result = bytearray()
+        while len(result) <= maximum:
+            size = min(4096, maximum + 1 - len(result))
+            buffer, received = ctypes.create_string_buffer(size), DWORD()
+            if not self.kernel.ReadFile(handle, buffer, size, ctypes.byref(received), None):
+                raise _failure()
+            if not received.value:
+                return bytes(result)
+            result.extend(buffer.raw[:received.value])
+            if len(result) > maximum:
+                raise MemoryError("unsafe_file", "Private material is unexpectedly large.")
+
+    @contextmanager
+    def hold_binding(self, path):
+        """Pin a fixed-size endpoint identity against write, truncate and delete."""
+        with self.open_private(path, access=GENERIC_READ, share=1) as handle:
+            binding = self._read_handle(handle, 32)
+            if len(binding) != 32:
+                raise MemoryError("unsafe_file", "The IPC binding must contain exactly 32 bytes.")
+            yield binding
+
+    def _rename(self, source, destination):
+        # The caller keeps the validated destination parent and every ancestor
+        # pinned. Use the native-tested absolute form: the Windows 2025 Win32
+        # wrapper rejected RootDirectory + basename with ERROR_INVALID_PARAMETER.
+        encoded = local_path(destination).encode("utf-16-le")
+        buffer = ctypes.create_string_buffer(ctypes.sizeof(_RenameInfo) + len(encoded) + 2)
+        info = _RenameInfo.from_buffer(buffer)
+        info.replace, info.root, info.length = 1, None, len(encoded)
+        ctypes.memmove(ctypes.addressof(buffer) + _RenameInfo.name.offset, encoded, len(encoded))
+        if not self.kernel.SetFileInformationByHandle(source, 3, buffer, len(buffer)):
+            raise _failure()
+
+    def replace(self, path, data):
+        """Flush new content and atomically replace metadata in a pinned directory.
+
+        This is process-crash consistency, not a power-loss/directory-fsync or
+        secure-erasure guarantee. Never used to publish encryption keys.
+        """
+        path = local_path(path)
+        parent_path, name = path.rsplit("\\", 1)
+        temporary = parent_path + "\\." + name + "." + secrets.token_hex(6) + ".tmp"
+        with self.open_private(parent_path, directory=True):
+            if os.path.lexists(path):
+                self.inspect(path)
+            self.write_new(temporary, data)
+            # DELETE access belongs only to this validated source handle. Parent
+            # pins and CREATE_NEW prevent following a replaced path to a target.
+            with self.open_private(temporary, access=GENERIC_WRITE | DELETE) as source:
+                identity = self._info(source, False)
+                try:
+                    self._rename(source, path)
+                except BaseException:
+                    # Delete only our still-held, validated source object. This
+                    # never unlinks a substituted pathname or the old target.
+                    disposition = BOOL(True)
+                    self.kernel.SetFileInformationByHandle(source, 4, ctypes.byref(disposition), ctypes.sizeof(disposition))
+                    raise
+                if self._info(source, False) != identity or not self.kernel.FlushFileBuffers(source):
                     raise _failure()
-                if not received.value:
-                    return bytes(result)
-                result.extend(buffer.raw[:received.value])
-                if len(result) > maximum:
-                    raise MemoryError("unsafe_file", "Private material is unexpectedly large.")
+            self.inspect(path)

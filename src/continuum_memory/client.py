@@ -1,4 +1,4 @@
-"""Bounded one-request Unix socket client used by CLI and MCP bridge."""
+"""Bounded one-request local client used by CLI and MCP bridge."""
 
 import os
 import socket
@@ -32,6 +32,15 @@ class DaemonClient:
             payload = encode_frame(request)
         except (UnicodeError, ValueError, RecursionError) as exc:
             raise MemoryError("request_too_large", "The local request exceeds the frame limit.") from exc
+        if os.name == "nt":
+            from .security import read_private
+            from .windows_runtime import exchange
+            chunks = exchange(read_private(paths(self.data_dir)["ipc_binding"], 32), payload)
+        else:
+            chunks = self._unix_exchange(payload)
+        return self._response(chunks)
+
+    def _unix_exchange(self, payload: bytes) -> bytes:
         expected_socket = ensure_private_socket(self.socket_path)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         deadline = time.monotonic() + CLIENT_TIMEOUT
@@ -60,6 +69,10 @@ class DaemonClient:
             raise UNAVAILABLE from exc
         finally:
             sock.close()
+        return bytes(chunks)
+
+    @staticmethod
+    def _response(chunks: bytes) -> Any:
         if len(chunks) > MAX_FRAME_BYTES or b"\n" not in chunks:
             raise MemoryError("invalid_response", "The local service returned an invalid response.")
         try:

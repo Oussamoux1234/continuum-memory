@@ -1,7 +1,6 @@
 """Replaceable human-presence broker boundary."""
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -16,6 +15,7 @@ from .approval import (
     approval_request,
     decode_grant,
     ensure_root_owned_regular,
+    local_posix_uid,
     provision_request,
 )
 from .errors import MemoryError
@@ -66,7 +66,7 @@ class LinuxPolkitApprovalBroker:
         self.pkexec_path = pkexec_path
         self.runner = runner
         self.path_validator = path_validator
-        self.caller_uid = os.getuid() if caller_uid is None else caller_uid
+        self.caller_uid = local_posix_uid() if caller_uid is None else caller_uid
 
     def _invoke(self, action: str, request: Dict[str, Any], timeout: int) -> Dict[str, Any]:
         self.path_validator(self.pkexec_path, "The pkexec executable", executable=True)

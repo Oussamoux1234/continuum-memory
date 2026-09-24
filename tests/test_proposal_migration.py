@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from fixtures.harness import private_test_home
 from unittest.mock import patch
 
 from continuum_memory import storage
@@ -16,7 +17,7 @@ from continuum_memory.storage import Store, load_capability, paths
 class ProposalMigrationTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="continuum-v3-upgrade-")
-        self.home = Path(self.temp.name)
+        self.home = private_test_home(self.temp.name)
         schema = (Path(__file__).parent / "fixtures" / "schema-v3.sql").read_text()
         with patch.object(storage, "SCHEMA_SQL", schema), patch.object(storage, "SCHEMA_VERSION", 3):
             boot = Store.bootstrap(self.home, [{"name": "alpha", "path_hint": "/synthetic/alpha", "providers": ["codex"]}])

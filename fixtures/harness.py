@@ -11,8 +11,18 @@ from typing import Any, Dict, List, Optional
 
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
-from continuum_memory.security import canonical_json, sign_grant
+from continuum_memory.security import canonical_json, sign_grant, write_private
 from continuum_memory.storage import Store, load_capability, paths
+
+
+def private_test_home(temporary_name: str) -> Path:
+    """Create a new Windows ACL-protected child; never chmod a broad temp root."""
+    root = Path(temporary_name)
+    if os.name == "nt":
+        from continuum_memory.security import create_private_directory
+        root = root / "vault"
+        create_private_directory(root)
+    return root
 
 
 class McpFixtureClient:
@@ -35,6 +45,7 @@ class McpFixtureClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             bufsize=1,
             env=environment,
         )
@@ -110,15 +121,23 @@ class McpFixtureClient:
 class EphemeralHarness:
     def __init__(self, daemon_module: str = "fixtures.prototype_daemon"):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-memory-test-")
-        self.data_dir = Path(self.temporary.name)
+        self.clients: List[McpFixtureClient] = []
+        self.daemon = None
+        try:
+            self._start(daemon_module)
+        except BaseException:
+            self.close()
+            raise
+
+    def _start(self, daemon_module: str) -> None:
+        self.data_dir = private_test_home(self.temporary.name)
         self.marker = self.data_dir / ".continuum-test-vault"
         project_specs = [
             {"name": "alpha", "path_hint": "/fixture/alpha", "providers": ["codex", "claude"]},
             {"name": "beta", "path_hint": "/fixture/beta", "providers": ["codex", "claude"]},
         ]
         self.bootstrap = Store.bootstrap(self.data_dir, project_specs)
-        self.marker.write_text("ephemeral fixture only\n", encoding="utf-8")
-        os.chmod(str(self.marker), 0o600)
+        write_private(self.marker, b"ephemeral fixture only\n")
         self.projects = {entry["name"]: entry for entry in self.bootstrap["projects"]}
         self.control = DaemonClient(self.data_dir, paths(self.data_dir)["control"])
         root = Path(__file__).resolve().parents[1]
@@ -132,21 +151,20 @@ class EphemeralHarness:
             env=environment,
         )
         self._wait_ready()
-        self.clients: List[McpFixtureClient] = []
 
     def _wait_ready(self) -> None:
-        socket_path = paths(self.data_dir)["socket"]
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
             if self.daemon.poll() is not None:
                 stderr = self.daemon.stderr.read().decode("utf-8") if self.daemon.stderr else ""
                 raise RuntimeError("daemon failed: %s" % stderr)
-            if socket_path.exists():
-                try:
-                    self.control.call("status", {"project": self.projects["alpha"]["id"]})
-                    return
-                except MemoryError:
-                    pass
+            # Named pipes have no socket-file readiness marker. A real response
+            # proves the transport, capability authentication and store are ready.
+            try:
+                self.control.call("status", {"project": self.projects["alpha"]["id"]})
+                return
+            except MemoryError:
+                pass
             time.sleep(0.02)
         raise RuntimeError("daemon did not become ready")
 
@@ -197,14 +215,14 @@ class EphemeralHarness:
         for client in self.clients:
             client.close()
         self.clients = []
-        if self.daemon.poll() is None:
+        if self.daemon is not None and self.daemon.poll() is None:
             self.daemon.terminate()
             try:
                 self.daemon.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.daemon.kill()
                 self.daemon.wait(timeout=2)
-        if self.daemon.stderr:
+        if self.daemon is not None and self.daemon.stderr:
             self.daemon.stderr.close()
         self.temporary.cleanup()
 

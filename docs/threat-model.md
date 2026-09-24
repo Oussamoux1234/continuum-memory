@@ -30,8 +30,11 @@ The prototype does not claim confidentiality, secure deletion, fully reviewed hu
 perfect timing noninterference, crash-proof audit anchoring, or enforcement inside unrelated
 host tools. These are release blockers for stronger maturity language.
 
-The [experimental Windows filesystem boundary](WINDOWS_BOUNDARY.md) is not selected
-by the runtime. Its native ACL/reparse/hardlink tests are substrate evidence only;
-they do not extend any runtime mitigation in this table to Windows. Native IPC,
-SQLite sidecars, approval, lifecycle, durability and full application verification
-remain unsupported.
+The [native Windows candidate](WINDOWS_BOUNDARY.md) selects handle-based private
+filesystem/SQLite guards and [bounded named-pipe IPC](WINDOWS_IPC.md). The POSIX
+lock-inode/socket-removal description above does not apply to it: Windows holds
+an immutable binding and first pipe instance before Store opening, with kernel
+handle release rather than socket-file removal. Exact-head full native CI and
+the remaining security fixtures are pending; old isolated primitive jobs do not
+establish application acceptance. Native production approval, encryption/key
+custody, hostile same-account resistance and power-loss durability are not added.

@@ -22,6 +22,7 @@ from continuum_memory.storage import Store, paths
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@unittest.skipUnless(os.name == "posix", "POSIX lock/socket contract; Windows uses the native pipe pool and binding guards")
 class DaemonLockTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-lock-")

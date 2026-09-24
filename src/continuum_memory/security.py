@@ -9,6 +9,7 @@ import re
 import secrets
 import stat
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -183,10 +184,37 @@ def _reject_untrusted_symlink_ancestors(path: Path) -> None:
 
 
 def ensure_safe_ancestors(path: Path) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary, local_path
+        with WindowsBoundary()._parents(local_path(path / "boundary-probe")):
+            return
     _reject_untrusted_symlink_ancestors(path)
 
 
-def ensure_private_directory(path: Path) -> os.stat_result:
+def create_private_directory(path: Path, parents: bool = False) -> None:
+    """Create owner-only directories; never tighten or adopt an existing object."""
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary, local_path
+        boundary = WindowsBoundary()
+        boundary._volume(local_path(path)[:3])
+        missing = [path]
+        if parents:
+            while not path_exists(missing[-1].parent):
+                if missing[-1].parent == missing[-1]:
+                    raise MemoryError("unsafe_directory", "The private directory has no existing local ancestor.")
+                missing.append(missing[-1].parent)
+        for directory in reversed(missing):
+            boundary.create_directory(directory)
+        return
+    ensure_safe_ancestors(path.parent)
+    path.mkdir(mode=0o700, parents=parents)
+    ensure_private_directory(path)
+
+
+def ensure_private_directory(path: Path):
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path, directory=True)
     _reject_untrusted_symlink_ancestors(path.parent)
     try:
         info = path.lstat()
@@ -201,7 +229,10 @@ def ensure_private_directory(path: Path) -> os.stat_result:
     return info
 
 
-def ensure_private_regular(path: Path, label: str = "Private material") -> os.stat_result:
+def ensure_private_regular(path: Path, label: str = "Private material"):
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path)
     _reject_untrusted_symlink_ancestors(path.parent)
     try:
         info = path.lstat()
@@ -243,6 +274,10 @@ def _validate_open_regular(fd: int, label: str) -> os.stat_result:
 
 
 def write_private(path: Path, data: bytes) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        WindowsBoundary().write_new(path, data)
+        return
     ensure_private_directory(path.parent)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -262,6 +297,10 @@ def write_private(path: Path, data: bytes) -> None:
 
 
 def replace_private(path: Path, data: bytes) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        WindowsBoundary().replace(path, data)
+        return
     ensure_private_directory(path.parent)
     if path_exists(path):
         ensure_private_regular(path)
@@ -283,6 +322,9 @@ def replace_private(path: Path, data: bytes) -> None:
 
 
 def read_private(path: Path, maximum: int = 4096) -> bytes:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().read(path, maximum)
     ensure_private_directory(path.parent)
     # Only regular files are valid; a raced-in FIFO must not block before fstat.
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
@@ -306,6 +348,14 @@ def read_private(path: Path, maximum: int = 4096) -> bytes:
         return bytes(chunks)
     finally:
         os.close(fd)
+
+
+@contextmanager
+def hold_private_binding(path: Path):
+    """Windows-only lifetime guard for the immutable nonsecret IPC identity."""
+    from .windows_boundary import WindowsBoundary
+    with WindowsBoundary().hold_binding(path) as binding:
+        yield binding
 
 
 def now_iso() -> str:

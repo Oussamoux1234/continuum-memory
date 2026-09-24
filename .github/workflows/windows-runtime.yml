@@ -1,0 +1,50 @@
+name: Windows native prototype
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Windows 2025 Python ${{ matrix.python }}
+    runs-on: windows-2025
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - name: Record actual native environment
+        shell: pwsh
+        run: |
+          python -c "import os, platform, sqlite3, struct, sys; assert os.name == 'nt' and struct.calcsize('P') == 8 and platform.machine().upper() in ('AMD64', 'X86_64'); print(platform.platform()); print(platform.machine()); print(sys.version); print('SQLite', sqlite3.sqlite_version)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output "Runner image: $env:ImageOS $env:ImageVersion"
+      - name: Prepare hash-pinned verification tools
+        shell: pwsh
+        run: |
+          python -m pip download --only-binary=:all: --require-hashes -r packaging/build-requirements.txt --dest work/build-wheels
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --no-index --find-links work/build-wheels --require-hashes -r packaging/build-requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Full verifier, lifecycle demo and offline distributions
+        shell: pwsh
+        env:
+          CONTINUUM_RELEASE_OUTPUT: work/release
+          CONTINUUM_CI_OWNER_FIXTURE: approved-process-only-v1
+        # Explicitly approved disposable-process TokenOwner fixture. Production
+        # rejects incompatible tokens; it never changes token/account policy.
+        run: python fixtures/windows_test_owner.py
+      # Explicitly no artifact upload: source packages, wheels and SBOMs remain
+      # on the disposable runner. Logs report verification, never vault content.
