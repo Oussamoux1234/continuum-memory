@@ -1,14 +1,21 @@
 # Patched SQLCipher wheel supply-chain gate
 
-Status: Issue #13; hardened Linux CI test-artifact pipeline, not application integration or
-release packaging.
+Status: Issue #13 native supply-chain gate, consumed by the held Issue #7 application
+candidate in this branch. No release or human security/license acceptance is claimed.
 
 The September 23 candidate updates SQLCipher to 4.19.0 for the vendor's September 8
 fixes. Historical September 7 OSV evidence is preserved. See the
 [dated source and security review](../packaging/sqlcipher/SOURCE_REVIEW_2026-09-23.md)
 for the advisory, exact source identities, unresolved license status, and remaining
-acceptance gates. Candidate hashes and native checks passed in the restricted
-bootstrap; normal strict-hash exact-head CI remains pending at this checkpoint.
+acceptance gates. Strict native CI passed for
+`2e90daa6161139de37cccd659703d9fa8fc25aea` in the
+[PR](https://github.com/Oussamoux1234/continuum-memory/actions/runs/35872266003),
+[direct-head](https://github.com/Oussamoux1234/continuum-memory/actions/runs/35872463590), and
+[push](https://github.com/Oussamoux1234/continuum-memory/actions/runs/35873404030) runs.
+The dated source review preserves its earlier checkpoint. The separate application
+checkpoint `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4` has 28 passing source tests;
+its initial native application CI remains pending. The native results do not establish
+application encryption or integration acceptance.
 
 ## Scope
 
@@ -17,15 +24,18 @@ The current gate builds `continuum-sqlcipher3` 0.6.2.post2 for Linux x86-64 on C
 replacing the vulnerable native dependency set evaluated in Issue #7 with SQLCipher 4.19.0 /
 SQLite 3.53.4 / OpenSSL 3.5.8 LTS.
 
-These are ephemeral CI test artifacts. Continuum Memory does not depend on or install them,
-and the application remains on plaintext SQLite. Windows is unsupported. macOS arm64 is
+This unmerged application candidate depends on the strict `0.6.2.post2` wheel and refuses
+a missing or mismatched SQLCipher backend. The native wheels remain ephemeral CI test
+artifacts; signing and permanent distribution are unapproved. See
+[the held application contract](SQLCIPHER_STORAGE.md) for runtime, key, and migration limits.
+Windows is unsupported. macOS arm64 is
 blocked because the project has not identified and approved an immutable macOS builder and
 toolchain equivalent to the digest-pinned manylinux environment. A mutable GitHub-hosted
 macOS runner label is not sufficient evidence for the same reproducibility claim.
 
 ## Trust and build sequence
 
-1. The workflow checks out without persisted credentials, pulls one digest-pinned manylinux
+1. The native workflow checks out without persisted credentials, pulls one digest-pinned manylinux
    image, and uses that image for acquisition and every later phase. The acquisition container
    is read-only apart from bounded temporary/source mounts and is the only phase with network
    access. `scripts/fetch_patched_sqlcipher_sources.py` downloads every source, detached
@@ -67,10 +77,18 @@ macOS runner label is not sufficient evidence for the same reproducibility claim
    finding at query time, not proof of safety. The unresolved binding license remains
    `NOASSERTION`.
 
-Only a fully validated wheel and its evidence are uploaded. A failed build, comparison,
-inspection, or runtime test cannot retain a wheel under the normal artifact name. Successful
-GitHub Actions artifacts are retained for seven days for review. They are not a GitHub
-Release, PyPI package, installer, container, or permanent distribution.
+The `patched-sqlcipher-wheel` workflow uploads only a fully validated wheel and its evidence.
+A failed build, comparison, inspection, or runtime test cannot retain a wheel under the
+normal artifact name. Successful artifacts from that workflow are retained for seven days
+for review. They are not a GitHub Release, PyPI package, installer, container, or permanent
+distribution.
+
+The separate `encrypted-storage` workflow repeats the strict native gates, then installs
+the locked wheel and pinned build tools into a fresh environment and runs full application
+tests, the 17-check fixture demo, and offline source-package installation in a disposable
+checkout with networking disabled. Missing or mismatched backends, skipped tests, and
+incomplete verifier output fail its gate. It uploads no wheels. This describes the gate;
+successful native application execution is still pending at the application checkpoint above.
 
 ## Reproduce the CI slice
 
@@ -96,11 +114,14 @@ engine, CPU model/scheduling, registry availability, and the Actions service rem
 that image and cannot be fully pinned. Network access is disabled after verified acquisition.
 `SOURCE_DATE_EPOCH` and deterministic environment controls cover the complete native build.
 
-Rollback before integration means closing the focused PR and allowing or requesting deletion
-of its short-lived CI artifacts. No application dependency changes in this branch, so
-Continuum runtime behavior does not change. A future consumer PR must keep the previous
-storage implementation available until migration, data-open, integrity, failure, and rollback
-tests pass independently.
+This branch changes the application dependency and storage behavior as an unmerged
+candidate. Keep it unintegrated until its application evidence and independent reviews pass.
+The previous plaintext application cannot be treated as a reader or recovery path for an
+encrypted candidate vault. Plaintext conversion is not performed by normal open, bootstrap,
+or schema upgrade. The separate migration and recovery boundaries are recorded in
+[SQLCIPHER_STORAGE.md](SQLCIPHER_STORAGE.md); this candidate does not authorize migration of
+a real vault. Existing ephemeral native test artifacts may expire without affecting an
+installed application release.
 
 ## Remaining decisions and gates
 
@@ -109,6 +130,6 @@ tests pass independently.
 - Complete independent security and license review, including the binding `NOASSERTION`.
 - Select the artifact signing identity, trust root, transparency policy, verification
   procedure, and revocation procedure. This work defines the boundary but does not sign.
-- Design and validate application migration, key management, backup/restore, and rollback in
-  a separate consumer change. Issue #7 and PR #12 remain blocked until that integration is
-  independently accepted.
+- Independently validate this held consumer's runtime and key handling, and separately
+  authorize and validate plaintext migration, backup/restore, and rollback. Issue #7 and
+  PR #12 remain blocked until the required application and release gates are accepted.

@@ -1,25 +1,42 @@
 # Verification record
 
-Prototype baseline recorded 2026-09-03; native supply-chain gate updated 2026-09-23.
+Historical plaintext prototype baseline recorded 2026-09-03; native supply-chain and held
+application checkpoints recorded 2026-09-23. Results below identify their separate scopes.
 
-## Supported command
+Current application checkpoint: `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4`.
+The 28 source/supply-chain verification tests passed locally. Initial native application CI
+is pending; no successful encrypted application execution is claimed for this checkpoint.
+
+## Supported application verification
+
+Use Linux x86-64 and a supported CPython 3.11-3.14 interpreter in an isolated environment
+with the exact manifest-locked `continuum-sqlcipher3` 0.6.2.post2 wheel, setuptools 80.9.0,
+and wheel 0.45.1 installed. The wheelhouse must contain exactly those three matching wheels;
+the verifier checks their filenames, regular-file status, and hashes. The controlled setup
+is implemented in `.github/workflows/encrypted-storage.yml` and
+`scripts/verify_encrypted_application.py`. In an equivalent offline environment, run:
 
 ```bash
-python3 scripts/verify.py
+CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/wheelhouse \
+  /absolute/isolated/venv/bin/python scripts/verify.py
 ```
 
-The command parses both JSON schemas, checks source whitespace, compiles every Python
+The command parses the checked-in JSON schemas, checks source whitespace, compiles every Python
 module, runs the unit/integration suite with resource warnings promoted to errors, executes
 the complete two-client fixture demo, builds a source distribution, installs that exact
 archive offline into a temporary virtual environment, exercises its entry points, and runs
 `git diff --check`. It also validates the checked-in patched-SQLCipher manifest, source SBOM,
-recipe hashes, and negative regression tests. It does not compile native wheels locally.
+recipe hashes, and negative regression tests. It requires the reviewed native backend and
+offline build tools; it does not compile native wheels itself. The ordinary `verify` workflow
+runs source/supply-chain checks. The four-ABI `encrypted-storage` workflow is the full native
+application gate. See [SQLCIPHER_STORAGE.md](SQLCIPHER_STORAGE.md) for its scope and limits.
 
-## Recorded prototype result
+## Historical plaintext prototype result
 
 Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
-The same command is required on GitHub-hosted Ubuntu 24.04 x86-64 with Python 3.9 by the
-[verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml).
+The following records predate the encrypted application candidate. They are not evidence
+that the current candidate runs on this host or supports Python 3.9. The prior plaintext
+verifier also ran on GitHub-hosted Ubuntu 24.04; the current workflow split is described above.
 
 - 46 unit/integration tests: passed.
 - MCP fixture protocol `2026-07-28`: discovery, exact six-tool list, strict unknown-field and
@@ -65,12 +82,33 @@ the wheel and ELF payload, installs it offline outside the checkout, and runs th
 runtime/recovery suite, including default denial of loadable extensions. Only successful test
 wheels are retained, for seven days.
 
-That workflow validates an ephemeral native test artifact, not the Continuum Memory
-application. It does not change the quickstart dependency, migrate a vault, exercise real key
-management, publish a package, or prove release readiness. macOS arm64 is blocked until an
-immutable builder/toolchain can satisfy the same evidence standard; Windows is not a target.
+Strict native runs passed for `2e90daa6161139de37cccd659703d9fa8fc25aea`; the exact three
+run links are in [the native gate record](PATCHED_SQLCIPHER_WHEELS.md). Those runs validate
+ephemeral native test artifacts. They do not establish that this later application candidate
+passes, migrate a vault, publish a package, or prove release readiness. macOS arm64 is blocked
+until an immutable builder/toolchain can satisfy the same evidence standard; Windows is not
+a target.
 
-## Initial-slice checklist disposition
+## Held encrypted application gate
+
+The separate `encrypted-storage` workflow repeats signed-source verification, A/B native
+builds, strict wheel comparison/inspection, and the installed native regression suite for
+all four supported ABIs. It then creates a fresh offline virtual environment with the three
+hash-locked wheels, verifies the installed backend's version and origin, and runs the full
+application verifier in a disposable copy of the current checkout. All tests, all 17 demo
+checks, and source-package installation must pass. Skipped tests or incomplete results fail
+the gate. This workflow uploads no wheels.
+
+This is implemented verification behavior, not a recorded application pass. At local
+checkpoint `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4`, the 28 passing source tests do not
+replace pending native application execution, independent human acceptance, or the open
+license, signing, macOS, migration, and backup/restore gates.
+
+## Historical initial-slice and native-only checklist
+
+This table preserves the disposition before the current application integration. Its
+plaintext behavior and passing counts describe that earlier evidence, not the held
+application checkpoint. Current application status is recorded in the section above.
 
 | Area | Result |
 |---|---|
@@ -95,6 +133,6 @@ immutable builder/toolchain can satisfy the same evidence standard; Windows is n
 | macOS patched SQLCipher artifacts | Blocked: no approved immutable macOS arm64 builder/toolchain currently meets the Linux evidence standard |
 | Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
 
-This result supports only the maturity label “experimental local prototype.” It is not
+This historical result supports only the maturity label “experimental local prototype.” It is not
 evidence for application encryption, production security, native-host compatibility, Linux packaging,
 cross-platform behavior, physical erasure, backup revocation, or benchmark-leading recall.

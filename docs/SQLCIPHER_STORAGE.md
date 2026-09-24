@@ -20,12 +20,14 @@ creation. `audit.key` is separate: it authenticates the audit chain and existing
 operation receipts. Neither key is returned in status, errors or CLI arguments.
 A partial initialization is retained and rejected; bootstrap never overwrites it.
 
+Ordinary startup refuses an unexpected rollback journal before any database open;
+normal operation uses WAL. A journal must not be deleted to bypass that refusal.
 Opening requires the key before the first database read. The connection authenticates
 pages and validates the encrypted storage marker, supported schema and vault ID
 before enabling write-affecting PRAGMAs or schema migration. Supported encrypted
 schema versions 2–4 retain the current atomic upgrade to version 5. Unsupported
 schemas/modes and plaintext databases are refused; this is not format migration.
-Owner-only DB/WAL/SHM paths are checked, extension loading is disabled, and settings
+Owner-only DB/WAL/SHM/rollback-journal paths are checked, extension loading is disabled, and settings
 require FULL synchronous WAL, memory temporary storage, foreign keys, secure delete,
 no mmap and an untrusted schema. Application audit checks include both SQLite and
 SQLCipher integrity.
@@ -34,6 +36,14 @@ The key is co-located with the database. Protection does not cover a compromised
 same-user process, a copy containing both files, old backups or OS snapshots.
 Python byte objects do not promise reliable key erasure. No secure-erasure claim is
 made for existing filesystem blocks or snapshots.
+
+A process killed during atomic key-file replacement can also leave an owner-only
+`.storage.key.<random>.tmp` file containing raw key bytes in the private vault
+directory. Recovery removes the tracked `storage.key.next` and rotation journal;
+it does not discover or retire every such temporary or historical key copy.
+This is retained file content, separate from residual disk blocks. Deterministic
+temporary-key custody and cleanup remain a real-vault acceptance gate; this
+candidate makes no key-destruction or old-ciphertext revocation claim.
 
 ## Repeatable candidate verification
 
@@ -62,13 +72,58 @@ four-ABI encrypted application workflow establishes native application results.
 
 ## Rotation and recovery boundary
 
-Key rotation is being implemented as a separate explicitly approved offline
-operation on this candidate. Until its complete state-machine, owner-approval and
-crash tests pass, do not rotate or replace `storage.key` manually. The existing
-SQLCipher `rekey` primitive alone cannot atomically publish a separate key file.
-A pending rotation must block ordinary startup and backup admission. Storage-key
-rotation must preserve `audit.key`, capability identities and receipt verification.
-This checkpoint does not claim a completed rotation implementation.
+The candidate's offline maintenance entry points are `continuum storage rotate-key`
+and `continuum storage recover-key`, with the ordinary global `--data-dir` option.
+Each takes the persistent daemon lease and requires a fresh Linux polkit proof for
+that specific operation and vault state. The daemon must be stopped. A running or
+stopped process still holding the lease, an uncertain listener, unavailable OS
+approval or a changed preview prevents progress. MCP has no rotation operation;
+there is no terminal approval fallback or caller-supplied key argument.
+
+The recovery contract uses two fixed private paths: `storage.rotation.json` and
+`storage.key.next`. The bounded journal is authenticated with the unchanged
+`audit.key` and binds the vault, generation, operation and candidate key hashes.
+Normal startup and bootstrap refuse either path, including an orphan next key.
+Backup callers must use the same `require_no_pending_rotation` admission check.
+
+| Phase | Required durable state |
+| --- | --- |
+| Preparing | The authenticated operation journal exists before the new key is created. |
+| Prepared | The distinct next key and journal are durable before checkpoint and native rekey. The active key remains available. |
+| Published | A fresh new-key open and integrity checks succeeded, the active key was published durably, and the generation plus one audit event committed with a verified audit anchor. Cleanup can finish. |
+
+Recovery probes each distinct candidate key against its own complete private copy
+of the encrypted database and supported sidecars. A wrong key is never tried on
+the original recovery artifacts: SQLite may replay a hot rollback journal before
+an ordinary read, even with `query_only` enabled. Exactly one distinct key must
+validate the expected vault and integrity before recovery touches the original.
+The active and next files may legitimately contain the same new key after
+publication; those are one candidate. Missing, corrupt or ambiguous evidence is
+preserved and refused. Recovery never fabricates a missing key or starts an
+unrelated rotation.
+
+Rotation preserves `audit.key`, capability identities, receipts and application
+content. The generation and content-free audit event commit together; a repeated
+recovery must not append another event. A post-commit anchor or cleanup failure
+keeps the pending state until separately approved recovery. A preparing operation
+that never created its next key may be aborted only after the old-key vault is
+verified and fresh recovery approval is obtained.
+That abort removes only rotation preparation state. It preserves the original
+database and sidecars; an unexpected rollback journal that existed before rotation
+still requires offline investigation and continues to block ordinary startup.
+
+After successful cleanup and daemon restart, the owner can use
+`continuum status --project <project-id>` to read `storage_generation`. It is
+`initial` before the first completed rotation and the last committed operation ID
+afterward, including when the final rotation reply was lost. Provider status does
+not expose that vault-wide generation.
+
+Native application, rotation and crash results remain pending at this checkpoint.
+The prepared tests cover deterministic crashes before and after native rekey;
+process death observed inside the native rekey call is not yet demonstrated.
+The implementation and synthetic proof fixtures do not establish genuine human
+polkit acceptance, power-loss durability or permission to rotate a real vault.
+Do not replace key files manually to clear an error.
 
 ## Plaintext migration plan: no conversion command
 

@@ -14,6 +14,7 @@ from continuum_memory.errors import MemoryError
 from continuum_memory.security import write_private
 from continuum_memory.storage import STORAGE_MODE, Store, paths
 from fixtures.harness import EphemeralHarness
+from fixtures.rotation import CRASH_EXIT, create_hot_journal, file_snapshot
 
 
 PROJECTS = [
@@ -23,6 +24,50 @@ CANARY = "CONTINUUM_SQLCIPHER_CANARY_7e65b1"
 
 
 class EncryptedStorageTest(unittest.TestCase):
+    def test_orphan_sqlite_sidecars_refuse_bootstrap_before_key_creation(self):
+        for suffix in ("-wal", "-shm", "-journal"):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory(prefix="continuum-orphan-") as temporary:
+                data_dir = Path(temporary)
+                write_private(Path(str(paths(data_dir)["db"]) + suffix), b"SYNTHETIC-ORPHAN-SIDECAR")
+                before = file_snapshot(data_dir)
+                with self.assertRaises(MemoryError) as error:
+                    Store.bootstrap(data_dir, PROJECTS)
+                self.assertEqual(error.exception.code, "already_initialized")
+                self.assertEqual(file_snapshot(data_dir), before)
+                self.assertFalse(paths(data_dir)["db"].exists())
+                self.assertFalse(paths(data_dir)["storage_key"].exists())
+                self.assertFalse(paths(data_dir)["audit_key"].exists())
+
+    def test_normal_store_never_replays_a_hot_journal_before_admission(self):
+        for mismatch in (None, "schema", "mode"):
+            with self.subTest(mismatch=mismatch), tempfile.TemporaryDirectory(prefix="continuum-hot-refusal-") as temporary:
+                data_dir = Path(temporary)
+                Store.bootstrap(data_dir, PROJECTS)
+                # Unsupported fixtures use a raw keyed connection in the child;
+                # ordinary Store must refuse their hot journal before admission.
+                if mismatch is not None:
+                    store = Store(data_dir)
+                    try:
+                        if mismatch == "schema":
+                            store.connection.execute("PRAGMA user_version=999")
+                        else:
+                            store.connection.execute("UPDATE metadata SET value='fixture-unsupported' WHERE key='storage_mode'")
+                    finally:
+                        store.close()
+                completed = create_hot_journal(data_dir, allow_unsupported=mismatch is not None)
+                self.assertEqual(completed.returncode, CRASH_EXIT, completed.stderr)
+                journal = Path(str(paths(data_dir)["db"]) + "-journal")
+                self.assertEqual(journal.read_bytes()[:8], bytes.fromhex("d9d505f920a163d7"))
+                for wrong_key in (False, True):
+                    with self.subTest(wrong_key=wrong_key):
+                        if wrong_key:
+                            paths(data_dir)["storage_key"].write_bytes(os.urandom(32))
+                        before = file_snapshot(data_dir)
+                        with self.assertRaises(MemoryError) as error:
+                            Store(data_dir)
+                        self.assertEqual(error.exception.code, "storage_recovery_required")
+                        self.assertEqual(file_snapshot(data_dir), before)
+
     def test_bootstrap_encrypts_database_and_correct_key_reopens(self):
         with tempfile.TemporaryDirectory(prefix="continuum-encrypted-") as temporary:
             data_dir = Path(temporary)

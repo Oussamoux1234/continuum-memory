@@ -251,7 +251,7 @@ class Kernel:
         project = self._project(capability, params)
         self._expire_due(project)
         watermark = self._watermark(self._eligibility(project, capability["provider"]))
-        return {
+        result = {
             "status": "available",
             "project_bound": project,
             "provider": capability["provider"],
@@ -261,6 +261,12 @@ class Kernel:
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
         }
+        if capability["project_id"] is None and "control" in capability["permissions"]:
+            generation = self.db.execute(
+                "SELECT value FROM metadata WHERE key='storage_generation'"
+            ).fetchone()
+            result["storage_generation"] = generation[0] if generation else "initial"
+        return result
 
     def _approval_public_key(self) -> Optional[Path]:
         return self._approval_public_key_provider(self.store.owner_uid)
