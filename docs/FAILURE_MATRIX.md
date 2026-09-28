@@ -79,6 +79,12 @@ case must report the matching constant ordinal/label and exit 73; an unrelated
 exception or an unreached boundary fails the test. Trace output uses stdout, not
 files in the vault.
 
+The synthetic child freezes its kernel-local approval clock immediately before
+the original stored challenge expiry, so slower native runners exercise the same
+crash boundaries instead of expiring halfway through the matrix. Production grant
+lifetimes and subprocess timeout clocks are unchanged. A separate regression proves
+the ordinary kernel still rejects that same expired grant without mutating state.
+
 | Transaction/transition inventory | Observed direct boundaries |
 |---|---:|
 | Consume challenge; update global sequence | 2 writes |

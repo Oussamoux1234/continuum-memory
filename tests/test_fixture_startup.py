@@ -1,5 +1,6 @@
 """Real subprocess readiness and cleanup for the disposable MCP harness."""
 
+import errno
 import json
 import subprocess
 import tempfile
@@ -7,6 +8,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from continuum_memory.security import MAX_FRAME_BYTES
@@ -124,6 +126,46 @@ class FixtureStartupTest(unittest.TestCase):
         client.process.stdin.write("buffered before close")
         client.close()
         self.assert_reaped_and_closed(client.process)
+
+    def test_close_error_suppression_is_limited_and_always_reaps(self):
+        cases = (
+            ("windows-exited", "nt", False, errno.EINVAL, True),
+            ("windows-live", "nt", True, errno.EINVAL, False),
+            ("posix-exited", "posix", False, errno.EINVAL, False),
+            ("unrelated-error", "nt", False, errno.EIO, False),
+        )
+        for name, platform, alive, code, suppressed in cases:
+            with self.subTest(case=name):
+                source = "import sys,time; sys.stdin.readline(); print(%r, flush=True)" % json.dumps(READY)
+                if alive:
+                    source += "; time.sleep(30)"
+                with self.child(source):
+                    client = McpFixtureClient(self.directory, self.directory / "unused.cap", "startup-fixture")
+                if alive:
+                    self.assertIsNone(client.process.poll())
+                else:
+                    client.process.wait(timeout=5)
+                failure = OSError(code, "synthetic stdin close failure")
+                actual_close = client.process.stdin.close
+
+                def fail_after_close():
+                    actual_close()
+                    raise failure
+
+                started = time.monotonic()
+                # Override only the harness's platform observation during close;
+                # subprocess and pathlib retain the host's actual OS behavior.
+                with patch("fixtures.harness.os", SimpleNamespace(name=platform)), \
+                        patch.object(client.process.stdin, "close", side_effect=fail_after_close):
+                    if suppressed:
+                        client.close()
+                    else:
+                        with self.assertRaises(OSError) as caught:
+                            client.close()
+                        self.assertIs(caught.exception, failure)
+                        self.assertEqual(caught.exception.errno, code)
+                self.assertLess(time.monotonic() - started, 5)
+                self.assert_reaped_and_closed(client.process)
 
     def test_constructor_waits_for_delayed_real_mcp_startup(self):
         entered = self.directory / "child-entered"

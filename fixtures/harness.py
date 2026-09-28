@@ -1,5 +1,6 @@
 """Ephemeral daemon and MCP client harness. Never touches real agent profiles."""
 
+import errno
 import json
 import os
 import queue
@@ -162,20 +163,27 @@ class McpFixtureClient:
 
     def close(self) -> None:
         try:
-            if self.process.stdin:
-                try:
-                    self.process.stdin.close()
-                except BrokenPipeError:
-                    pass
             try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.process.terminate()
+                if self.process.stdin:
+                    try:
+                        self.process.stdin.close()
+                    except BrokenPipeError:
+                        pass
+                    except OSError as error:
+                        # Windows may report EINVAL while flushing a dead pipe.
+                        # Other errors still propagate after bounded reaping.
+                        if os.name != "nt" or error.errno != errno.EINVAL or self.process.poll() is None:
+                            raise
+            finally:
                 try:
                     self.process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=2)
+                    self.process.terminate()
+                    try:
+                        self.process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=2)
         finally:
             if self.process.stdout:
                 self.process.stdout.close()
