@@ -98,6 +98,11 @@ substitution after preflight, and stronger same-user process isolation remain un
 An observed concurrent metadata change is refused, not silently retried; changes to directory
 entries during validation can reject a client operation or stop the daemon. Do not use the
 vault directory for unrelated files or sockets. Inspect the cause before retrying/restarting.
+The synthetic MCP fixture waits for a validated, stateless discovery response from each
+child before returning it to the demo. This bounded startup barrier finishes private-path
+checks before another fixture starts writing. A failed or stalled child is reaped, not
+retried. It prevents the demo's asynchronous startup race; it does **not** establish that
+production clients starting during daemon writes cannot encounter a metadata refusal.
 Do not claim complete APFS access control or store sensitive data in this prototype.
 FileVault, APFS snapshots/clones, and
 `secure_delete` do not establish application encryption or physical erasure. Backup and
