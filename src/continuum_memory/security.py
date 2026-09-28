@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .errors import MemoryError, invalid
+from .macos_acl import require_no_acl_fd, require_no_acl_path
 
 MAX_FRAME_BYTES = 65_536
 MAX_BODY_BYTES = 4_096
@@ -226,6 +227,7 @@ def ensure_private_directory(path: Path):
         raise MemoryError("unsafe_owner", "The private data directory is not owned by the current user.")
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "The private data directory is not owner-only.")
+    require_no_acl_path(path, info)
     return info
 
 
@@ -244,6 +246,7 @@ def ensure_private_regular(path: Path, label: str = "Private material"):
         raise MemoryError("unsafe_owner", "%s is not owned by the current user." % label)
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "%s is not owner-only." % label)
+    require_no_acl_path(path, info)
     return info
 
 
@@ -259,6 +262,7 @@ def ensure_private_socket(path: Path) -> os.stat_result:
         raise MemoryError("unsafe_owner", "The daemon socket is not owned by the current user.")
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "The daemon socket is not owner-only.")
+    require_no_acl_path(path, info)
     return info
 
 
@@ -270,6 +274,7 @@ def _validate_open_regular(fd: int, label: str) -> os.stat_result:
         raise MemoryError("unsafe_owner", "%s is not owned by the current user." % label)
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "%s is not owner-only." % label)
+    require_no_acl_fd(fd, info)
     return info
 
 

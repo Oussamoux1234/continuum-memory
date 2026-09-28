@@ -2,17 +2,22 @@
 
 import json
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
-from continuum_memory.security import canonical_json, sign_grant, write_private
+from continuum_memory.security import MAX_FRAME_BYTES, canonical_json, sign_grant, write_private
 from continuum_memory.storage import Store, load_capability, paths
+
+
+MCP_STARTUP_TIMEOUT = 5.0
 
 
 def private_test_home(temporary_name: str) -> Path:
@@ -51,6 +56,55 @@ class McpFixtureClient:
         )
         self.client_name = client_name
         self.counter = 0
+        self._wait_ready()
+
+    def _wait_ready(self) -> None:
+        # A spawned process is not yet a ready client. Finish its private-path
+        # checks before the demo starts mutating the shared synthetic vault.
+        # Discovery is stateless, so legacy initialization still works later.
+        outcome: queue.Queue = queue.Queue(maxsize=1)
+
+        def discover() -> None:
+            try:
+                response = self.request("server/discover")
+                result = response.get("result") if isinstance(response, dict) else None
+                info = result.get("serverInfo") if isinstance(result, dict) else None
+                ready = (
+                    isinstance(response, dict)
+                    and response.get("jsonrpc") == "2.0"
+                    and type(response.get("id")) is int
+                    and response["id"] == 1
+                    and "error" not in response
+                    and isinstance(result, dict)
+                    and result.get("protocolVersion") == "2026-07-28"
+                    and isinstance(info, dict)
+                    and info.get("name") == "continuum-memory"
+                )
+            except Exception:
+                ready = False
+            outcome.put(ready)
+
+        worker = threading.Thread(target=discover, name="continuum-mcp-fixture-ready", daemon=True)
+        worker.start()
+        try:
+            try:
+                ready = outcome.get(timeout=MCP_STARTUP_TIMEOUT)
+            except queue.Empty:
+                ready = False
+            if not ready:
+                raise RuntimeError("MCP fixture did not become ready") from None
+        except BaseException:
+            # Reap first: a stalled pipe reader cannot be joined while its child
+            # is still alive. Never retry or relax a failed permission check.
+            try:
+                if self.process.poll() is None:
+                    self.process.kill()
+                self.process.wait(timeout=2)
+            finally:
+                worker.join(timeout=2)
+                self.close()
+            raise
+        worker.join(timeout=2)
 
     def _meta(self) -> Dict[str, Any]:
         return {
@@ -67,10 +121,15 @@ class McpFixtureClient:
         assert self.process.stdout is not None
         self.process.stdin.write(canonical_json(request) + "\n")
         self.process.stdin.flush()
-        line = self.process.stdout.readline()
+        return self._read_response()
+
+    def _read_response(self) -> Dict[str, Any]:
+        assert self.process.stdout is not None
+        line = self.process.stdout.readline(MAX_FRAME_BYTES + 1)
         if not line:
-            stderr = self.process.stderr.read() if self.process.stderr else ""
-            raise RuntimeError("MCP fixture exited without a response: %s" % stderr)
+            raise RuntimeError("MCP fixture exited without a response")
+        if not line.endswith("\n") or len(line.encode("utf-8")) > MAX_FRAME_BYTES:
+            raise RuntimeError("MCP fixture response exceeds its frame boundary")
         return json.loads(line)
 
     def request_legacy(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -80,10 +139,7 @@ class McpFixtureClient:
         assert self.process.stdout is not None
         self.process.stdin.write(canonical_json(request) + "\n")
         self.process.stdin.flush()
-        line = self.process.stdout.readline()
-        if not line:
-            raise RuntimeError("MCP legacy fixture exited without a response")
-        return json.loads(line)
+        return self._read_response()
 
     def discover(self) -> Dict[str, Any]:
         return self.request("server/discover")["result"]
@@ -105,17 +161,26 @@ class McpFixtureClient:
         return result["structuredContent"]
 
     def close(self) -> None:
-        if self.process.stdin:
-            self.process.stdin.close()
         try:
-            self.process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self.process.terminate()
-            self.process.wait(timeout=2)
-        if self.process.stdout:
-            self.process.stdout.close()
-        if self.process.stderr:
-            self.process.stderr.close()
+            if self.process.stdin:
+                try:
+                    self.process.stdin.close()
+                except BrokenPipeError:
+                    pass
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=2)
+        finally:
+            if self.process.stdout:
+                self.process.stdout.close()
+            if self.process.stderr:
+                self.process.stderr.close()
 
 
 class EphemeralHarness:
