@@ -135,10 +135,14 @@ class NativePipeTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 1.5)
         for operation in ("read", "write"):
             with self.subTest(operation=operation), PipeServer(self.binding) as server:
-                child = self.child("idle-client")
-                with server.accept(0.4) as connection:
+                # The delayed reader exceeds the old 0.4s setup allowance.
+                # Import/startup and the native handshake use bounded setup;
+                # only the application operation gets the short deadline.
+                child = self.child("delayed-idle-client" if operation == "read" else "idle-client")
+                with server.accept() as connection:
                     self.signal(child, b"connected")
                     started = time.monotonic()
+                    connection.deadline = started + 0.1
                     with self.assertRaises(MemoryError) as error:
                         if operation == "read":
                             connection.receive()
@@ -175,8 +179,14 @@ class NativePipeTest(unittest.TestCase):
     def test_trickle_does_not_reset_absolute_deadline(self):
         with PipeServer(self.binding) as server:
             child = self.child("trickle-client")
-            with server.accept(0.5) as connection:
+            with server.accept() as connection:
+                self.signal(child, b"connected")
+                # Complete bounded setup before measuring one absolute read
+                # deadline. Release the trickle only after that clock starts.
                 started = time.monotonic()
+                connection.deadline = started + 0.5
+                child.stdin.write(b"go\n")
+                child.stdin.flush()
                 with self.assertRaises(MemoryError) as error:
                     connection.receive()
                 self.assertEqual(error.exception.code, "pipe_timeout")
@@ -441,11 +451,16 @@ def child_main():
                 connection.send(connection.receive())
                 sys.stdin.readline()  # Keep authenticated process alive through client delivery.
         return
+    if mode == "delayed-idle-client":
+        time.sleep(0.6)  # Deliberate setup delay, outside measured cancellation.
     with connect(binding) as connection:
-        if mode == "idle-client":
+        if mode in ("idle-client", "delayed-idle-client"):
             print("connected", flush=True)
             sys.stdin.readline()
         elif mode == "trickle-client":
+            print("connected", flush=True)
+            if sys.stdin.readline() != "go\n":
+                raise RuntimeError("Native trickle fixture was not released")
             try:
                 for _ in range(15):
                     connection.api.operation(connection.handle, "write", connection.deadline, data=b"x")
