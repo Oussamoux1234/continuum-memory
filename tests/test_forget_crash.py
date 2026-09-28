@@ -8,143 +8,34 @@ revocation, host power-loss durability, or native encrypted-provider evidence.
 
 import json
 import os
-import re
-import shutil
-import subprocess
 import sys
-import tempfile
 import unittest
 from collections import Counter
-from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
 
-from continuum_memory import kernel as kernel_module, results, storage
 from continuum_memory.errors import MemoryError
-from continuum_memory.kernel import Kernel
-from continuum_memory.security import canonical_json, read_private, sign_grant
-from continuum_memory.storage import Store, load_capability, paths
-from tests import test_proposal_erasure as erasure
+from continuum_memory.security import canonical_json, read_private
+from continuum_memory.storage import paths
+from tests.admin_crash_support import AdminCrashFixture, apply_child, snapshot
 
 
-ROOT = Path(__file__).resolve().parents[1]
-CRASH_EXIT = 73
-FIXED_NOW = datetime(2027, 1, 1, tzinfo=timezone.utc)
-FIXED_TIME = "2027-01-01T00:00:00Z"
 CANARY = "forgetcanary"
 
 
-def snapshot(connection):
-    """Every logical row, including FTS shadow tables; not WAL byte layout."""
-    return tuple(connection.iterdump())
-
-
-def fixture_kernel(store):
-    return Kernel(store, now_provider=lambda: FIXED_NOW,
-                  approval_public_key_provider=lambda uid: None,
-                  allow_prototype_approval=True)
-
-
-def fixture_params(control, challenge):
-    return {"nonce": challenge["nonce"], "preview_digest": challenge["preview_digest"],
-            "preview": challenge["preview"],
-            "grant": sign_grant(control["token"].encode("ascii"), challenge["nonce"],
-                                challenge["operation"], challenge["preview_digest"])}
-
-
-class ForgetBoundaryConnection:
-    """Observe completed direct writes, never substitute for SQLite execution."""
-
-    def __init__(self, connection, crash_after):
-        self.connection = connection
-        self.crash_after = crash_after
-        self.boundaries = []
-        self.commits = 0
-
-    def tick(self, label):
-        self.boundaries.append(label)
-        if self.crash_after == len(self.boundaries):
-            # Only constant SQL categories/ordinals are emitted, never parameters,
-            # preview, grant, capability, content or filesystem path.
-            print(json.dumps({"ordinal": len(self.boundaries), "boundary": label}), flush=True)
-            os._exit(CRASH_EXIT)  # No Python rollback, finally or connection close.
-
-    def execute(self, sql, *arguments):
-        normalized = " ".join(sql.split())
-        checkpoint = normalized == "PRAGMA wal_checkpoint(TRUNCATE)"
-        if checkpoint:
-            self.tick("before_checkpoint")
-        cursor = self.connection.execute(sql, *arguments)
-        write = re.match(r"(UPDATE|DELETE FROM|INSERT(?: OR IGNORE)? INTO) ([a-z_]+)", normalized)
-        if write:
-            self.tick("write:" + write.group(2))
-        elif normalized.split()[0] not in {"SELECT", "BEGIN", "PRAGMA"}:
-            raise AssertionError("Uninventoried SQL operation in forget fixture")
-        if checkpoint:
-            self.tick("after_checkpoint")
-        return cursor
-
-    def commit(self):
-        self.commits += 1
-        self.tick("before_commit_%d" % self.commits)
-        self.connection.commit()
-        self.tick("after_commit_%d" % self.commits)
-
-    def cursor(self, *args, **kwargs):
-        raise AssertionError("Cursor mutation bypasses the reviewed crash inventory")
-
-    def executemany(self, *args, **kwargs):
-        raise AssertionError("Batched mutation requires a reviewed crash inventory")
-
-    def executescript(self, *args, **kwargs):
-        raise AssertionError("Implicit-commit scripts bypass the crash inventory")
-
-    def __getattr__(self, name):
-        return getattr(self.connection, name)
-
-
 def forget_child(home, crash_after, challenge):
-    store = Store(home)
-    try:
-        control = store.authenticate(load_capability(paths(home)["control"])["token"])
-        observed = ForgetBoundaryConnection(store.connection, crash_after)
-        store.connection = observed
-        kernel = fixture_kernel(store)
-        publish = store._sync_audit_head_raw
+    def deletion_id(prefix):
+        if prefix != "del":
+            raise AssertionError("Unexpected identifier generation outside the forget fixture")
+        return "del_forget_crash_fixture"
 
-        def publish_anchor(connection, path):
-            observed.tick("before_anchor_publish")
-            publish(connection, path)
-            observed.tick("after_anchor_publish")
-
-        def deletion_id(prefix):
-            if prefix != "del":
-                raise AssertionError("Unexpected identifier generation outside the forget fixture")
-            return "del_forget_crash_fixture"
-
-        # All generated fixture output is repeatable across identical closed-vault
-        # copies. Existing ledger IDs/timestamps, signatures and MACs are real.
-        with patch.object(kernel_module, "random_id", side_effect=deletion_id) as identifier, \
-                patch.object(storage, "now_iso", return_value=FIXED_TIME), \
-                patch.object(results, "now_iso", return_value=FIXED_TIME), \
-                patch.object(store, "_sync_audit_head_raw", side_effect=publish_anchor):
-            result = kernel.admin_apply(control, fixture_params(control, challenge))
-            identifier.assert_called_once_with("del")
-        print(json.dumps({"boundaries": observed.boundaries, "result": result}), flush=True)
-    finally:
-        store.close()
+    apply_child(home, crash_after, challenge, deletion_id, ["del"])
 
 
-class ThreadForgetProcessCrashTest(unittest.TestCase):
+class ThreadForgetProcessCrashTest(AdminCrashFixture, unittest.TestCase):
+    child_module = "tests.test_forget_crash"
+
     def setUp(self):
-        self.fx = erasure.ProposalErasureTest()
-        self.fx.setUp()
-        self.addCleanup(self.fx.tearDown)
-        self.temporary = tempfile.TemporaryDirectory(prefix="continuum-forget-crash-")
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.environment = dict(os.environ, PYTHONPATH=os.pathsep.join([str(ROOT / "src"), str(ROOT)]))
+        self.setup_crash_fixture("continuum-forget-crash-")
         self.deliveries = []
         self.recalls = {}
         self.agents = {provider: self.fx.agent("alpha", provider) for provider in ("codex", "claude")}
@@ -214,33 +105,6 @@ class ThreadForgetProcessCrashTest(unittest.TestCase):
         self.fx.store.close()  # No live SQLite handle/WAL writer is copied.
         for suffix in ("-wal", "-shm", "-journal"):
             self.assertFalse(os.path.lexists(str(paths(self.fx.home)["db"]) + suffix))
-
-    def copied_vault(self, name):
-        destination = self.root / name
-        shutil.copytree(self.fx.home, destination)
-        return destination
-
-    def run_child(self, home, ordinal=0):
-        result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--forget-child",
-                                 str(home), str(ordinal)], input=canonical_json(self.challenge).encode(),
-                                env=self.environment, capture_output=True, timeout=15)
-        self.assertEqual(result.stderr, b"")
-        self.assertLess(len(result.stdout), 32768)
-        self.assertEqual(result.returncode, CRASH_EXIT if ordinal else 0)
-        return json.loads(result.stdout)
-
-    @contextmanager
-    def opened(self, home):
-        store = Store(home)
-        try:
-            control = store.authenticate(load_capability(paths(home)["control"])["token"])
-            yield store, fixture_kernel(store), control
-        finally:
-            store.close()
-
-    def assert_integrity(self, store):
-        self.assertEqual([tuple(row) for row in store.connection.execute("PRAGMA integrity_check")], [("ok",)])
-        self.assertEqual(store.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def retained_rows(self, db):
         # These are explicitly unrelated pre-existing objects, not a successful
@@ -330,68 +194,11 @@ class ThreadForgetProcessCrashTest(unittest.TestCase):
         self.assertEqual(boundaries[boundaries.index("before_commit_1"):], [
             "before_commit_1", "after_commit_1", "before_anchor_publish", "after_anchor_publish",
             "before_commit_2", "after_commit_2", "before_checkpoint", "after_checkpoint"])
-        with self.opened(reference) as (store, kernel, control):
-            expected = snapshot(store.connection)
-            new_anchor = read_private(paths(reference)["audit_head"])
-            self.assertNotEqual(self.old_anchor, new_anchor)
-            self.assert_integrity(store)
-            receipt = kernel.admin_result(control, {"nonce": self.challenge["nonce"],
-                                                    "preview_digest": self.challenge["preview_digest"]})
-            self.assertEqual(receipt["result"], {key: value for key, value in recorded["result"].items() if key != "commit"})
-            self.assertTrue(receipt["committed"])
-            self.assert_erased_without_resurrection(store, kernel, control)
-        committed_at = boundaries.index("after_commit_1") + 1
-        published_at = boundaries.index("after_anchor_publish") + 1
-        locator = {"nonce": self.challenge["nonce"], "preview_digest": self.challenge["preview_digest"]}
-        for ordinal, label in enumerate(boundaries, 1):
-            with self.subTest(ordinal=ordinal, boundary=label):
-                home = self.copied_vault("crash-%02d" % ordinal)
-                self.assertEqual(self.run_child(home, ordinal), {"ordinal": ordinal, "boundary": label})
-                committed = ordinal >= committed_at
-                published = ordinal >= published_at
-                with self.opened(home) as (store, kernel, control):
-                    # Capture original recovery before reconciliation/retry can
-                    # mutate the anchor or otherwise conceal a partial state.
-                    self.assertEqual(snapshot(store.connection), expected if committed else self.original)
-                    self.assertEqual(read_private(paths(home)["audit_head"]), new_anchor if published else self.old_anchor)
-                    self.assert_integrity(store)
-                    state = "external_anchor_stale" if committed and not published else "valid"
-                    self.assertEqual(store.verify_audit()["status"], state)
-                    used = store.connection.execute("SELECT used_at FROM admin_challenges WHERE nonce=?",
-                                                    (self.challenge["nonce"],)).fetchone()[0]
-                    self.assertEqual(used is not None, committed)
-                    if committed:
-                        found = kernel.admin_result(control, locator)
-                        self.assertEqual(found["result"], receipt["result"])
-                        self.assertEqual(found["audit_anchor"], state)
-                    else:
-                        with self.assertRaises(MemoryError) as absent:
-                            kernel.admin_result(control, locator)
-                        self.assertEqual(absent.exception.code, "not_found")
-                    self.assertEqual(kernel.audit_reconcile(control, {})["status"], "valid")
-                    self.assertEqual(snapshot(store.connection), expected if committed else self.original)
-                if not committed:
-                    # Exact same already-approved one-shot challenge may retry
-                    # only because its transaction and grant did not commit.
-                    self.assertEqual(self.run_child(home)["result"], recorded["result"])
-                with self.opened(home) as (store, kernel, control):
-                    self.assertEqual(snapshot(store.connection), expected)
-                    self.assertEqual(read_private(paths(home)["audit_head"]), new_anchor)
-                    self.assertEqual(kernel.admin_result(control, locator)["result"], receipt["result"])
-                    with self.assertRaises(MemoryError) as replay:
-                        kernel.admin_apply(control, fixture_params(control, self.challenge))
-                    self.assertEqual(replay.exception.code, "approval_replay")
-                    self.assertEqual(snapshot(store.connection), expected)
-                    self.assert_erased_without_resurrection(store, kernel, control)
-                    self.assert_integrity(store)
-                # Delivery suppression and old-recall denial remain true across
-                # an additional close/reopen, not just a warm in-memory view.
-                with self.opened(home) as (store, kernel, control):
-                    self.assert_erased_without_resurrection(store, kernel, control)
+        self.assert_crash_matrix(reference, recorded, self.assert_erased_without_resurrection)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "--forget-child":
+    if len(sys.argv) == 4 and sys.argv[1] == "--crash-child":
         forget_child(Path(sys.argv[2]), int(sys.argv[3]), json.loads(sys.stdin.buffer.read()))
     else:
         unittest.main()

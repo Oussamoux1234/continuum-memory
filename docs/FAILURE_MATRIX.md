@@ -118,6 +118,62 @@ death, **not** host power-loss, encrypted rotation, physical erasure, old-backup
 revocation, or completion of issue #8. Shared-evidence races and other mutation
 operations require their separate coverage; the broader open gates below remain.
 
+## Audience-narrowing correction process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_correction_crash -v
+```
+
+The correction and forget tests share only test-side subprocess, SQLite-observer,
+snapshot and recovery machinery in `tests/admin_crash_support.py`. Their seeds,
+reviewed inventories and semantic assertions remain separate. The helper contains
+no discoverable tests or production/runtime selection seam. The existing forget
+inventory and assertions are preserved.
+
+The correction fixture accepts a real synthetic Codex proposal disclosed to both
+Codex and Claude, then previews an owner correction with new claim/evidence and
+Codex-only disclosure. Unrelated alpha and beta claims, the original proposal and
+its review, and current/history/pinned-recorded recalls remain in the vault. Only
+closed vaults with no WAL/SHM/journal companions are copied. The child controls
+clocks and newly generated correction IDs, not SQLite, signatures, keyed digests,
+existing ledger identities or audit MACs.
+
+| Reviewed ordered transition inventory | Direct boundaries |
+|---|---:|
+| Consume challenge; advance global sequence; insert evidence/version | 4 writes |
+| Insert disclosure, evidence reference and FTS row | 3 writes |
+| Insert author/recorder/authorizer attestations, consent and provenance | 5 writes |
+| Retire original version; insert supersedes relation | 2 writes |
+| Advance both affected provider audiences; insert audit event and owner result | 4 writes |
+| Before/after mutation commit, anchor publication and anchor transaction commit | 6 boundaries |
+| **Total** | **24 actual subprocess exits** |
+
+All 19 pre-commit exits must restore the exact original logical state; all five
+post-commit exits must expose the complete correction and original durable result.
+Two exits between SQL commit and anchor publication require the stale-anchor
+diagnostic; three after publication require the exact new valid anchor. These
+comparisons include FTS shadow rows and precede reconciliation or any search that
+would create additional recall records. Each child must emit exactly the matching
+constant boundary marker and exit 73, with bounded execution and no stderr.
+
+Independent assertions require exactly two versions in the same thread, the
+original body/evidence/provenance preserved, precise retirement and supersession,
+new user-authored evidence and correction provenance, complete attestations and
+consent, correct FTS entries, and unchanged unrelated records. Both affected
+alpha provider sequences advance once; beta sequences do not change. Codex sees
+the new version currently and both historically. Claude sees neither target
+version currently and only the original historically, never the new restricted
+claim/evidence. Original current recalls cannot retrieve the superseded version;
+history and pinned old-recorded recalls still can, with pinned lifecycle active.
+None of those original recalls authorizes the new version ID.
+
+The same approved challenge retries exactly once after an uncommitted crash;
+committed replays are refused. Anchor reconciliation preserves logical state, and
+the semantic assertions repeat after close/reopen. This covers one existing-thread
+correction with nonempty evidence and narrowed disclosure, not every correction
+variant, native cascade/VFS instruction, concurrent writer, CLI pending journal,
+SQLCipher, key rotation, power loss or backup transition. Issue #8 remains open.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
