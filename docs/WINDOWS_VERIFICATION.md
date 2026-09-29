@@ -65,6 +65,32 @@ the disposable verifier process and restores it. Do not run that wrapper on a
 personal Windows host or copy its opt-in environment settings. Production never
 changes token ownership; incompatible tokens are refused.
 
+## Separately authorized different-account gate
+
+The `foreign-account` job uses Windows Server 2025 x64 / Python 3.14 and requires
+separate, explicit authorization for one temporary standard local account on a
+disposable GitHub-hosted runner. Its guarded PowerShell wrapper is
+`fixtures/windows_foreign_account.ps1`; this is not a personal-machine runbook.
+The ordinary full verifier never creates accounts. Do not copy either CI opt-in
+setting to a local host.
+
+The gate must prove actual execution under a distinct non-administrator SID, a
+successful synthetic shared-file control, refusal of private vault/database/key/
+capability access and the real owner's named pipe, and production rejection of a
+genuinely foreign-owned pipe. Owner controls before and after distinguish access
+denial from a broken fixture. Only the separate synthetic coordination area and
+the intentionally adversarial foreign-owned pipe grant cross-account access;
+the private vault's production ACLs are never loosened.
+
+The wrapper must reap its exact processes, remove its exact generated account and
+verify cleanup on success and failure. Credentials stay in memory, never in
+arguments, environment variables, logs or uploads. An unsuccessful launch,
+incorrect SID, timeout or cleanup failure is a failed gate, not a security pass.
+Review the exact-head job result before claiming this evidence; adding the job
+alone proves nothing. This does not establish Windows 10/11 desktop support,
+resistance to administrators or same-user malware, human presence, encryption,
+protected key custody, or host power-loss durability.
+
 The new Windows workflow uploads no packages, source archives, SBOMs, or vault
 files. Generated package checks remain on the disposable runner; ordinary job
 logs report the environment and pass/fail evidence. Local verification uses

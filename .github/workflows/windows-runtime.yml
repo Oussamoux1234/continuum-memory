@@ -48,3 +48,22 @@ jobs:
         run: python fixtures/windows_test_owner.py
       # Explicitly no artifact upload: source packages, wheels and SBOMs remain
       # on the disposable runner. Logs report verification, never vault content.
+
+  foreign-account:
+    name: Windows 2025 real different-account boundary
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+          architecture: x64
+      - name: Prove foreign-account refusal and owner recovery
+        shell: pwsh
+        env:
+          CONTINUUM_CI_FOREIGN_ACCOUNT_FIXTURE: approved-disposable-account-v1
+          CONTINUUM_CI_OWNER_FIXTURE: approved-process-only-v1
+        # Separately authorized account lifecycle on this disposable hosted VM
+        # only. The fixture verifies cleanup; no credentials or artifacts upload.
+        run: ./fixtures/windows_foreign_account.ps1

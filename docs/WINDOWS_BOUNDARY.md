@@ -142,8 +142,12 @@ All fixtures use synthetic temporary vaults. Symlink and wrong-object-owner
 tests need hosted-runner privileges; failure to establish their fixtures is a
 failure, not a skipped security pass. A pipe object owned by Administrators and
 a comparison against another SID do **not** prove rejection of a real peer
-running as a different account. That separately authorized fixture remains
-pending; no local account or credential is created by these tests.
+running as a different account. The separately authorized
+[different-account gate](WINDOWS_VERIFICATION.md#separately-authorized-different-account-gate)
+creates and removes one standard test account only on a disposable hosted runner.
+It is separate from these ordinary tests and the process-owner fixture. Its
+exact-head native result, positive controls and verified cleanup are required
+evidence; its existence is not a passing result.
 
 This is not a boundary against malicious same-account code, administrators,
 SYSTEM, kernel code or compromised storage. Those actors can change ACLs or
