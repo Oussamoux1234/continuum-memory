@@ -162,6 +162,16 @@ class RecoveryProtocolTest(unittest.TestCase):
                 cloned.close()
             for name in ("audit_key", "audit_head", "control"):
                 replace_private(paths(destination)[name], read_private(paths(self.fx.home)[name]))
+            with self.assertRaises(MemoryError) as incomplete:
+                Store(destination)
+            self.assertEqual(incomplete.exception.code, "initialization_incomplete")
+            # Explicit synthetic same-user tampering: initialization records
+            # are not a same-UID security boundary. Relabel both records so the
+            # original receipt-binding checks below remain independently tested.
+            for kind in ("claim", "complete"):
+                record = {"version": 1, "kind": kind, "vault_id": "vlt_relabelled_synthetic_copy"}
+                replace_private(destination / ("bootstrap." + kind),
+                                (canonical_json(record) + "\n").encode())
             copied = Store(destination)
             try:
                 handler = RequestHandler(copied, Kernel(copied))

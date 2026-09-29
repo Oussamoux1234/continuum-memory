@@ -522,6 +522,65 @@ evidence of deduplication. These are bounded POSIX plaintext process-death cases
 not OS-backed approval, SQLCipher, native Windows process-crash, host power-loss,
 backup-revocation evidence or completion of issue #8.
 
+## Initialization containment under process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_bootstrap_crash -v
+```
+
+This fixture initializes two projects with two providers each. Its **48 selected
+process-exit boundaries** cover exclusive claim creation, an actual positive
+partial record write and file flush, private-directory/key/capability/database
+creation, the outer schema script, explicit SQL mutations, SQL commit, initial
+audit-anchor publication, verification readback, checkpoint, connection close,
+completion-record creation/partial write/flush, and lost response. The schema
+script, native cascades, VFS instructions and filesystem internals are not each
+individually interrupted. Deterministic IDs, tokens and time are synthetic;
+private writes, SQLite commits and abrupt `os._exit(73)` are real.
+
+Before admission, the parent inventories the residue without opening SQLite or
+following links. Every selected incomplete case must repeatedly refuse Store,
+daemon and initialization attempts without repairing or removing files. Completed
+cases must expose the complete reference database, independently checked projects,
+capabilities, metadata, sequence, audit and empty memory tables; issued owner and
+provider capabilities must authenticate with only their intended scopes. A lost
+reply after completion is already a completed vault, never permission to overwrite.
+Independent tests cover concurrent exclusive claims, unsafe/malformed records,
+orphan SQLite companions, admission-policy refusal, structural readback failures,
+record/database binding, and unchanged legacy/missing-anchor diagnostics.
+
+The guarantee is **no partially initialized usable new-protocol vault**, not
+all-or-nothing creation of a directory. Partial files remain quarantined in place;
+retry uses a fresh unrelated location. See [the operator contract](DAEMON_RECOVERY.md#interrupted-initialization)
+for both-records-missing/SQLite side-effect limits, legacy compatibility and why
+neither initialization record authorizes reconstructing an audit anchor. This
+matrix is POSIX plaintext process-crash evidence, not native Windows crash,
+encrypted initialization, anti-rollback, same-user isolation or power-loss proof.
+
+## Preview creation and expired/used challenge cleanup
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_preview_crash -v
+```
+
+The public `admin_preview(accept_proposal)` path is cut after its global challenge
+DELETE and INSERT, and immediately before/after SQL commit: **four real process
+exits**. Real synthetic previews in two projects supply expired, exactly-at-expiry,
+live and already-used controls. The strict `expires_at < now` boundary retains
+equality; both projects' expired/used challenges disappear atomically with the
+new challenge, or all original rows survive before commit. No target approval
+grant is generated and preview alone accepts no memory.
+
+All other logical tables, old owner receipts, canonical data, audit chain and
+anchor remain unchanged. The exact returned preview, digest, recovery locator
+and content-free stored challenge are independently checked. Old receipts remain
+recoverable even after their used challenges are collected; the new unapproved
+preview has no committed-result receipt. Agents cannot preview/apply/recover owner
+actions, and an invalid owner grant is refused without mutation. Full raw logical
+state and anchor checks precede semantic calls. Only known pre-commit test cases
+retry; a committed preview is never blindly recreated. This is bounded synthetic
+POSIX plaintext process-death coverage, not Windows crash or human-approval proof.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
@@ -537,7 +596,7 @@ backup-revocation evidence or completion of issue #8.
 ## Open gates
 
 Issue #8 remains open for the complete operation/fault inventory (including
-bootstrap, preview-challenge creation/cleanup, and remaining proposal/recall/feedback
+remaining bootstrap/proposal/recall/feedback/preview
 variants), approved
 encryption and approval-key rotation/recovery, and the relevant audit-anchor and
 backup/revocation transitions once those implementations exist. SQLCipher must
