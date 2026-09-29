@@ -46,20 +46,46 @@ class RequestStateTest(unittest.TestCase):
 
     def test_drain_ack_failure_does_not_discard_an_obtained_reply(self):
         class Connection:
+            def __init__(self, code):
+                self.code = code
+
             def send(self, frame):
                 if frame == DRAIN_ACK:
-                    raise MemoryError("pipe_timeout", "Injected ACK-only fault")
+                    raise MemoryError(self.code, "Injected ACK-only fault")
 
             def receive(self):
                 return b'{"id":1,"result":{}}\n'
 
-        @contextmanager
-        def connected(*_args, **_kwargs):
-            yield Connection()
-
         # Deterministic orchestration test, not native timeout evidence.
-        with mock.patch("continuum_memory.windows_runtime.connect", connected):
-            self.assertEqual(exchange(b"b" * 32, b"{}\n"), b'{"id":1,"result":{}}\n')
+        for code in ("pipe_timeout", "pipe_identity_unavailable"):
+            @contextmanager
+            def connected(*_args, **_kwargs):
+                yield Connection(code)
+
+            with self.subTest(code=code), mock.patch("continuum_memory.windows_runtime.connect", connected):
+                self.assertEqual(exchange(b"b" * 32, b"{}\n"), b'{"id":1,"result":{}}\n')
+
+    def test_identity_failure_before_complete_response_is_not_suppressed(self):
+        for failed_phase in ("request", "response"):
+            class Connection:
+                def send(self, frame):
+                    if failed_phase == "request" and frame != DRAIN_ACK:
+                        raise MemoryError("pipe_identity_unavailable", "Injected request identity fault")
+
+                def receive(self):
+                    if failed_phase == "response":
+                        raise MemoryError("pipe_identity_unavailable", "Injected response identity fault")
+                    return b'{"id":1,"result":{}}\n'
+
+            @contextmanager
+            def connected(*_args, **_kwargs):
+                yield Connection()
+
+            with self.subTest(phase=failed_phase), mock.patch(
+                "continuum_memory.windows_runtime.connect", connected
+            ), self.assertRaises(MemoryError) as caught:
+                exchange(b"b" * 32, b"{}\n")
+            self.assertEqual(caught.exception.code, "pipe_identity_unavailable")
 
 
 class IdleConnectStateTest(unittest.TestCase):
@@ -214,7 +240,14 @@ class NativeRuntimeTest(unittest.TestCase):
             client.send(b"delayed\n")
             time.sleep(0.2)
             self.assertEqual(client.receive(), b"delayed\n")
-            client.send(DRAIN_ACK)
+            try:
+                client.send(DRAIN_ACK)
+            except MemoryError as error:
+                # The complete response above is already authenticated. After
+                # reading this final ACK the server may disconnect before send's
+                # post-write peer check; exchange() treats drainage as best effort.
+                # Other errors and all request/response identity checks stay fatal.
+                self.assertEqual(error.code, "pipe_identity_unavailable")
         self.assertEqual(exchange(self.binding, b"next\n"), b"next\n")
 
     def test_nonreader_times_out_without_blocking_other_connections(self):
