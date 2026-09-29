@@ -24,7 +24,7 @@ from .projection import (
     record_audience_change,
 )
 from .proposals import check_delivery, check_proposal_scope, delivery_digest, proposal_scope, purge_proposals
-from .results import read_result, save_result
+from .results import read_recovery_result, read_result, recovery_locator, save_result
 from .security import (
     GRANT_TTL_SECONDS,
     MAX_BODY_BYTES,
@@ -103,6 +103,7 @@ class Kernel:
             "admin_preview": self.admin_preview,
             "admin_apply": self.admin_apply,
             "admin_result": self.admin_result,
+            "admin_recover": self.admin_recover,
             "audit_verify": self.audit_verify,
             "audit_reconcile": self.audit_reconcile,
         }
@@ -512,6 +513,7 @@ class Kernel:
             "operation": operation,
             "nonce": nonce,
             "preview_digest": digest,
+            "recovery_locator": recovery_locator(self.store, capability, nonce, project, digest),
             "expires_at": expires_at,
             "preview": preview,
             "vault_id": self.store.vault_id,
@@ -800,6 +802,10 @@ class Kernel:
         nonce = bounded_id(params["nonce"], "nonce")
         digest = bounded_text(params["preview_digest"], "preview_digest", 64)
         return read_result(self.store, capability, nonce, digest)
+
+    def admin_recover(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_permission(capability, "control")
+        return read_recovery_result(self.store, capability, params)
 
     def audit_reconcile(self, capability: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         self._require_permission(capability, "control")

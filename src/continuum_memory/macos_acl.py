@@ -105,6 +105,25 @@ def require_no_acl_fd(fd: int, expected: os.stat_result) -> None:
         raise MemoryError("acl_unavailable", "Native private-material permissions could not be verified.") from error
 
 
+def require_no_acl_sqlite_path(path: Path, expected: os.stat_result) -> None:
+    """Observe SQLite material without opening or closing another descriptor.
+
+    Closing even a metadata-only descriptor can discard SQLite's process-wide
+    POSIX locks. Use the native no-follow pathname ACL query, bracketed by exact
+    metadata observations. This is not binding to SQLite's VFS descriptor and
+    does not claim same-user substitution/ABA protection. Never retry a change.
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        _unchanged(expected, path.lstat())
+        library = _library()
+        _check_acl(library, library.acl_get_link_np, os.fsencode(path))
+        _unchanged(expected, path.lstat())
+    except (OSError, AttributeError, TypeError, ValueError) as error:
+        raise MemoryError("acl_unavailable", "Native private-material permissions could not be verified.") from error
+
+
 def require_no_acl_path(path: Path, expected: os.stat_result) -> None:
     """Bind files/directories to a nofollow metadata FD; sockets use lstat checks."""
     if sys.platform != "darwin":

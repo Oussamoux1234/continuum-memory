@@ -1,6 +1,7 @@
 """User-control CLI. Administrative actions always render and confirm an exact preview."""
 
 import argparse
+import copy
 import json
 import sys
 from pathlib import Path
@@ -12,6 +13,8 @@ from .broker import LinuxPolkitApprovalBroker, broker_for_challenge
 from .client import DaemonClient
 from .daemon import _default_home
 from .errors import MemoryError
+from .recovery_journal import load_locators, persist_locator
+from .recovery_locator import validate_locator
 from .security import (
     ContentSafeArgumentParser,
     MAX_BODY_BYTES,
@@ -35,10 +38,38 @@ def _print(value: Any, compact: bool) -> None:
         print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _unknown(nonce: str) -> MemoryError:
+    return MemoryError("operation_outcome_unknown",
+                       "Recover the operation receipt before submitting a new action. Missing receipts do not authorize retry.",
+                       {"nonce": nonce})
+
+
+def _receipt(client: DaemonClient, locator: Dict[str, Any], operation: Any = None) -> Dict[str, Any]:
+    receipt = client.call("admin_recover", locator)
+    if (not isinstance(receipt, dict) or receipt.get("committed") is not True
+            or receipt.get("receipt_id") != locator["nonce"]
+            or receipt.get("operation") not in ("remember", "accept_proposal", "reject_proposal", "correct", "forget")
+            or (operation is not None and receipt["operation"] != operation)
+            or not isinstance(receipt.get("result"), dict)
+            or not isinstance(receipt.get("audit_anchor"), str)
+            or not 0 < len(receipt["audit_anchor"]) <= 128):
+        raise MemoryError("invalid_response", "The operation receipt is invalid.")
+    return receipt
+
+
 def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
-    challenge = client.call("admin_preview", params)
-    broker = broker_for_challenge(challenge)
-    grant = broker.authorize(challenge)
+    response = client.call("admin_preview", params)
+    if not isinstance(response, dict) or "recovery_locator" not in response:
+        raise MemoryError("recovery_unsupported", "The daemon must support durable recovery before approving an action.")
+    locator = validate_locator(response["recovery_locator"])
+    operation = params.get("operation")
+    if (locator["nonce"] != response.get("nonce") or locator["vault_id"] != response.get("vault_id")
+            or response.get("operation") != operation):
+        raise MemoryError("invalid_response", "The recovery locator does not match the administrative preview.")
+    # Keep the exact reviewed request and selector independent of broker input.
+    challenge = copy.deepcopy(response)
+    broker = broker_for_challenge(copy.deepcopy(challenge))
+    grant = broker.authorize(copy.deepcopy(challenge))
     request = {
         "nonce": challenge["nonce"],
         "preview_digest": challenge["preview_digest"],
@@ -46,20 +77,52 @@ def _admin(client: DaemonClient, params: Dict[str, Any]) -> Dict[str, Any]:
         "preview": challenge["preview"],
     }
     try:
-        return client.call("admin_apply", request)
-    except MemoryError as exc:
-        if exc.code not in {"unavailable", "invalid_response", "internal_error", "response_too_large",
-                            "committed_audit_degraded"}:
+        persist_locator(client.data_dir, locator)
+    except (MemoryError, OSError) as exc:
+        # Retain partial publication residue; never transmit any apply bytes.
+        raise _unknown(locator["nonce"]) from exc
+    try:
+        result = client.call("admin_apply", request)
+        commit = result.get("commit") if isinstance(result, dict) else None
+        if (not isinstance(commit, dict) or commit.get("status") != "committed"
+                or commit.get("receipt_id") != locator["nonce"]
+                or not isinstance(commit.get("audit_anchor"), str)
+                or not 0 < len(commit["audit_anchor"]) <= 128):
+            raise MemoryError("invalid_response", "The local service returned an invalid commit result.")
+        return result
+    except (MemoryError, OSError) as exc:
+        if isinstance(exc, MemoryError) and exc.code not in {
+                "unavailable", "invalid_response", "internal_error", "response_too_large",
+                "committed_audit_degraded", "pipe_timeout", "pipe_unavailable", "invalid_frame",
+                "pipe_identity_unavailable", "pipe_impersonated_context", "unsafe_owner", "windows_boundary_error"}:
             raise
-        locator = {"nonce": challenge["nonce"], "preview_digest": challenge["preview_digest"]}
         try:
-            receipt = client.call("admin_result", locator)
-        except MemoryError:
+            # Windows peer/context checks also run after sending/receiving. A
+            # failure does not prove rollback; the new lookup retains all normal
+            # identity checks and must itself succeed before reporting a commit.
+            receipt = _receipt(client, locator, operation)
+        except (MemoryError, OSError):
             # No retry/new grant: the server may have committed after our timeout.
-            raise MemoryError("operation_outcome_unknown", "Check the operation receipt before submitting a new action.",
-                              locator) from exc
+            raise _unknown(locator["nonce"]) from exc
         return dict(receipt["result"], commit={"status": "committed", "receipt_id": receipt["receipt_id"],
                                              "audit_anchor": receipt["audit_anchor"], "recovered": True})
+
+
+def _recover(client: DaemonClient, *, nonce=None, after=None, limit=25) -> Dict[str, Any]:
+    page = load_locators(client.data_dir, nonce=nonce, after=after, limit=limit)
+    operations = []
+    for locator in page["locators"]:
+        item = {"nonce": locator["nonce"], "status": "unknown"}
+        try:
+            item["receipt"] = _receipt(client, locator)
+            item["status"] = "committed"
+        except (MemoryError, OSError):
+            # Unavailable, revoked, absent and invalid receipts all remain unknown.
+            pass
+        operations.append(item)
+    return {"status": "unresolved" if any(item["status"] == "unknown" for item in operations) else "complete",
+            "scope": "page", "operations": operations, "next_cursor": page["next_cursor"],
+            "has_more": page["next_cursor"] is not None}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +200,11 @@ def build_parser() -> argparse.ArgumentParser:
     result = sub.add_parser("result", help="Read a prior owner operation's receipt without repeating the action.")
     result.add_argument("--nonce", required=True)
     result.add_argument("--preview-digest", required=True)
+
+    recover = sub.add_parser("recover", help="Read journaled operation receipts; never retry an action.")
+    recover.add_argument("--nonce")
+    recover.add_argument("--after")
+    recover.add_argument("--limit", type=int, default=25)
 
     approval = sub.add_parser("approval")
     approval_sub = approval.add_subparsers(dest="approval_command", required=True)
@@ -277,6 +345,8 @@ def run(args: argparse.Namespace) -> Any:
         return client.call("audit_reconcile", {})
     if args.command == "result":
         return client.call("admin_result", {"nonce": args.nonce, "preview_digest": args.preview_digest})
+    if args.command == "recover":
+        return _recover(client, nonce=args.nonce, after=args.after, limit=args.limit)
     raise MemoryError("invalid_request", "No command was selected.")
 
 
@@ -292,6 +362,8 @@ def main(argv: Any = None) -> int:
     try:
         result = run(args)
         _print(result, args.json)
+        if args.command == "recover" and result["status"] == "unresolved":
+            return 2
         return 0
     except MemoryError as exc:
         _print({"error": exc.as_dict()}, True)

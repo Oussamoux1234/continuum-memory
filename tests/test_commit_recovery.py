@@ -324,27 +324,31 @@ class RecoverySurfaceTest(unittest.TestCase):
             self.assertEqual(json.loads(completed.stdout), receipt)
 
     def test_cli_recovers_lost_reply_without_repeating_mutation(self):
-        challenge = {"nonce":"gnt_fixture", "preview_digest":"0"*64, "preview":{}}
-        receipt = {"receipt_id":"gnt_fixture", "result":{"assertion_id":"asr_fixture"}, "audit_anchor":"valid"}
+        challenge = {"nonce":"gnt_fixture", "vault_id":"vlt_fixture", "operation":"remember",
+                     "preview_digest":"0"*64, "preview":{},
+                     "recovery_locator":{"version":1,"nonce":"gnt_fixture","vault_id":"vlt_fixture","binding":"1"*64}}
+        receipt = {"receipt_id":"gnt_fixture", "operation":"remember", "committed":True,
+                   "result":{"assertion_id":"asr_fixture"}, "audit_anchor":"valid"}
         for recovered in (True, False):
             calls = []
             class Client:
+                data_dir = Path("unused-control-flow-fixture")
                 def call(self, method, params):
                     calls.append(method)
                     if method == "admin_preview": return challenge
                     if method == "admin_apply": raise MemoryError("unavailable", "synthetic")
                     if recovered: return receipt
                     raise MemoryError("not_found", "synthetic")
-            with patch.object(cli, "broker_for_challenge") as broker:
+            with patch.object(cli, "broker_for_challenge") as broker, patch.object(cli, "persist_locator"):
                 broker.return_value.authorize.return_value = "synthetic-grant"
                 if recovered:
-                    result = cli._admin(Client(), {})
+                    result = cli._admin(Client(), {"operation":"remember"})
                     self.assertTrue(result["commit"]["recovered"])
                 else:
-                    with self.assertRaises(MemoryError) as unknown: cli._admin(Client(), {})
+                    with self.assertRaises(MemoryError) as unknown: cli._admin(Client(), {"operation":"remember"})
                     self.assertEqual(unknown.exception.code, "operation_outcome_unknown")
-                    self.assertEqual(unknown.exception.details, {"nonce":"gnt_fixture", "preview_digest":"0"*64})
-            self.assertEqual(calls, ["admin_preview", "admin_apply", "admin_result"])
+                    self.assertEqual(unknown.exception.details, {"nonce":"gnt_fixture"})
+            self.assertEqual(calls, ["admin_preview", "admin_apply", "admin_recover"])
 
 
 if __name__ == "__main__":

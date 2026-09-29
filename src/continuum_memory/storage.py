@@ -21,7 +21,7 @@ from .security import (
     canonical_json,
     create_private_directory,
     ensure_private_directory,
-    ensure_private_regular,
+    ensure_private_sqlite_file,
     now_iso,
     path_exists,
     random_id,
@@ -51,11 +51,11 @@ def paths(data_dir: Path) -> Dict[str, Path]:
 
 def _validate_database_files(db_path: Path) -> None:
     ensure_private_directory(db_path.parent)
-    ensure_private_regular(db_path, "The vault database")
+    ensure_private_sqlite_file(db_path, "The vault database")
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = Path(str(db_path) + suffix)
         if path_exists(sidecar):
-            ensure_private_regular(sidecar, "The SQLite %s sidecar" % suffix[1:])
+            ensure_private_sqlite_file(sidecar, "The SQLite %s sidecar" % suffix[1:])
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -125,7 +125,7 @@ class Store:
         self.owner_uid = None if os.name == "nt" else int(directory_info.st_uid)
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
-        ensure_private_regular(self.files["db"], "The vault database")
+        ensure_private_sqlite_file(self.files["db"], "The vault database")
         audit_key = read_private(self.files["audit_key"], 128)
         self.connection = _connect(self.files["db"])
         try:
@@ -241,7 +241,7 @@ class Store:
                 now,
             )
             connection.commit()
-            ensure_private_regular(file_map["db"], "The vault database")
+            ensure_private_sqlite_file(file_map["db"], "The vault database")
             cls._sync_audit_head_raw(connection, file_map["audit_head"])
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             return {
