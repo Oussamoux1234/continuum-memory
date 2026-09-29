@@ -8,9 +8,11 @@ default-branch database is still the plaintext prototype.
 
 Use one private vault on a local POSIX filesystem with working `flock` and
 no-follow opens. Every daemon accessing that vault must use this lock-aware version.
-This runbook covers POSIX, not the [native Windows lifecycle candidate](WINDOWS_IPC.md),
-which uses held pipe instances and no socket-file cleanup. Its integrated native
-acceptance remains pending. Network filesystems, concurrent old/new daemons, and
+This runbook covers POSIX, not the [native Windows plaintext prototype](WINDOWS_IPC.md),
+which uses held pipe instances and no socket-file cleanup. Its hosted Windows Server
+2025 acceptance is documented in [Windows verification](WINDOWS_VERIFICATION.md);
+that is not desktop certification or native approval/encryption acceptance.
+Network filesystems, concurrent old/new daemons, and
 protection against malicious same-user processes replacing private files are not supported.
 Development-host macOS tests do not certify the macOS runtime/approval boundary.
 
