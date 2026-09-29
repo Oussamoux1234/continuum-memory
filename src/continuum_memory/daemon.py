@@ -11,6 +11,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from .bootstrap_state import read_initialization_state
 from .daemon_lock import DaemonLock, same_inode
 from .errors import MemoryError
 from .kernel import Kernel
@@ -22,6 +23,7 @@ from .security import (
     canonical_json,
     ensure_private_directory,
     ensure_private_socket,
+    path_exists,
     require_keys,
 )
 from .storage import Store, paths
@@ -222,10 +224,18 @@ class MemoryServer:
 
 
 def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:
-    if os.name == "nt":
-        return _serve_windows(data_dir, kernel_factory)
     ensure_private_directory(data_dir)
     file_map = paths(data_dir)
+    # Refuse visible incomplete initialization records before creating a
+    # lock/binding or removing a stale endpoint. Store checks DB metadata later.
+    read_initialization_state(data_dir)
+    if not path_exists(file_map["db"]):
+        raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
+    # An initializer may have claimed an empty home after our first observation.
+    # Recheck after DB presence, still before any endpoint ownership side effects.
+    read_initialization_state(data_dir)
+    if os.name == "nt":
+        return _serve_windows(data_dir, kernel_factory)
     socket_path = file_map["socket"]
     def stop(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt

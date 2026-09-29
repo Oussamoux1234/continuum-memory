@@ -7,9 +7,16 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .admission import AdmissionPolicy
+from .bootstrap_state import (
+    claim_initialization,
+    complete_initialization,
+    initialization_paths,
+    read_initialization_state,
+    require_initialization_metadata,
+)
 from .errors import CommittedAuditError, MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
 from .security import (
@@ -46,6 +53,7 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "control": data_dir / "control.cap",
         "caps": data_dir / "capabilities",
         "ipc_binding": data_dir / "ipc.binding",
+        **initialization_paths(data_dir),
     }
 
 
@@ -58,7 +66,7 @@ def _validate_database_files(db_path: Path) -> None:
             ensure_private_sqlite_file(sidecar, "The SQLite %s sidecar" % suffix[1:])
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+def _connect(db_path: Path, *, admission: Optional[Callable[[sqlite3.Connection], None]] = None) -> sqlite3.Connection:
     # Reject existing unsafe companions before SQLite can read/recover them.
     # This is an observation, not a custom VFS or arbitrary-race prevention.
     _validate_database_files(db_path)
@@ -68,6 +76,14 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     else:
         connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
     try:
+        if admission is not None:
+            # Guarded reads precede persistent PRAGMAs, FTS probes or migration.
+            # SQLite itself may still recover/open sidecars while reading; this
+            # is not an immutable backend or a zero-filesystem-effects promise.
+            connection.execute("PRAGMA trusted_schema=OFF")
+            connection.execute("PRAGMA query_only=ON")
+            admission(connection)
+            connection.execute("PRAGMA query_only=OFF")
         _configure_connection(connection, db_path)
     except BaseException:
         connection.close()
@@ -123,20 +139,33 @@ class Store:
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
         self.owner_uid = None if os.name == "nt" else int(directory_info.st_uid)
+        read_initialization_state(data_dir)
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
+        # Re-observe after DB presence: a newly claimed attempt must not slip
+        # between the first marker observation and connection admission.
+        marker_vault_id = read_initialization_state(data_dir)
         ensure_private_sqlite_file(self.files["db"], "The vault database")
         audit_key = read_private(self.files["audit_key"], 128)
-        self.connection = _connect(self.files["db"])
+
+        def admit(connection):
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version not in (2, 3, 4, SCHEMA_VERSION):
+                raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
+            metadata = dict(connection.execute(
+                "SELECT key,value FROM metadata WHERE key IN ('vault_id','bootstrap_protocol')"))
+            vault_id = metadata.get("vault_id")
+            require_initialization_metadata(metadata.get("bootstrap_protocol"), vault_id, marker_vault_id)
+            if vault_id is None:
+                raise MemoryError("integrity_error", "The vault identity is unavailable.")
+            self.vault_id = bounded_id(vault_id, "vault_id")
+
+        self.connection = _connect(self.files["db"], admission=admit)
         try:
             version = self.connection.execute("PRAGMA user_version").fetchone()[0]
             version = migrate(self.connection, version)
             if version != SCHEMA_VERSION:
                 raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
-            vault = self.connection.execute("SELECT value FROM metadata WHERE key='vault_id'").fetchone()
-            if not vault:
-                raise MemoryError("integrity_error", "The vault identity is unavailable.")
-            self.vault_id = bounded_id(vault[0], "vault_id")
             self.audit_key = audit_key
         except BaseException:
             self.connection.close()
@@ -169,29 +198,38 @@ class Store:
         else:
             create_private_directory(data_dir, parents=True)
         file_map = paths(data_dir)
-        occupied = ("db", "socket", "audit_key", "audit_head", "control", "caps", "ipc_binding")
-        if any(path_exists(file_map[name]) for name in occupied):
+        reserved = list(file_map.values()) + [data_dir / "memoryd.lock"] + [
+            Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+        if any(path_exists(path) for path in reserved):
+            raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
+        vault_id = random_id("vlt")
+        # This immutable, exclusive claim wins before any private material is
+        # created. A failed or interrupted attempt remains occupied, never repaired.
+        claim_initialization(data_dir, vault_id)
+        if any(path_exists(path) for path in reserved if path != file_map["bootstrap_claim"]):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         create_private_directory(file_map["caps"])
+        expected_files = {}
         if os.name == "nt":
-            write_private(file_map["ipc_binding"], secrets.token_bytes(32))
+            binding = secrets.token_bytes(32)
+            write_private(file_map["ipc_binding"], binding)
+            expected_files[file_map["ipc_binding"]] = binding
         audit_key = secrets.token_bytes(32)
         write_private(file_map["audit_key"], audit_key)
         control_token = secrets.token_urlsafe(32)
-        write_private(
-            file_map["control"],
-            _capability_document(None, "user_control", ["control", "read"], control_token),
-        )
+        control_document = _capability_document(None, "user_control", ["control", "read"], control_token)
+        write_private(file_map["control"], control_document)
+        expected_files.update({file_map["audit_key"]: audit_key, file_map["control"]: control_document})
         write_private(file_map["db"], b"")
         connection = _connect(file_map["db"])
         try:
             connection.executescript(SCHEMA_SQL)
             connection.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             connection.execute("BEGIN IMMEDIATE")
-            vault_id = random_id("vlt")
             connection.execute("INSERT INTO metadata(key,value) VALUES ('vault_id',?)", (vault_id,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode','plaintext_prototype')")
             connection.execute("INSERT INTO metadata(key,value) VALUES ('policy_version',?)", (POLICY_VERSION,))
+            connection.execute("INSERT INTO metadata(key,value) VALUES ('bootstrap_protocol','1')")
             now = now_iso()
             control_id = random_id("cap")
             connection.execute(
@@ -199,6 +237,10 @@ class Store:
                 "VALUES (?,?,?,?,?,?)",
                 (control_id, token_hash(control_token), None, "user_control", '["control","read"]', now),
             )
+            expected_capabilities = [(control_id, token_hash(control_token), None, "user_control",
+                                      '["control","read"]', now, None)]
+            expected_projects = []
+            expected_scopes = []
             created = []
             for spec in projects:
                 project_id = random_id("prj")
@@ -209,11 +251,13 @@ class Store:
                     "INSERT INTO projects(id,name,path_hint,created_at,created_seq) VALUES (?,?,?,?,?)",
                     (project_id, name, path_hint, now, sequence),
                 )
+                expected_projects.append((project_id, name, path_hint, now, sequence))
                 scope_id = random_id("scp")
                 connection.execute(
                     "INSERT INTO scopes(id,project_id,kind,value) VALUES (?,?,?,?)",
                     (scope_id, project_id, "project", project_id),
                 )
+                expected_scopes.append((scope_id, project_id, "project", project_id))
                 cap_files = {}
                 for provider in spec["providers"]:
                     cap_token = secrets.token_urlsafe(32)
@@ -223,8 +267,12 @@ class Store:
                         "VALUES (?,?,?,?,?,?)",
                         (cap_id, token_hash(cap_token), project_id, provider, '["propose","read"]', now),
                     )
+                    expected_capabilities.append((cap_id, token_hash(cap_token), project_id, provider,
+                                                  '["propose","read"]', now, None))
                     cap_path = file_map["caps"] / ("%s.%s.cap" % (project_id, provider))
-                    write_private(cap_path, _capability_document(project_id, provider, ["propose", "read"], cap_token))
+                    cap_document = _capability_document(project_id, provider, ["propose", "read"], cap_token)
+                    write_private(cap_path, cap_document)
+                    expected_files[cap_path] = cap_document
                     cap_files[provider] = str(cap_path)
                 created.append({"id": project_id, "scope_id": scope_id, "name": name, "capabilities": cap_files})
             event_seq = cls._next_sequence(connection)
@@ -243,20 +291,55 @@ class Store:
             connection.commit()
             ensure_private_sqlite_file(file_map["db"], "The vault database")
             cls._sync_audit_head_raw(connection, file_map["audit_head"])
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            return {
-                "vault_id": vault_id,
-                "data_dir": str(data_dir),
-                "socket": str(file_map["socket"]),
-                "control_capability": str(file_map["control"]),
-                "projects": created,
-                "storage_mode": "plaintext_prototype",
-            }
+            cls._verify_bootstrap(connection, file_map, vault_id, audit_key, expected_files,
+                                  expected_capabilities, expected_projects, expected_scopes)
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if tuple(checkpoint) != (0, 0, 0):
+                raise MemoryError("initialization_incomplete", "Initialization did not complete safely.")
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+        # Publication is deliberately after successful close. No failure path
+        # removes the claim, rewrites capabilities or fabricates an audit anchor.
+        complete_initialization(data_dir, vault_id)
+        return {
+            "vault_id": vault_id,
+            "data_dir": str(data_dir),
+            "socket": str(file_map["socket"]),
+            "control_capability": str(file_map["control"]),
+            "projects": created,
+            "storage_mode": "plaintext_prototype",
+        }
+
+    @classmethod
+    def _verify_bootstrap(cls, connection, file_map, vault_id, audit_key, expected_files,
+                          expected_capabilities, expected_projects, expected_scopes) -> None:
+        """Read back this claimed initialization before allowing any admission."""
+        ensure_private_directory(file_map["caps"])
+        expected_cap_files = {path for path in expected_files if path.parent == file_map["caps"]}
+        valid = set(file_map["caps"].iterdir()) == expected_cap_files
+        for path, expected in expected_files.items():
+            valid = hmac.compare_digest(read_private(path), expected) and valid
+        expected_metadata = {"vault_id": vault_id, "storage_mode": "plaintext_prototype",
+                             "policy_version": POLICY_VERSION, "bootstrap_protocol": "1"}
+        valid = dict(connection.execute("SELECT key,value FROM metadata")) == expected_metadata and valid
+        for table, columns, expected in (
+            ("capabilities", "id,token_hash,project_id,provider,permissions_json,created_at,revoked_at",
+             expected_capabilities),
+            ("projects", "id,name,path_hint,created_at,created_seq", expected_projects),
+            ("scopes", "id,project_id,kind,value", expected_scopes),
+        ):
+            rows = [tuple(row) for row in connection.execute("SELECT " + columns + " FROM " + table + " ORDER BY id")]
+            valid = rows == sorted(expected) and valid
+        valid = connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION and valid
+        valid = connection.execute("SELECT count(*) FROM audit_events").fetchone()[0] == 1 and valid
+        valid = connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok" and valid
+        valid = not connection.execute("PRAGMA foreign_key_check").fetchall() and valid
+        valid = cls._verify_audit_raw(connection, audit_key, file_map["audit_head"])["status"] == "valid" and valid
+        if not valid:
+            raise MemoryError("initialization_incomplete", "Initialization did not complete safely.")
 
     @staticmethod
     def _next_sequence(connection: sqlite3.Connection) -> int:
@@ -421,10 +504,14 @@ class Store:
                 self.connection.rollback()
 
     def _verify_audit_locked(self) -> Dict[str, Any]:
+        return self._verify_audit_raw(self.connection, self.audit_key, self.files["audit_head"])
+
+    @staticmethod
+    def _verify_audit_raw(connection, audit_key: bytes, audit_head: Path) -> Dict[str, Any]:
         previous = "GENESIS"
         count = 0
         last_seq = 0
-        for row in self.connection.execute("SELECT * FROM audit_events ORDER BY audit_seq"):
+        for row in connection.execute("SELECT * FROM audit_events ORDER BY audit_seq"):
             count += 1
             last_seq = int(row["audit_seq"])
             if row["previous_mac"] != previous:
@@ -441,7 +528,7 @@ class Store:
                 "target_id": row["target_id"],
             }
             expected = hmac.new(
-                self.audit_key,
+                audit_key,
                 (previous + "\n" + canonical_json(payload)).encode("utf-8"),
                 hashlib.sha256,
             ).hexdigest()
@@ -449,7 +536,7 @@ class Store:
                 return {"status": "invalid_event_mac", "first_invalid_audit_seq": row["audit_seq"]}
             previous = row["mac"]
         try:
-            anchor = decode_frame(read_private(self.files["audit_head"], 1024))
+            anchor = decode_frame(read_private(audit_head, 1024))
         except (OSError, ValueError, RecursionError, MemoryError):
             return {"status": "anchor_unavailable", "events": count}
         if (not isinstance(anchor, dict) or set(anchor) != {"audit_seq", "mac"}
@@ -462,7 +549,7 @@ class Store:
             return {"status": "anchor_malformed", "events": count}
         if anchor_seq > last_seq:
             return {"status": "database_tail_rollback", "events": count, "anchor_audit_seq": anchor_seq}
-        anchored = self.connection.execute("SELECT mac FROM audit_events WHERE audit_seq=?", (anchor_seq,)).fetchone()
+        anchored = connection.execute("SELECT mac FROM audit_events WHERE audit_seq=?", (anchor_seq,)).fetchone()
         prefix_mac = "GENESIS" if anchor_seq == 0 else (anchored[0] if anchored else "")
         if not hmac.compare_digest(anchor["mac"], prefix_mac):
             return {"status": "anchor_mismatch", "events": count}
