@@ -13,6 +13,7 @@ import re
 import secrets
 import struct
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -88,17 +89,24 @@ def assert_denied(api, path, access, flags=0):
 
 def owner_roundtrip(server, binding):
     from continuum_memory.windows_pipe import connect
+    delivered = threading.Event()
 
     def echo():
         with server.accept() as connection:
             require(connection.receive() == b"synthetic-positive-control\n", "owner_server_payload")
             connection.send(b"synthetic-positive-control\n")
+            # DisconnectNamedPipe can discard unread bytes. Keep the actual
+            # instance alive until the positive-control client has read them.
+            require(delivered.wait(5), "owner_delivery_control")
 
     with ThreadPoolExecutor(max_workers=1) as worker:
         result = worker.submit(echo)
-        with connect(binding) as connection:
-            connection.send(b"synthetic-positive-control\n")
-            require(connection.receive() == b"synthetic-positive-control\n", "owner_client_payload")
+        try:
+            with connect(binding) as connection:
+                connection.send(b"synthetic-positive-control\n")
+                require(connection.receive() == b"synthetic-positive-control\n", "owner_client_payload")
+        finally:
+            delivered.set()  # Also release the server when the client fails.
         result.result(timeout=6)
 
 
