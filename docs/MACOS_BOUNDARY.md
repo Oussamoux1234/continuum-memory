@@ -63,7 +63,7 @@ carry ACL permissions. Existing synthetic homes with ACLs will now be refused; i
 them and choose a fresh owner-only evaluation directory instead of automatically stripping
 permissions from an existing path.
 
-Regular-file/directory preflights open a nofollow `O_EVTONLY` metadata descriptor and check
+Ordinary private-file/directory preflights open a nofollow `O_EVTONLY` metadata descriptor and check
 the same device, inode, type/mode, link count, owner/group, and change timestamp before and
 after the native ACL query. Private content reads and writes independently query the actual
 content descriptor before bytes are read/written, and reads recheck before returning bytes.
@@ -86,12 +86,36 @@ Unix socket pathnames cannot be opened this way on macOS. Their ACL check uses n
 not a descriptor-bound socket-path guarantee or protection against every ABA substitution.
 The connected-peer checks above still apply before any capability is sent.
 
-Existing database, WAL, SHM, and rollback-journal files are checked before SQLite connects
-and again after configuration, so a pre-existing unsafe companion is refused before engine
-access. Native tests cover real allow/deny/owner-only/inherited ACLs despite private mode
+SQLite files are a deliberate exception to metadata descriptor opening. Database, WAL,
+SHM and rollback-journal validation uses `acl_get_link_np`, bracketed by exact `lstat`
+device/inode/type/mode/link-count/owner/group/ctime checks. Type, single-link, owner-only
+mode and safe ancestors are still required. This no-follow **pathname observation** does
+not bind to SQLite's own descriptor and does not provide arbitrary same-user/ABA race
+protection. Disappearance, replacement, permissions changes and ACL query errors fail
+closed; there is no directory-churn retry for SQLite files.
+
+The exception preserves SQLite's advisory locks: opening and closing an unrelated
+metadata descriptor for a live database or sidecar can release the process's locks.
+That caused independently reproduced committed-data loss in
+[issue #45](https://github.com/Oussamoux1234/continuum-memory/issues/45). Every production
+SQLite-file check, including constructor/bootstrap and both connection preflight and
+post-configuration, uses the dedicated helper. Ordinary keys/private files keep their
+descriptor-based validation; Windows behavior is unchanged. See
+[SQLite's locking warning](https://www.sqlite.org/howtocorrupt.html#posix_advisory_locks_canceled_by_a_separate_thread_doing_close_).
+
+Existing database and companion files are checked before SQLite connects and again after
+configuration, so a pre-existing unsafe companion is refused before engine access.
+Native tests cover real allow/deny/owner-only/inherited ACLs despite private mode
 bits, safe no-ACL objects, file/socket substitutions, read/create races, and each database
 companion. Injected ABI tests cover failed/malformed native responses and cleanup paths;
 they complement, rather than replace, the native fixtures.
+
+`tests/test_sqlite_lock_preservation.py` pairs a no-extra-open oracle with real separate
+processes: a normal writable-mode SQLite reader must leave a live Store's WAL/SHM identities
+intact, and the writer's committed row must remain independently visible after abrupt exit.
+It also exercises multiple Store handles in one process. Read-only observers alone do not
+establish this property; the original writable-observer trigger must pass on the exact
+revision and native platform under review.
 
 Ancestor identity pinning, arbitrary concurrent ACL/path changes, malicious SQLite sidecar
 substitution after preflight, and stronger same-user process isolation remain unresolved.

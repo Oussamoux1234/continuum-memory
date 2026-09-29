@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .errors import MemoryError, invalid
-from .macos_acl import require_no_acl_fd, require_no_acl_path
+from .macos_acl import require_no_acl_fd, require_no_acl_path, require_no_acl_sqlite_path
 
 MAX_FRAME_BYTES = 65_536
 MAX_BODY_BYTES = 4_096
@@ -255,10 +255,7 @@ def ensure_private_directory(path: Path):
             return info
 
 
-def ensure_private_regular(path: Path, label: str = "Private material"):
-    if os.name == "nt":
-        from .windows_boundary import WindowsBoundary
-        return WindowsBoundary().inspect(path)
+def _private_regular_metadata(path: Path, label: str):
     _reject_untrusted_symlink_ancestors(path.parent)
     try:
         info = path.lstat()
@@ -270,7 +267,25 @@ def ensure_private_regular(path: Path, label: str = "Private material"):
         raise MemoryError("unsafe_owner", "%s is not owned by the current user." % label)
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "%s is not owner-only." % label)
+    return info
+
+
+def ensure_private_regular(path: Path, label: str = "Private material"):
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path)
+    info = _private_regular_metadata(path, label)
     require_no_acl_path(path, info)
+    return info
+
+
+def ensure_private_sqlite_file(path: Path, label: str = "SQLite material"):
+    """Observe DB/sidecar permissions without disturbing live SQLite locks."""
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path)
+    info = _private_regular_metadata(path, label)
+    require_no_acl_sqlite_path(path, info)
     return info
 
 
