@@ -6,6 +6,7 @@ import time
 import unittest
 import xml.etree.ElementTree as ElementTree
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 from fixtures.harness import private_test_home
@@ -377,7 +378,7 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
         self.store.close()
         self.temporary.cleanup()
 
-    def _grant(self, challenge):
+    def _grant(self, challenge, private_key=None):
         payload = approval_payload(
             challenge["vault_id"],
             challenge["caller_uid"],
@@ -386,7 +387,7 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
             challenge["preview_digest"],
             challenge["expires_at"],
         )
-        return sign_payload(self.private_key, payload, key_validator=no_path_validation)
+        return sign_payload(private_key or self.private_key, payload, key_validator=no_path_validation)
 
     def _remember_challenge(self, subject):
         return self.kernel.admin_preview(
@@ -398,6 +399,112 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
                 "claim": "The Linux broker uses a root-isolated signing key.",
             },
         )
+
+    def _freeze_fixture_clock(self):
+        instant = datetime(2027, 1, 1, tzinfo=timezone.utc)
+        self.kernel._now_provider = lambda: instant
+        clock = mock.patch("continuum_memory.kernel.time.time", return_value=instant.timestamp())
+        clock.start()
+        self.addCleanup(clock.stop)
+
+    def _replace_fixture_public_key(self):
+        """Replace only this disposable fixture path; never provision an OS key."""
+        private_key = self.public_key.with_name("replacement-private.pem")
+        public_key = self.public_key.with_name("replacement-public.pem")
+        for arguments in (
+            ["/usr/bin/openssl", "genrsa", "-out", str(private_key), "2048"],
+            ["/usr/bin/openssl", "rsa", "-in", str(private_key), "-pubout", "-out", str(public_key)],
+        ):
+            subprocess.run(arguments, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=10, check=True)
+        self.assertTrue(public_key.read_bytes() != self.public_key.read_bytes(), "Replacement fixture key was unchanged")
+        os.replace(public_key, self.public_key)
+        return private_key
+
+    def _approval_state(self):
+        # All logical rows, including FTS, and the exact anchor. Do not format
+        # this snapshot in a failed assertion; tests need no content in logs.
+        return tuple(self.store.connection.iterdump()), paths(self.data_dir)["audit_head"].read_bytes()
+
+    @staticmethod
+    def _apply_parameters(challenge, grant):
+        return {"nonce": challenge["nonce"], "preview_digest": challenge["preview_digest"],
+                "preview": challenge["preview"], "grant": grant}
+
+    def test_running_kernel_reloads_replaced_public_key_without_consuming_rejected_grant(self):
+        self._freeze_fixture_clock()
+        committed = self._remember_challenge("before fixture key replacement")
+        self.kernel.admin_apply(self.control, self._apply_parameters(committed, self._grant(committed)))
+        pending = self._remember_challenge("after fixture key replacement")
+        old_grant = self._grant(pending)
+        new_private_key = self._replace_fixture_public_key()
+        before = self._approval_state()
+        with self.assertRaises(MemoryError) as rejected:
+            self.kernel.admin_apply(self.control, self._apply_parameters(pending, old_grant))
+        self.assertEqual(rejected.exception.code, "approval_invalid")
+        self.assertTrue(self._approval_state() == before, "Rejected old signature changed vault state")
+        self.assertIsNone(self.store.connection.execute(
+            "SELECT used_at FROM admin_challenges WHERE nonce=?", (pending["nonce"],)).fetchone()[0])
+        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM admin_results").fetchone()[0], 1)
+        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 1)
+
+        new_grant = self._grant(pending, new_private_key)
+        result = self.kernel.admin_apply(self.control, self._apply_parameters(pending, new_grant))
+        self.assertEqual(result["commit"]["status"], "committed")
+        self.assertIsNotNone(self.store.connection.execute(
+            "SELECT used_at FROM admin_challenges WHERE nonce=?", (pending["nonce"],)).fetchone()[0])
+        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM admin_results").fetchone()[0], 2)
+        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 2)
+        self.assertEqual(self.store.connection.execute(
+            "SELECT method FROM attestations WHERE assertion_id=? AND role='authorizer'",
+            (result["assertion_id"],)).fetchone()[0], LINUX_APPROVAL_BOUNDARY)
+        self.assertEqual(self.store.verify_audit()["status"], "valid")
+        after = self._approval_state()
+        with self.assertRaises(MemoryError) as replay:
+            self.kernel.admin_apply(self.control, self._apply_parameters(pending, new_grant))
+        self.assertEqual(replay.exception.code, "approval_replay")
+        self.assertTrue(self._approval_state() == after, "Replayed new signature changed vault state")
+
+    def test_committed_receipts_survive_key_replacement_or_absence_without_signer_authority(self):
+        self._freeze_fixture_clock()
+        committed = self._remember_challenge("recover after fixture key change")
+        self.kernel.admin_apply(self.control, self._apply_parameters(committed, self._grant(committed)))
+        legacy = {"nonce": committed["nonce"], "preview_digest": committed["preview_digest"]}
+        locator = committed["recovery_locator"]
+        expected = self.kernel.admin_result(self.control, legacy)
+        self.assertTrue(expected["committed"])
+        pending = self._remember_challenge("must remain pending without fixture key")
+        new_private_key = self._replace_fixture_public_key()
+        signed_grant = self._grant(pending, new_private_key)
+        legacy_grant = sign_grant(self.control["token"].encode("ascii"), pending["nonce"],
+                                  pending["operation"], pending["preview_digest"])
+        verifier = self.kernel._approval_signature_verifier
+        for label, configured_key in (("replaced", self.public_key), ("absent", None)):
+            with self.subTest(key=label):
+                with mock.patch.object(self.kernel, "_approval_public_key_provider", return_value=configured_key) as provider:
+                    with mock.patch.object(self.kernel, "_approval_signature_verifier", wraps=verifier) as verify:
+                        before = self._approval_state()
+                        for method, parameters in ((self.kernel.admin_result, legacy), (self.kernel.admin_recover, locator)):
+                            self.assertEqual(method(self.control, parameters), expected)
+                            with self.assertRaises(MemoryError) as denied:
+                                method(self.agent, parameters)
+                            self.assertEqual(denied.exception.code, "forbidden")
+                        provider.assert_not_called()
+                        verify.assert_not_called()
+                        self.assertTrue(self._approval_state() == before, "Receipt recovery changed vault state")
+                        if configured_key is None:
+                            for grant in (signed_grant, legacy_grant):
+                                provider.reset_mock()
+                                with self.assertRaises(MemoryError) as unavailable:
+                                    self.kernel.admin_apply(self.control, self._apply_parameters(pending, grant))
+                                self.assertEqual(unavailable.exception.code, "approval_broker_unavailable")
+                                provider.assert_called_once_with(self.store.owner_uid)
+                                verify.assert_not_called()
+                                self.assertTrue(self._approval_state() == before, "Missing-key refusal changed vault state")
+                        self.assertIsNone(self.store.connection.execute(
+                            "SELECT used_at FROM admin_challenges WHERE nonce=?", (pending["nonce"],)).fetchone()[0])
+                        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM admin_results").fetchone()[0], 1)
+                        self.assertEqual(self.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 1)
 
     def test_kernel_requires_asymmetric_grant_and_records_broker_method(self):
         challenge = self._remember_challenge("linux approval")
