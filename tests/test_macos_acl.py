@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from continuum_memory import macos_acl
+from continuum_memory import macos_acl, security
 from continuum_memory.daemon_lock import DaemonLock
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import (
@@ -311,9 +311,11 @@ class NativeMacOSACLTest(unittest.TestCase):
             write_private(target, b"synthetic")
         self.assertFalse(target.exists())
 
-    def test_directory_entry_change_refuses_daemon_before_lock_creation(self):
+    def test_directory_entry_change_requires_fresh_full_validation_before_daemon_lock(self):
         original_open = os.open
+        original_require = security.require_no_acl_path
         changed = False
+        observations = []
 
         def change_before_metadata_open(path, flags, *args, **kwargs):
             nonlocal changed
@@ -324,14 +326,123 @@ class NativeMacOSACLTest(unittest.TestCase):
                 os.close(fd)
             return original_open(path, flags, *args, **kwargs)
 
-        with patch.object(macos_acl.os, "open", side_effect=change_before_metadata_open):
+        def observe_acl(path, info):
+            if path == self.home:
+                observations.append(info)
+            return original_require(path, info)
+
+        with patch.object(macos_acl.os, "open", side_effect=change_before_metadata_open), \
+                patch.object(security, "require_no_acl_path", side_effect=observe_acl):
+            with DaemonLock(self.home) as lock:
+                self.assertIsNotNone(lock.fd)
+                lock.check()
+        self.assertTrue(changed)
+        self.assertGreaterEqual(len(observations), 2)
+        self.assertEqual(observations[0].st_ino, observations[1].st_ino)
+        self.assertNotEqual(observations[0].st_ctime_ns, observations[1].st_ctime_ns)
+        self.assertTrue((self.home / "memoryd.lock").exists())
+
+    def test_continuous_directory_churn_exhausts_bound_before_lock_creation(self):
+        original_open = os.open
+        changes = []
+
+        def change_before_every_metadata_open(path, flags, *args, **kwargs):
+            if Path(path) == self.home:
+                entry = self.home / ("synthetic-entry-%d" % len(changes))
+                fd = original_open(entry, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+                changes.append(entry)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch.object(macos_acl.os, "open", side_effect=change_before_every_metadata_open):
             with self.assertRaises(MemoryError) as caught:
                 with DaemonLock(self.home):
-                    self.fail("changed directory must not acquire a daemon lock")
-        self.assertTrue(changed)
+                    self.fail("continuously changing directory must not acquire a daemon lock")
+        self.assertEqual(security.MAX_DIRECTORY_ACL_OBSERVATIONS, 8)
+        self.assertEqual(len(changes), 8)
         self.assertEqual(caught.exception.code, "unsafe_file")
         self.assertEqual(caught.exception.message, "Private material changed during permission validation.")
         self.assertFalse((self.home / "memoryd.lock").exists())
+
+    def test_directory_replacement_between_observations_cannot_reset_original_identity(self):
+        target = self.home / "private-directory"
+        target.mkdir(mode=0o700)
+        displaced = self.home / "displaced-directory"
+        original_open, original_lstat = os.open, Path.lstat
+        changed, fresh_reads = False, []
+
+        def change_first_metadata_open(path, flags, *args, **kwargs):
+            nonlocal changed
+            if Path(path) == target and not changed:
+                changed = True
+                fd = original_open(target / "synthetic-entry", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+            return original_open(path, flags, *args, **kwargs)
+
+        def replace_before_second_observation(path, *args, **kwargs):
+            if path == target and changed:
+                fresh_reads.append(path)
+                if len(fresh_reads) == 2:
+                    # First fresh read verified the original inode after churn;
+                    # this replacement occurs just before the next full attempt.
+                    target.rename(displaced)
+                    target.mkdir(mode=0o700)
+            return original_lstat(path, *args, **kwargs)
+
+        with patch.object(macos_acl.os, "open", side_effect=change_first_metadata_open), \
+                patch.object(Path, "lstat", new=replace_before_second_observation):
+            with self.assertRaises(MemoryError) as caught:
+                ensure_private_directory(target)
+        self.assertEqual(caught.exception.code, "unsafe_file")
+        self.assertEqual(len(fresh_reads), 2)
+        self.assertNotEqual(target.stat().st_ino, displaced.stat().st_ino)
+
+    def test_directory_mode_change_is_not_retried_or_repaired(self):
+        original_open = os.open
+        for mode in (0o755, 0o500):
+            with self.subTest(mode=oct(mode)):
+                target = self.home / ("private-%o" % mode)
+                target.mkdir(mode=0o700)
+                self.addCleanup(target.chmod, 0o700)
+                observations = []
+
+                def change_before_metadata_open(path, flags, *args, **kwargs):
+                    if Path(path) == target:
+                        observations.append(path)
+                        target.chmod(mode)
+                    return original_open(path, flags, *args, **kwargs)
+
+                with patch.object(macos_acl.os, "open", side_effect=change_before_metadata_open):
+                    with self.assertRaises(MemoryError) as caught:
+                        ensure_private_directory(target)
+                self.assertEqual(caught.exception.code, "unsafe_file")
+                self.assertEqual(len(observations), 1)
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode), mode)
+
+    def test_directory_acl_added_during_observation_is_refused_by_fresh_full_check(self):
+        original_open = os.open
+        observations = []
+
+        def add_acl_before_metadata_open(path, flags, *args, **kwargs):
+            if Path(path) == self.home:
+                observations.append(path)
+                if len(observations) == 1:
+                    self.add_acl(self.home)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch.object(macos_acl.os, "open", side_effect=add_acl_before_metadata_open):
+            with self.assertRaises(MemoryError) as caught:
+                ensure_private_directory(self.home)
+        self.assertEqual(caught.exception.code, "unsafe_permissions")
+        self.assertEqual(len(observations), 2)
+        self.assertEqual(stat.S_IMODE(self.home.stat().st_mode), 0o700)
+
+    def test_directory_acl_query_failure_is_never_retried(self):
+        with patch.object(macos_acl, "_library", side_effect=OSError("synthetic native failure")) as query:
+            with self.assertRaises(MemoryError) as caught:
+                ensure_private_directory(self.home)
+        self.assertEqual(caught.exception.code, "acl_unavailable")
+        query.assert_called_once_with()
 
     def test_inherited_acl_raced_into_new_file_is_refused_before_bytes(self):
         target = self.home / "empty-residue"

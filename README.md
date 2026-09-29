@@ -20,9 +20,12 @@ Context response v2 uses `accepted_claims`, not `verified_current`: user accepta
 recorded verification, and declared date applicability are separate. Existing clients
 must update their JSON field access. See the [read contract and upgrade guide](docs/CONTEXT_CONTRACT.md).
 
-Owner operations now retain content-free committed-result receipts. A lost reply or
-audit-file failure must not trigger another memory write; see the
-[recovery commands and schema v5 boundary](docs/COMMIT_RECOVERY.md).
+Owner operations retain content-free committed-result receipts. After exact human
+approval and before sending the action, the CLI privately journals an opaque
+recovery locator, so a fresh `continuum recover` process can query the original
+outcome after the CLI exits. It never repeats the action; a missing receipt remains
+unknown, not permission to retry. See the [recovery commands, pagination and
+prototype boundaries](docs/COMMIT_RECOVERY.md).
 
 This is a standalone product. Agent Relay is not a dependency and will only become an
 optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.

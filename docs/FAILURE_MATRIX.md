@@ -177,8 +177,9 @@ The same approved challenge retries exactly once after an uncommitted crash;
 committed replays are refused. Anchor reconciliation preserves logical state, and
 the semantic assertions repeat after close/reopen. This covers one existing-thread
 correction with nonempty evidence and narrowed disclosure, not every correction
-variant, native cascade/VFS instruction, concurrent writer, CLI pending journal,
-SQLCipher, key rotation, power loss or backup transition. Issue #8 remains open.
+variant, native cascade/VFS instruction, concurrent writer, SQLCipher, key rotation,
+power loss or backup transition. Whole-CLI journal coverage is described separately
+below; it is not supplied by this correction fixture. Issue #8 remains open.
 
 ## Agent-proposal acceptance process crashes
 
@@ -333,11 +334,88 @@ private-file implementation. These are POSIX process-exit/I/O-error results, not
 power-loss or disk-controller durability, encrypted-key custody, malicious same-UID
 isolation, full Windows evidence, or completion of issue #8.
 
+## Whole-CLI exit and durable journal recovery
+
+Run the focused synthetic suites:
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest \
+  tests.test_recovery_protocol tests.test_recovery_journal \
+  tests.test_cli_recovery_control tests.test_cli_recovery -v
+```
+
+`tests/test_cli_recovery.py` runs actual daemon and CLI interpreters against a
+temporary plaintext vault. Its test-only broker signs synthetic approvals; this
+is not real human-presence acceptance. After approval, the product CLI durably
+publishes the opaque v1 descriptor before sending `admin_apply`. The fault seam
+then exits the actual CLI with `os._exit(73)`, or holds an incomplete frame with
+bounded pipe barriers. The replacement `continuum recover` is a fresh, unpatched
+interpreter with no original request, grant or in-memory locator.
+
+| Whole-client boundary | Required result from fresh-process recovery |
+|---|---|
+| Exit before journal persistence | No journal, apply, mutation, receipt or consumed grant; recovery reports a missing journal, not safe-to-retry authority |
+| Exit after journal, before send, or after an incomplete request frame | Opaque descriptor retained; zero committed actions; `unknown` with exit 2, repeatedly, without retry |
+| Original incomplete request remains in flight | First lookup is `unknown`; releasing that original request produces exactly one commit; subsequent lookup is `committed` without a new apply |
+| Exit after real SQL commit but before any response is scheduled/sent | Fresh CLI reads the original committed receipt without approval or mutation |
+| Exit after receiving the real committed reply but before printing it | Fresh CLI still recovers the exact original result |
+| Successful original CLI followed by a fresh CLI | Same receipt, no reapproval, no journal changes |
+
+Every deliberate process exit must be 73 with empty stdout/stderr; setup failures
+or missed hooks are not accepted as crashes. Assertions independently check exact
+assertion/receipt/used-grant counts. A fixture-only method trace proves each targeted
+recovery sends only `admin_recover`, never preview, approval or apply. Journal bytes
+remain unchanged, and must contain none of the subject, body, evidence, raw preview
+digest, capability token or grant. The committed-before-reply case additionally
+forgets the memory, restarts the daemon, and recovers the unchanged historical
+receipt while the canonical content and original digest remain absent.
+
+`tests/test_recovery_protocol.py` verifies the exact descriptor, a separately
+computed two-layer HMAC oracle, current capability authentication and revocation,
+agent/other-control rejection, malformed/swapped fields, receipt-MAC tampering,
+legacy-result compatibility, degraded audit status and forget/challenge cleanup.
+An actual copied synthetic database/key/receipt with a relabeled vault ID cannot
+retarget the original descriptor, even though the positive-control legacy receipt
+still validates. This proves vault domain binding, not freshness against a clone
+whose vault identity and key are unchanged.
+
+`tests/test_recovery_journal.py` covers fresh-process roundtrips, exact-nonce
+collisions, concurrent distinct/same-nonce writers, strict records, lexical pages,
+the 4,096-entry scan bound, and targeted access past unrelated corruption. Listings
+validate every observed bounded entry, not only the returned page. POSIX tests
+also cover symlink/FIFO/type refusal, file→journal→parent flush ordering, partial/
+zero writes, each flush failure and directory replacement. Unsafe or partial
+residue remains untouched; nothing cleans, repairs, overwrites or treats it as a
+receipt. Native macOS ACL refusal is covered on macOS.
+
+Native Windows-only journal tests inject file-flush failure after real creation/
+writing, and readback failure or mismatch after a real flush. They require the
+exact opaque bytes to remain readable and refuse both identical and changed
+replacement attempts. The CLI control-flow suite separately checks approval and
+publication ordering, cancellation, malformed replies, descriptor copying, one
+read-only lookup after ambiguous failure, and content-free unknown errors.
+
+Results have `scope: "page"`, `has_more` and `next_cursor`; a complete page is not
+a complete journal when another page exists. Unknown outcomes exit 2. Page size
+is at most 25, and lexical cursors are not concurrent-publication snapshots. Exact
+`--nonce` bypasses the listing bound and unrelated malformed entries, never its own
+validation. See [the operator contract](COMMIT_RECOVERY.md) for commands and mixed
+client/daemon-version behavior.
+
+The process-exit/partial-socket matrix is POSIX-only. Native Windows CLI/protocol/
+journal cases require passing jobs for the exact revision under review; earlier
+Windows acceptance alone does not validate changed recovery behavior.
+Windows uses the existing pinned-handle/private-file boundary with file flush and
+readback, not POSIX directory sync. The tests do not prove host power-loss survival,
+same-user isolation, production encryption, key rotation or backup freshness.
+They neither add approval authority nor complete issue #8.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
 |---|---|---|
-| Owner mutation SQL commit and audit publication | `test_commit_recovery.py`: precommit failure, process exit before/after commit and after anchor, original receipts and reconciliation | Not every statement of every operation, no entire-CLI pending journal |
+| Owner mutation SQL commit and audit publication | `test_commit_recovery.py`: precommit failure, process exit before/after commit and after anchor, original receipts and reconciliation | Not every statement/variant of every operation; whole-CLI recovery is separately bounded above |
+| CLI process exit and journal | `test_cli_recovery.py`, `test_recovery_protocol.py`, `test_recovery_journal.py`: original authenticated receipts, opaque retained locators and unknown in-flight outcomes | No retry authority, lost-locator backfill, cleanup, Windows socket-fault matrix or host power-loss guarantee |
 | Audit integrity and recovery | Exact-prefix MAC, missing/malformed/ahead/mismatched anchor refusal, late-writer serialization | Cannot prove freshness after coordinated DB/key/anchor rollback |
 | Forget after committed deletion | Receipt remains committed when checkpoint fails; canonical/feedback/recall/FTS removal tests | No physical-erasure or external-backup revocation guarantee |
 | Daemon startup, concurrency and stale endpoints | `test_daemon_lock.py`: real process locks, crashes, stopped live peer, startup faults, replacement-preserving cleanup | Cooperating lock-aware POSIX versions/local filesystems only |

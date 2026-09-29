@@ -95,9 +95,14 @@ they complement, rather than replace, the native fixtures.
 
 Ancestor identity pinning, arbitrary concurrent ACL/path changes, malicious SQLite sidecar
 substitution after preflight, and stronger same-user process isolation remain unresolved.
-An observed concurrent metadata change is refused, not silently retried; changes to directory
-entries during validation can reject a client operation or stop the daemon. Do not use the
-vault directory for unrelated files or sockets. Inspect the cause before retrying/restarting.
+Directory-entry creation legitimately changes the containing directory's timestamp/link
+count. The directory preflight allows at most eight fresh complete observations after an
+`unsafe_file` metadata race, only when the original device/inode, owner/group and mode
+remain identical and the change timestamp changed. Each attempt repeats the full native
+ACL check; it never adopts a replacement directory, ignores an ACL error, or repairs
+permissions. Sustained churn exhausts the bound and fails closed. Regular-file and socket
+observations remain strict and are not retried. Do not use the vault directory for unrelated
+files or sockets. Inspect other refusals before retrying/restarting.
 The synthetic MCP fixture waits for a validated, stateless discovery response from each
 child before returning it to the demo. This bounded startup barrier finishes private-path
 checks before another fixture starts writing. A failed or stalled child is reaped, not
