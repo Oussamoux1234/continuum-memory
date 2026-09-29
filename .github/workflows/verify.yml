@@ -1,8 +1,7 @@
 name: verify
 
 on:
-  push:
-  pull_request:
+  # Draft evaluation uses the full offline Linux encrypted application gate.
   workflow_dispatch:
 
 permissions:

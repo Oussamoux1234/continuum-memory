@@ -1,20 +1,6 @@
 name: patched-sqlcipher-wheel
 
 on:
-  push:
-    paths:
-      - ".github/workflows/patched-sqlcipher-wheel.yml"
-      - "packaging/sqlcipher/**"
-      - "scripts/*patched_sqlcipher*"
-      - "sbom/patched-sqlcipher-sources.spdx.json"
-      - "tests/test_sqlcipher_supply_chain.py"
-  pull_request:
-    paths:
-      - ".github/workflows/patched-sqlcipher-wheel.yml"
-      - "packaging/sqlcipher/**"
-      - "scripts/*patched_sqlcipher*"
-      - "sbom/patched-sqlcipher-sources.spdx.json"
-      - "tests/test_sqlcipher_supply_chain.py"
   workflow_dispatch:
 
 permissions:
@@ -26,6 +12,8 @@ env:
 
 jobs:
   linux-x86-64:
+    # The encrypted application workflow already performs these native gates.
+    if: ${{ false }}
     name: linux-x86-64-${{ matrix.python_abi }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -172,12 +160,4 @@ jobs:
           cp sbom/patched-sqlcipher-sources.spdx.json work/patched-sqlcipher/evidence/
           cat work/patched-sqlcipher/evidence/runtime.json
           cat work/patched-sqlcipher/evidence/source-verification.json
-      - name: Retain only fully validated ephemeral test wheel and evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: patched-sqlcipher-linux-x86-64-${{ matrix.python_abi }}
-          path: |
-            work/patched-sqlcipher/build-a/*.whl
-            work/patched-sqlcipher/evidence/*
-          if-no-files-found: error
-          retention-days: 7
+      # Evaluation-only: no wheel, source package, or evidence artifact upload.

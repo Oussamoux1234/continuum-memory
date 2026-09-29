@@ -1,8 +1,7 @@
 name: Windows IPC evidence (not runtime support)
 
 on:
-  push:
-  pull_request:
+  # Draft evaluation is limited to Linux; main's platform gates are unchanged.
   workflow_dispatch:
 
 permissions:

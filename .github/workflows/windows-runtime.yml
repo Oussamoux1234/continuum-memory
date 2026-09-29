@@ -1,8 +1,7 @@
 name: Windows plaintext runtime (held for encrypted candidate)
 
 on:
-  push:
-  pull_request:
+  # Native Windows encrypted evaluation has not been authorized.
   workflow_dispatch:
 
 permissions:

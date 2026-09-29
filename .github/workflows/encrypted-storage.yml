@@ -1,24 +1,7 @@
 name: encrypted-storage
 
 on:
-  push:
-    paths:
-      - ".github/workflows/encrypted-storage.yml"
-      - ".github/workflows/patched-sqlcipher-wheel.yml"
-      - "packaging/**"
-      - "scripts/**"
-      - "sbom/**"
-      - "src/**"
-      - "tests/**"
-      - "fixtures/**"
-      - "schemas/**"
-      - "requirements/**"
-      - "docs/**"
-      - "setup.py"
-      - "setup.cfg"
-      - "pyproject.toml"
-      - "MANIFEST.in"
-      - "LICENSE"
+  # Evaluation-only: one PR event, no duplicate push builds or artifact uploads.
   pull_request:
     paths:
       - ".github/workflows/encrypted-storage.yml"

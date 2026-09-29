@@ -1,8 +1,7 @@
 name: macOS peer primitives
 
 on:
-  push:
-  pull_request:
+  # Native macOS encrypted evaluation has not been authorized.
   workflow_dispatch:
 
 permissions:

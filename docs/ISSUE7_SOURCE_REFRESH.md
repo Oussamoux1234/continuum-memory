@@ -214,3 +214,31 @@ NOASSERTION change is part of this integration. Base issue #4 still needs an
 approved fresh-vault restore/owner-access contract and native acceptance;
 independent freshness/revocation remains separate issue #6 work. See
 [the held backup contract](BACKUP_CANDIDATE.md) for exact limits and open gates.
+
+## Authorized Linux evaluation (2026-09-29)
+
+The owner subsequently authorized publishing this source as a **draft PR** and
+running the pinned Linux SQLCipher application tests on disposable runners with
+synthetic data only and **no artifact uploads**. This supersedes the earlier
+execution/publication hold only for that evaluation. It is not license, merge,
+release, real human-presence, OS-managed custody, or restore-activation approval.
+
+The source includes main's PR49 approval-key tests and PR50 proposal-forget crash
+tests, reconciled against main `829369b`. The existing encrypted application
+workflow runs once per PR update across CPython 3.11–3.14. Each job verifies
+signed, hash-pinned inputs, performs two network-disabled native builds, compares
+the locked wheel, tests offline installation, and runs full application discovery,
+the 17-check synthetic demo and offline package verification. Source and runtime
+version pins, expected wheel digests and license `NOASSERTION` remain unchanged.
+
+The standalone native wheel job is held and its artifact uploader removed; only
+that reviewed workflow's manifest digest changes. The other platform/source
+workflows are manual-only on this evaluation draft, because this gate includes
+the complete Linux verifier. Main's platform CI is unchanged. These evaluation
+trigger restrictions must be reviewed before any eventual merge.
+
+Native results are pending until the hosted run completes; source review is not
+runtime acceptance. Real Linux polkit approval, qualified binding-license review,
+isolated key custody, backup freshness/revocation and activated restore remain
+open. Native macOS and Windows encrypted operation are not evaluated here. No
+release tag or asset is changed by this draft.

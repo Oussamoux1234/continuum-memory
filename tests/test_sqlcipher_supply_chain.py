@@ -640,7 +640,7 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
             self.assertIn("GENERATED_FROM", relationships)
             self.assertIn("BUILD_DEPENDENCY_OF", relationships)
 
-    def test_workflow_and_build_recipe_enforce_isolation_and_success_only_retention(self):
+    def test_workflow_and_build_recipe_enforce_isolation_without_artifact_uploads(self):
         workflow = (ROOT / ".github/workflows/patched-sqlcipher-wheel.yml").read_text(encoding="utf-8")
         build_script = (ROOT / "scripts/build_patched_sqlcipher_wheel.sh").read_text(encoding="utf-8")
         setup_text = (ROOT / "packaging/sqlcipher/setup_continuum.py").read_text(encoding="utf-8")
@@ -672,10 +672,10 @@ class PatchedSqlcipherArtifactTest(unittest.TestCase):
             "scripts/build_patched_sqlcipher_wheel.sh",
         ):
             self.assertNotIn("allow-unlocked-bootstrap", (ROOT / relative).read_text(encoding="utf-8"))
-        self.assertGreater(
-            workflow.index("Retain only fully validated"),
-            workflow.index("Test offline installation"),
-        )
+        self.assertNotIn("actions/upload-artifact", workflow)
+        self.assertIn("if: ${{ false }}", workflow)
+        self.assertNotIn("  push:", workflow)
+        self.assertNotIn("  pull_request:", workflow)
         self.assertIn("-w /tmp", workflow)
         self.assertIn("test_patched_sqlcipher_install.py", workflow)
         self.assertIn("no-autoload-config", build_script)
