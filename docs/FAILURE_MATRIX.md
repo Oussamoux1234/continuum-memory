@@ -180,6 +180,53 @@ correction with nonempty evidence and narrowed disclosure, not every correction
 variant, native cascade/VFS instruction, concurrent writer, CLI pending journal,
 SQLCipher, key rotation, power loss or backup transition. Issue #8 remains open.
 
+## Agent-proposal acceptance process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_accept_proposal_crash -v
+```
+
+The fixture accepts one actual pending Codex proposal, with nonempty agent evidence
+and disclosure to Codex and Claude. It retains another pending proposal, accepted
+claims in two projects, prior provenance/audit rows and empty pre-acceptance recalls.
+Only closed synthetic vaults without SQLite companions are copied. It uses the
+same transparent SQLite observer and recovery machinery as forget/correction;
+the proposal-specific seed, exact ordered inventory and semantic oracle are separate.
+
+| Reviewed transition inventory | Direct boundaries |
+|---|---:|
+| Consume challenge; sequence; claim thread; evidence; assertion | 5 writes |
+| Two disclosures; evidence reference; FTS row | 4 writes |
+| Author/recorder/authorizer attestations; consent; provenance | 5 writes |
+| Two audience sequences; audit; proposal acceptance; review; owner result | 6 writes |
+| Before/after SQL commit, anchor publication and anchor transaction commit | 6 boundaries |
+| **Total** | **26 actual subprocess exits** |
+
+All 21 pre-commit exits must recover the exact original logical state; the five
+post-commit exits must recover the complete acceptance and original durable result.
+The two exits between commit and anchor publication require the stale-anchor
+diagnostic, and the three after publication require the exact new anchor. The
+comparison includes all tables and FTS shadow rows before any reconciliation or
+new recall can obscure partial state. Missing hooks, incorrect ordinals, unexpected
+stderr, timeouts or an exit other than the selected real `os._exit(73)` fail.
+
+Independent checks require one new claim/version/evidence/review/result, three
+correct role attestations, exact consent and proposal provenance, unchanged
+unrelated records, and one audience-sequence advance for each disclosed provider.
+Agent evidence stays `agent_provided`; the claim remains authority `data`, with
+Codex authorship distinct from the synthetic owner's authorization. Both agents
+can newly recall the exact claim/evidence, but their old recalls cannot acquire
+access retroactively and neither capability gains control permissions. Replayed
+proposal delivery returns the original accepted proposal without mutation.
+
+Pre-commit cases retry the original challenge once; committed approval replays
+are refused. Logical state, SQLite/foreign-key integrity and the original receipt
+survive reconciliation and another reopen. This slice is explicitly POSIX-only
+on its main-branch fixture: it does not establish native Windows, OS-backed human
+presence, encrypted storage, host power-loss or backup/revocation evidence.
+It covers new-thread acceptance with evidence, not every acceptance variant or
+completion of issue #8.
+
 ## POSIX audit-anchor publication faults
 
 ```bash
