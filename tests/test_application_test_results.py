@@ -69,7 +69,8 @@ class ApplicationTestPolicyTest(unittest.TestCase):
             report = complete_report()
             report["discovered"] = [name for name in report["discovered"] if not name.startswith(module + ".")]
             report["outcomes"] = [item for item in report["outcomes"] if not item["id"].startswith(module + ".")]
-            report["testsRun"] -= 1
+            # A required module may also contribute reviewed platform skips.
+            report["testsRun"] = len(report["discovered"])
             with self.subTest(module=module), self.assertRaisesRegex(RuntimeError, "required application"):
                 validate_report(report)
 

@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from datetime import datetime, timezone
 from pathlib import Path
 from fixtures.harness import private_test_home
@@ -62,17 +63,17 @@ class ProposalErasureTest(unittest.TestCase):
         return self.apply(self.preview(operation, **params))
 
     def assert_suppressed(self, delivery, capability=None):
-        before = list(self.store.connection.iterdump())
+        before = list(database_dump(self.store.connection))
         with self.assertRaises(MemoryError) as error:
             self.kernel.propose(capability or self.codex, delivery)
         self.assertEqual(error.exception.code, "delivery_suppressed")
         self.assertNotIn("canary", json.dumps(error.exception.as_dict()))
-        self.assertEqual(list(self.store.connection.iterdump()), before)
+        self.assertEqual(list(database_dump(self.store.connection)), before)
 
     def assert_erased(self):
         # Logical erasure across every live table, including FTS and tombstones.
         # This deliberately makes no physical/WAL-overwrite claim.
-        self.assertNotIn("erasure-canary", "\n".join(self.store.connection.iterdump()))
+        self.assertNotIn("erasure-canary", "\n".join(database_dump(self.store.connection)))
 
     def test_pending_proposal_is_purged_on_retention_and_retry_is_suppressed(self):
         delivery = self.delivery(retention="2027-01-02")
@@ -157,11 +158,11 @@ class ProposalErasureTest(unittest.TestCase):
             accepted = self.apply(self.preview("accept_proposal", proposal_id=first["proposal_id"]), kernel=other_kernel)
         finally:
             other_store.close()
-        before = list(self.store.connection.iterdump())
+        before = list(database_dump(self.store.connection))
         with self.assertRaises(MemoryError) as error:
             self.apply(challenge)
         self.assertEqual(error.exception.code, "stale_preview")
-        self.assertEqual(list(self.store.connection.iterdump()), before)
+        self.assertEqual(list(database_dump(self.store.connection)), before)
         fresh = self.preview("forget", target_id=first["proposal_id"])
         self.assertEqual(fresh["preview"]["thread_id"], accepted["memory_id"])
         self.apply(fresh)
@@ -232,7 +233,7 @@ class ProposalErasureTest(unittest.TestCase):
     def test_failed_purge_rolls_back_tombstone_content_and_grant_then_retries(self):
         proposed = self.kernel.propose(self.codex, self.delivery())
         deletion = self.preview("forget", target_id=proposed["proposal_id"])
-        before = list(self.store.connection.iterdump())
+        before = list(database_dump(self.store.connection))
         self.store.connection.set_authorizer(lambda action, table, *args: sqlite3.SQLITE_DENY
             if action == sqlite3.SQLITE_DELETE and table == "proposals" else sqlite3.SQLITE_OK)
         try:
@@ -240,7 +241,7 @@ class ProposalErasureTest(unittest.TestCase):
                 self.apply(deletion)
         finally:
             self.store.connection.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
-        self.assertEqual(list(self.store.connection.iterdump()), before)
+        self.assertEqual(list(database_dump(self.store.connection)), before)
         self.apply(deletion)
         self.assert_erased()
         self.assert_suppressed(self.delivery())
@@ -259,12 +260,12 @@ class ProposalErasureTest(unittest.TestCase):
             other.commit()
         finally:
             other.close()
-        before = list(self.store.connection.iterdump())
+        before = list(database_dump(self.store.connection))
         for challenge in (delete, reject):
             with self.assertRaises(MemoryError) as caught:
                 self.apply(challenge)
             self.assertEqual(caught.exception.code, "stale_preview")
-            self.assertEqual(list(self.store.connection.iterdump()), before)
+            self.assertEqual(list(database_dump(self.store.connection)), before)
         self.approve("forget", target_id=proposed["proposal_id"])
         self.assert_erased()
 

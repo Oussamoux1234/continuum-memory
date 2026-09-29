@@ -200,7 +200,19 @@ class BackupNativeTest(unittest.TestCase):
 
     def export(self, staging=None):
         self.lease.check()
-        return backup.export_candidate(self.store, staging or self.staging, self.key_file)
+        try:
+            return backup.export_candidate(self.store, staging or self.staging, self.key_file)
+        except MemoryError as error:
+            context = error.__context__
+            if context is not None:
+                frames, trace = [], context.__traceback__
+                while trace is not None and len(frames) < 8:
+                    frames.append("%s:%d" % (trace.tb_frame.f_code.co_name, trace.tb_lineno))
+                    trace = trace.tb_next
+                # Synthetic test diagnostics only: never exception text, SQL,
+                # arguments, locals, paths, keys or captured source content.
+                error.add_note("Synthetic backup stage: %s at %s" % (type(context).__name__, ",".join(frames)))
+            raise
 
     def open_keyed(self, path, key, *, writable=False):
         connection = storage.sqlite3.connect(path.as_uri() + ("?mode=rw" if writable else "?mode=ro&immutable=1"),
@@ -259,6 +271,33 @@ class BackupNativeTest(unittest.TestCase):
         self.assertEqual(self.target(staging).stat().st_mode & 0o777, 0o600)
         self.assertTrue(self.key_file.read_bytes() == self.backup_key, "Private backup key changed")
         self.assertEqual(list(self.keys.iterdir()), [self.key_file])
+
+    def test_source_export_preflight_predicates(self):
+        # Separate source-only predicates before the real export, so a safe
+        # production error remains redacted while CI identifies its stage.
+        db = self.store.connection
+        self.store.begin()
+        try:
+            with self.subTest(stage="fresh_schema"):
+                backup._require_fresh_schema(db, backup=False)
+            for name, required in (("user_version", backup.SCHEMA_VERSION),
+                                   ("application_id", backup.APPLICATION_ID), ("auto_vacuum", 0)):
+                with self.subTest(stage="header_" + name):
+                    self.assertEqual(db.execute("PRAGMA " + name).fetchone()[0], required)
+            with self.subTest(stage="required_headers"):
+                backup._require_headers(db)
+            with self.subTest(stage="bounded_metadata"):
+                metadata = backup._bounded_metadata(db)
+                self.assertTrue(metadata["storage_mode"] == storage.STORAGE_MODE)
+                self.assertTrue(metadata["vault_id"] == self.store.vault_id)
+            with self.subTest(stage="bounded_audit"):
+                backup._require_bounded_audit(db)
+            with self.subTest(stage="audit_verification"):
+                head = json.loads(read_private(self.store.files["audit_head"], 1024))
+                self.assertEqual(verify_audit_snapshot(db, self.store.audit_key, lambda: head)["status"], "valid")
+        finally:
+            self.store.rollback()
+        self.assertFalse(db.in_transaction)
 
     def test_production_round_trip_preserves_rows_headers_receipts_audit_and_policy(self):
         result = self.export()

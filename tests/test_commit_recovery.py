@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from datetime import datetime, timezone
 from pathlib import Path
 from fixtures.harness import private_test_home
@@ -61,7 +62,7 @@ class CommitRecoveryTest(unittest.TestCase):
 
     def test_precommit_failure_rolls_back_receipt_action_and_grant(self):
         challenge = self.challenge()
-        before = list(self.fx.store.connection.iterdump())
+        before = list(database_dump(self.fx.store.connection))
         self.fx.store.connection.set_authorizer(lambda action, table, *rest: sqlite3.SQLITE_DENY
             if action == sqlite3.SQLITE_INSERT and table == "admin_results" else sqlite3.SQLITE_OK)
         try:
@@ -69,7 +70,7 @@ class CommitRecoveryTest(unittest.TestCase):
                 self.fx.apply(challenge)
         finally:
             self.fx.store.connection.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
-        self.assertEqual(list(self.fx.store.connection.iterdump()), before)
+        self.assertEqual(list(database_dump(self.fx.store.connection)), before)
         self.fx.apply(challenge)
         self.assertTrue(self.lookup(challenge)["committed"])
 
@@ -82,8 +83,8 @@ class CommitRecoveryTest(unittest.TestCase):
                                                         (challenge["nonce"],)).fetchone())
         self.fx.reopen()
         self.assertEqual(self.lookup(challenge)["result"], original)
-        self.assertNotIn("recovery-canary", "\n".join(self.fx.store.connection.iterdump()))
-        self.assertNotIn(challenge["preview_digest"], "\n".join(self.fx.store.connection.iterdump()))
+        self.assertNotIn("recovery-canary", "\n".join(database_dump(self.fx.store.connection)))
+        self.assertNotIn(challenge["preview_digest"], "\n".join(database_dump(self.fx.store.connection)))
         self.assertEqual(self.fx.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 0)
 
     def test_receipt_scope_and_integrity_fail_closed(self):
@@ -172,14 +173,14 @@ class CommitRecoveryTest(unittest.TestCase):
         for raw in variants:
             with self.subTest(raw=raw):
                 replace_private(anchor_path, raw)
-                before = list(self.fx.store.connection.iterdump())
+                before = list(database_dump(self.fx.store.connection))
                 for action in (lambda: self.fx.kernel.audit_reconcile(self.fx.control, {}),
                                lambda: self.fx.apply(challenge)):
                     with self.assertRaises(MemoryError) as blocked:
                         action()
                     self.assertEqual(blocked.exception.code, "audit_recovery_refused")
                     self.assertEqual(read_private(anchor_path), raw)
-                    self.assertEqual(list(self.fx.store.connection.iterdump()), before)
+                    self.assertEqual(list(database_dump(self.fx.store.connection)), before)
         replace_private(anchor_path, original)
         # Simulate absent anchor without deleting a real file: change fixture path.
         with patch.dict(self.fx.store.files, audit_head=self.fx.home / "absent.head"):
@@ -226,7 +227,7 @@ class CommitRecoveryTest(unittest.TestCase):
             self.fx.store.connection.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
         self.assertEqual(result["commit"]["checkpoint"], "deferred")
         self.assertTrue(self.lookup(challenge)["committed"])
-        self.assertNotIn("recovery-canary", "\n".join(self.fx.store.connection.iterdump()))
+        self.assertNotIn("recovery-canary", "\n".join(database_dump(self.fx.store.connection)))
 
     def test_process_crashes_around_commit_and_anchor_have_unambiguous_receipts(self):
         program = r'''
@@ -282,14 +283,14 @@ class RecoveryMigrationTest(unittest.TestCase):
                 Store.bootstrap(home, [{"name":"fixture", "path_hint":"/fixture", "providers":["codex"]}])
             db = open_fixture_connection(home, writable=True)
             try:
-                before = list(db.iterdump())
+                before = list(database_dump(db))
                 original_rows = {name: db.execute("SELECT * FROM " + name).fetchall()
                                  for name in ("projects", "capabilities", "metadata", "audit_events")}
                 db.set_authorizer(lambda action, name, *rest: sqlite3.SQLITE_DENY
                     if action == sqlite3.SQLITE_CREATE_TABLE and name == "admin_results" else sqlite3.SQLITE_OK)
                 with self.assertRaises(sqlite3.DatabaseError): migrate(db, 4)
                 db.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
-                self.assertEqual(list(db.iterdump()), before)
+                self.assertEqual(list(database_dump(db)), before)
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 4)
                 self.assertEqual(migrate(db, 4), SCHEMA_VERSION)
                 self.assertEqual(db.execute("SELECT count(*) FROM admin_results").fetchone()[0], 0)

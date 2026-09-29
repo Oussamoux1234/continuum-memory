@@ -93,8 +93,9 @@ Linux x86-64 with each CPython ABI 3.11, 3.12, 3.13 and 3.14. For each ABI:
    an explicit follow-up beyond the new successful-rotation contract.
 6. Run all 17 demo checks; create reproducible sdist/wheel/SPDX twice; validate
    exact native dependency/provenance; install both archives offline in fresh
-   environments, Unicode init and relocated helper smoke. Verify that the current
-   privileged installer still rejects the runtime dependency. Do not activate it.
+   environments, Unicode init and relocated helper smoke. Verify the exact native
+   dependency metadata and the separate helper-only runtime without SQLCipher.
+   This isolated probe does not authorize privileged installation or activation.
 
 macOS arm64 encrypted application/APFS/ACL/SQLite-lock execution remains blocked
 on the accepted immutable native builder/artifact and minimum-OS contract. Linux
@@ -242,3 +243,24 @@ runtime acceptance. Real Linux polkit approval, qualified binding-license review
 isolated key custody, backup freshness/revocation and activated restore remain
 open. Native macOS and Windows encrypted operation are not evaluated here. No
 release tag or asset is changed by this draft.
+
+### First runtime evaluation and focused repairs
+
+Run `36639313203` at `f48622e` passed both independent native builds, locked wheel
+comparison and encrypted runtime smoke on all four ABIs. Full application
+verification failed: 619 tests, 14 failures, 101 errors and 91 platform skips per
+ABI. It did not pass the full application or packaging gate.
+
+The first repairs preserve the tests and production guards: use CPython's Python
+SQL serializer on the existing SQLCipher connection where that binding lacks
+`iterdump`; fix a synthetic report count after removing a whole module; retain
+completed-bootstrap records in the rotation fixture; and import Store in two
+transport tests. A real native snapshot regression checks FTS, blobs, quoting and
+unchanged connection/anchor state. Backup failures still need their exact native
+predicate isolated; test-only stage diagnostics do not weaken production refusal.
+
+The installer compatibility repair admits only the exact existing dependency
+metadata and adds a separate actual-wheel, offline helper-only import/relocation
+probe without SQLCipher. It leaves privileged installation and real polkit
+acceptance unexecuted. These repairs require another hosted evaluation; no local
+application/native tests, privileged installation, merge or release are claimed.

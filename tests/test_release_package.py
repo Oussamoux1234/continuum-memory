@@ -13,7 +13,7 @@ from pathlib import Path
 
 from scripts.release_package import (
     ROOT, RUNTIME_PACKAGE_ID, archive_members, build_release, build_tool_pins, install_smoke, make_sbom,
-    normalize_sdist, offline_environment, validate_metadata, validate_sbom,
+    helper_only_install_smoke, normalize_sdist, offline_environment, validate_metadata, validate_sbom,
 )
 
 
@@ -51,8 +51,8 @@ def sdist(directory, name="continuum_memory-0.1.0.dev0/PKG-INFO", payload=METADA
     return path
 
 
-def helper_wheel(directory, fields=HELPER_METADATA, entry="continuum_memory.polkit_helper:main"):
-    """Legacy dependency-free staging fixture, not the encrypted application."""
+def helper_wheel(directory, fields=METADATA, entry="continuum_memory.polkit_helper:main"):
+    """Synthetic staging metadata fixture; actual payload is checked by the build gate."""
     return wheel(directory, fields, entry)
 
 
@@ -142,6 +142,61 @@ class ReleasePackageTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "reviewed offline wheelhouse"):
                     install_smoke(artifact, destination, EPOCH)
             self.assertFalse(destination.exists())
+
+    def test_helper_only_gate_refuses_nonwheel_or_changed_metadata_before_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            destination = directory / "helper"
+            for artifact in (sdist(directory), wheel(directory, HELPER_METADATA)):
+                with self.subTest(artifact=artifact.name), self.assertRaises(ValueError):
+                    helper_only_install_smoke(artifact, destination, EPOCH)
+            self.assertFalse(destination.exists())
+            self.assertFalse(directory.joinpath("helper-wheel").exists())
+
+    def test_helper_only_command_contract_is_offline_and_never_invokes_approval(self):
+        # Only subprocess orchestration is replaced here. The full build gate
+        # separately executes these probes on its actual built application wheel.
+        from unittest.mock import patch
+        from scripts import release_package
+        expected = {"installed_helper_import": True, "sqlcipher_installed": False,
+                    "sqlcipher_importable": False, "storage_imported": False}
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory).resolve()
+            artifact = wheel(directory)
+            destination = directory / "helper"
+            commands = []
+
+            def record(arguments, *, cwd, env):
+                commands.append(list(map(str, arguments)))
+                self.assertEqual(cwd, directory)
+                self.assertEqual(env["PIP_NO_INDEX"], "1")
+                self.assertNotIn("PYTHONPATH", env)
+                if "venv" in arguments:
+                    destination.mkdir()
+
+            with patch.object(release_package, "run", side_effect=record), \
+                    patch.object(release_package.subprocess, "check_output",
+                                 return_value=json.dumps(expected)) as probes:
+                result = helper_only_install_smoke(artifact, destination, EPOCH)
+            self.assertEqual(result, {**expected,
+                "staged_wheel_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                "module_help_before_and_after_relocation": True,
+                "privileged_installation_tested": False})
+            self.assertFalse(destination.exists())
+            self.assertTrue(directory.joinpath("helper-activated").is_dir())
+            self.assertEqual(len(commands), 4)
+            self.assertEqual(commands[0][1:4], ["-I", "-m", "venv"])
+            for flag in ("--isolated", "--no-index", "--no-deps", "--no-build-isolation", "--only-binary=:all:"):
+                self.assertIn(flag, commands[1])
+            self.assertEqual(Path(commands[1][-1]).read_bytes(), artifact.read_bytes())
+            for command, home in zip(commands[2:], ("helper", "helper-activated")):
+                self.assertEqual(command, [str(directory / home / "bin/python"),
+                    "-I", "-m", "continuum_memory.polkit_helper", "--help"])
+            self.assertEqual(probes.call_count, 2)
+            for call, home in zip(probes.call_args_list, ("helper", "helper-activated")):
+                self.assertEqual(call.args[0], [str(directory / home / "bin/python"),
+                                              "-I", "-c", release_package.HELPER_ONLY_CHECK])
+                self.assertEqual(call.kwargs["cwd"], str(directory))
 
     def test_empty_build_wheelhouse_fails_real_offline_hash_resolution(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -324,17 +379,29 @@ class PolkitWheelStagingTest(unittest.TestCase):
     def test_rejects_wrong_metadata_or_redirected_helper(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
-            for index, (fields, entry) in enumerate(((HELPER_METADATA.replace(b"Version: 0.1.0.dev0", b"Version: 9.0"), "continuum_memory.polkit_helper:main"), (HELPER_METADATA, "unexpected:main"))):
+            for index, (fields, entry) in enumerate(((METADATA.replace(b"Version: 0.1.0.dev0", b"Version: 9.0"), "continuum_memory.polkit_helper:main"), (METADATA, "unexpected:main"))):
                 artifact = helper_wheel(directory, fields, entry)
                 with self.assertRaises(ValueError):
                     staging.stage_wheel(artifact, directory / ("staged-%s.whl" % index))
 
-    def test_encrypted_application_wheel_is_refused_by_legacy_privileged_stager(self):
+    def test_stager_requires_exact_single_application_dependency(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
-            artifact = wheel(directory)
-            with self.assertRaisesRegex(ValueError, "no runtime dependencies"):
-                staging.stage_wheel(artifact, directory / "staged.whl")
+            dependency = b"Requires-Dist: continuum-sqlcipher3==0.6.2.post2\n"
+            invalid = (
+                METADATA.replace(dependency, b""),
+                METADATA.replace(dependency, dependency + dependency),
+                METADATA.replace(dependency, dependency + b"Requires-Dist: other-package==1.0\n"),
+                METADATA.replace(b"==0.6.2.post2", b"==0.6.2.post1"),
+                METADATA.replace(b"==0.6.2.post2", b">=0.6.2.post2"),
+                METADATA.replace(b"==0.6.2.post2", b"==0.6.*"),
+                METADATA.replace(dependency, dependency.rstrip(b"\n") + b'; sys_platform == "linux"\n'),
+                METADATA.replace(b"continuum-sqlcipher3==", b"continuum-sqlcipher3[extra]=="),
+                METADATA.replace(dependency, b"Requires-Dist: continuum-sqlcipher3 @ https://example.invalid/native.whl\n"),
+            )
+            for index, fields in enumerate(invalid):
+                with self.subTest(case=index), self.assertRaisesRegex(ValueError, "exactly the reviewed"):
+                    staging.stage_wheel(wheel(directory, fields), directory / ("staged-%d.whl" % index))
 
     def test_rejects_fifo_without_waiting_for_a_writer(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -368,6 +435,7 @@ class PolkitWheelStagingTest(unittest.TestCase):
         self.assertIn('[ "$#" -ne 1 ]', installer)
         self.assertIn('"$SCRIPT_DIRECTORY/stage-polkit-wheel.py"', installer)
         self.assertIn('--no-index --force-reinstall "$BUILD_DIRECTORY/continuum_memory-0.1.0.dev0-py3-none-any.whl"', installer)
+        self.assertIn("--no-cache-dir --no-deps", installer)
         self.assertNotIn('"$SOURCE_DIRECTORY"', installer)
 
 

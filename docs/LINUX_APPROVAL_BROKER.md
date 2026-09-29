@@ -2,8 +2,9 @@
 
 Status: implemented but not yet exercised by a real interactive polkit run in project CI.
 Unprovisioned live vaults fail closed; the terminal signer is retained only as an explicitly
-injected temporary-test fixture. Installing the current encrypted application wheel into
-the privileged helper environment is blocked by the dependency compatibility gate below.
+injected temporary-test fixture. The encrypted candidate now has an exact-metadata,
+helper-only installation boundary below; hosted verification and real privileged
+installation/human acceptance remain separate pending gates.
 
 ## Boundary
 
@@ -30,17 +31,22 @@ administrative preview/apply calls fail closed. HMAC grants are accepted only by
 explicitly injected temporary test kernel. Existing nonce consumption, expiry,
 exact-preview verification, and replay protection remain enforced by the daemon.
 
-## Reviewed-wheel installation: compatibility gate closed
+## Reviewed-wheel installation: approval-only dependency boundary
 
-The privileged stager `packaging/linux/stage-polkit-wheel.py` requires a wheel with no
-runtime dependencies. The encrypted application wheel requires exactly
-`continuum-sqlcipher3==0.6.2.post2` and must therefore be refused. Do not invoke the installer
-with this candidate or strip its dependency metadata. A separately reviewed helper package
-or dependency-aware privilege boundary is required. Reproducible application builds and
-SPDX evidence from [the distribution guide](LINUX_RELEASE.md) do not satisfy that gate.
+The privileged stager `packaging/linux/stage-polkit-wheel.py` requires exactly one
+`Requires-Dist` header: `continuum-sqlcipher3==0.6.2.post2`. Missing, duplicate, additional,
+changed, marked or URL dependencies are refused. The wheel's metadata is not stripped.
+The fixed helper imports only its approval/security support and the Python standard
+library; signing uses the fixed system OpenSSL. It does not import application storage.
+The installer remains offline with `--no-deps`: SQLCipher is deliberately absent from
+this approval-only environment, which is not a usable daemon or application environment.
 
-The following preserves the dependency-free installer's design and existing-installation
-diagnostics. It is not a supported installation path for the encrypted candidate.
+The separate build probe stages the actual wheel and installs it in a fresh environment
+without SQLCipher, checks installed helper origins and absent backend/storage imports,
+then runs isolated module `--help` before and after relocation. Hosted execution is
+pending for this change. This checks neither root installation nor polkit, key provisioning
+or human acceptance. Do not execute the privileged installation without explicit operator
+approval and review of the exact revision; see [the acceptance checklist](LOCAL_ACCEPTANCE_CHECKLIST.md).
 
 It creates an offline root-owned helper environment under `/opt/continuum-memory-polkit`,
 installs the fixed launcher at `/usr/libexec/continuum-memory/approval-helper`, and installs

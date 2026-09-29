@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory.admission import AdmissionPolicy, POLICY_FILE
@@ -184,7 +185,7 @@ class WriteAdmissionTests(unittest.TestCase):
         return value
 
     def clean(self, secret):
-        self.assertNotIn(secret, '\n'.join(self.store.connection.iterdump()))
+        self.assertNotIn(secret, '\n'.join(database_dump(self.store.connection)))
         for path in self.home.iterdir():
             if path.is_file() and path.name != POLICY_FILE:
                 self.assertNotIn(secret.encode(), path.read_bytes(), path.name)

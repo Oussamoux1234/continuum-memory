@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
@@ -375,7 +376,7 @@ class BootstrapCrashTest(unittest.TestCase):
                 identities.add((capability["project_id"], capability["provider"]))
             self.assertEqual(identities, {(row[0], provider) for row in db.execute("SELECT id FROM projects")
                                            for provider in ("claude", "codex")})
-            return tuple(db.iterdump())
+            return tuple(database_dump(db))
         finally:
             with_store.close()
 

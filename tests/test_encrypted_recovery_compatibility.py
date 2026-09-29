@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory import storage, storage_rotation
@@ -49,9 +50,9 @@ class EncryptedRecoveryCompatibilityTest(unittest.TestCase):
                     self.assertEqual([tuple(item) for item in after.connection.execute(
                         "SELECT * FROM admin_results ORDER BY nonce")], receipts)
                     self.assertEqual(load_locators(vault.home, nonce=locator["nonce"]), journal)
-                    original = tuple(after.connection.iterdump())
+                    original = tuple(database_dump(after.connection))
                     self.assertEqual(Kernel(after).admin_recover(current, locator), receipt)
-                    self.assertEqual(tuple(after.connection.iterdump()), original)
+                    self.assertEqual(tuple(database_dump(after.connection)), original)
                     self.assertEqual(after.verify_audit()["status"], "valid")
                 finally:
                     after.close()

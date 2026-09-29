@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 
 WHEEL_NAME = "continuum_memory-0.1.0.dev0-py3-none-any.whl"
 DIST_INFO = "continuum_memory-0.1.0.dev0.dist-info/"
+APPLICATION_REQUIREMENT = "continuum-sqlcipher3==0.6.2.post2"
 MAX_WHEEL_BYTES = 16 * 1024 * 1024
 
 
@@ -52,8 +53,11 @@ def stage_wheel(source, destination):
         fields = BytesParser().parsebytes(bundle.read(DIST_INFO + "METADATA"))
         if fields.get_all("Name") != ["continuum-memory"] or fields.get_all("Version") != ["0.1.0.dev0"]:
             raise ValueError("unexpected wheel metadata")
-        if fields.get_all("Requires-Dist"):
-            raise ValueError("approval runtime wheel must have no runtime dependencies")
+        # This is the exact application wheel, not a dependency-stripped helper
+        # package. The isolated approval-only runtime installs it with --no-deps;
+        # its installed helper import closure is verified without SQLCipher.
+        if fields.get_all("Requires-Dist") != [APPLICATION_REQUIREMENT]:
+            raise ValueError("approval wheel must declare exactly the reviewed application dependency")
         entrypoints = configparser.ConfigParser()
         entrypoints.read_string(bundle.read(DIST_INFO + "entry_points.txt").decode("utf-8"))
         if entrypoints.get("console_scripts", "continuum-polkit-helper", fallback=None) != "continuum_memory.polkit_helper:main":

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,38 @@ print(json.dumps({'applicationVersion': metadata.version('continuum-memory'),
                   'nativeVersion': metadata.version('continuum-sqlcipher3'),
                   'cipherVersion': cipher, 'sqliteVersion': dbapi2.sqlite_version,
                   'modulePaths': modules}, sort_keys=True))
+"""
+
+HELPER_ONLY_CHECK = """
+import json
+import sys
+from importlib import metadata, util
+from pathlib import Path
+import continuum_memory.polkit_helper
+
+prefix = Path(sys.prefix).resolve()
+if sys.prefix == sys.base_prefix:
+    raise RuntimeError('helper check requires an isolated virtual environment')
+if metadata.version('continuum-memory') != '0.1.0.dev0':
+    raise RuntimeError('unexpected installed helper version')
+if metadata.requires('continuum-memory') != ['continuum-sqlcipher3==0.6.2.post2']:
+    raise RuntimeError('installed application dependency metadata changed')
+try:
+    metadata.version('continuum-sqlcipher3')
+except metadata.PackageNotFoundError:
+    pass
+else:
+    raise RuntimeError('SQLCipher must not be installed in the helper-only runtime')
+if util.find_spec('sqlcipher3') is not None:
+    raise RuntimeError('SQLCipher must not be importable in the helper-only runtime')
+for name, module in tuple(sys.modules.items()):
+    if (name == 'sqlcipher3' or name.startswith('sqlcipher3.')
+            or name == 'continuum_memory.storage' or name.startswith('continuum_memory.storage.')):
+        raise RuntimeError('helper imported application storage')
+    if name == 'continuum_memory' or name.startswith('continuum_memory.'):
+        Path(module.__file__).resolve().relative_to(prefix)
+print(json.dumps({'installed_helper_import': True, 'sqlcipher_installed': False,
+                  'sqlcipher_importable': False, 'storage_imported': False}, sort_keys=True))
 """
 
 
@@ -353,6 +386,44 @@ def validate_sbom(path, artifacts, epoch):
         raise ValueError("SPDX validation failed: %s" % messages)
 
 
+def helper_only_install_smoke(artifact, directory, epoch):
+    """Verify the actual staged wheel's helper, never install or invoke polkit."""
+    if not artifact.name.endswith(".whl"):
+        raise ValueError("helper-only verification requires the built application wheel")
+    validate_metadata(artifact)
+    environment = offline_environment(epoch)
+    staging_directory = directory.with_name(directory.name + "-wheel")
+    staging_directory.mkdir()
+    staged = staging_directory / artifact.name
+    # Exercise the real metadata/path validator without its privileged CLI entry.
+    stager = runpy.run_path(str(ROOT / "packaging/linux/stage-polkit-wheel.py"))
+    stager["stage_wheel"](artifact.absolute(), staged)
+    if sha256(staged.read_bytes()) != sha256(artifact.read_bytes()):
+        raise ValueError("helper staging changed the application wheel")
+    run([sys.executable, "-I", "-m", "venv", directory], cwd=directory.parent, env=environment)
+    python = directory / "bin" / "python"
+    run([python, "-I", "-m", "pip", "--isolated", "install", "--no-index", "--no-deps",
+         "--no-cache-dir", "--no-compile", "--no-build-isolation", "--only-binary=:all:", staged],
+        cwd=directory.parent, env=environment)
+    expected = {"installed_helper_import": True, "sqlcipher_installed": False,
+                "sqlcipher_importable": False, "storage_imported": False}
+    for relocated in (False, True):
+        if relocated:
+            activated = directory.with_name(directory.name + "-activated")
+            directory.rename(activated)
+            if directory.exists():
+                raise ValueError("old helper-only staging environment still exists")
+            python = activated / "bin" / "python"
+        checked = subprocess.check_output([str(python), "-I", "-c", HELPER_ONLY_CHECK],
+                                         cwd=str(directory.parent), env=environment, text=True)
+        if json.loads(checked) != expected:
+            raise ValueError("installed helper-only runtime evidence is invalid")
+        run([python, "-I", "-m", "continuum_memory.polkit_helper", "--help"],
+            cwd=directory.parent, env=environment)
+    return {**expected, "staged_wheel_sha256": sha256(staged.read_bytes()),
+            "module_help_before_and_after_relocation": True, "privileged_installation_tested": False}
+
+
 def install_smoke(artifact, directory, epoch):
     environment = offline_environment(epoch)
     locked_wheels = application_verification_wheels()
@@ -453,11 +524,16 @@ def build_release(output, wheelhouse):
             raise ValueError("independent clean builds are not byte-for-byte reproducible")
         artifacts = []
         installed_runtimes = {}
+        helper_only_evidence = None
         for artifact in builds[0]:
             destination = output / artifact.name
             shutil.copyfile(artifact, destination)
             artifacts.append(destination)
             installed_runtimes[artifact.name] = install_smoke(destination, temporary / ("install-" + artifact.suffix), epoch)
+            if artifact.name.endswith(".whl"):
+                helper_only_evidence = helper_only_install_smoke(destination, temporary / "helper-only", epoch)
+        if helper_only_evidence is None:
+            raise ValueError("actual wheel helper-only verification did not run")
     sbom_path = output / "sbom.spdx.json"
     sbom_path.write_text(json.dumps(make_sbom(artifacts, epoch), sort_keys=True, indent=2) + "\n")
     validate_sbom(sbom_path, artifacts, epoch)
@@ -481,7 +557,8 @@ def build_release(output, wheelhouse):
         "entrypoints_per_artifact": sorted(ENTRY_POINTS),
         "utf8_cli_init_per_artifact": ["compact", "pretty"],
         "relocated_wheel_helper_module_smoke": True,
-        "privileged_installer_compatible": False,
+        "helper_only_runtime": helper_only_evidence,
+        "privileged_installation_tested": False,
         "subjects": {path.name: sha256(path.read_bytes()) for path in artifacts + [sbom_path]},
     }
     (output / "build-evidence.json").write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")

@@ -122,14 +122,21 @@ inputs, not immutable machine images.
 
 ## Privileged approval-helper compatibility gate
 
-Do not install this encrypted application wheel with `packaging/linux/install-polkit.sh`.
-The privileged staging validator deliberately rejects every runtime dependency, so the
-exact post2 dependency makes this wheel fail closed. A separately reviewed helper package
-or dependency-aware installation boundary is required before that runbook becomes usable.
-Do not remove metadata or weaken the staging check to bypass this gate.
+The privileged stager requires the application's exact single dependency header,
+`continuum-sqlcipher3==0.6.2.post2`; it rejects missing, additional or changed requirements.
+The unchanged wheel is installed offline with `--no-deps` into an approval-only environment.
+SQLCipher is deliberately absent there: the fixed helper's import closure uses only its
+approval/security modules and the standard library, with system OpenSSL for signing.
+This is not a usable environment for the daemon or the full application.
 
-The retained installer boundary below describes the dependency-free package design, not
-a successful encrypted-candidate installation. Build tools are never installed as root.
+A separate packaging probe stages the actual built wheel, installs it without SQLCipher
+in a fresh environment, verifies installed module origins and absent backend/storage imports,
+and runs isolated helper `--help` before and after relocation. On success, build evidence
+records `helper_only_runtime`; `privileged_installation_tested` remains false. This new
+probe still needs hosted execution at the selected revision. Neither it nor the existing
+native application smoke test proves privileged installation, provisioning or real human
+presence. Those steps require separate operator approval and acceptance. Build tools are
+never installed as root.
 
 The wheel argument must be an absolute canonical regular path (no symlink/hardlink), with
 the exact expected name and metadata. The installer copies it into root-owned staging

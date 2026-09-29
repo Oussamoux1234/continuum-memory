@@ -13,6 +13,7 @@ import select
 import subprocess
 import sys
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory.security import read_private, sign_grant
@@ -277,7 +278,7 @@ class CliRecoveryTest(unittest.TestCase):
         self.assertEqual(self.assert_recovered(nonce, "committed", 0), recovered)
         self.assertEqual(self.journal_bytes(), journal)
         with self.database() as db:
-            dumped = "\n".join(db.iterdump())
+            dumped = "\n".join(database_dump(db))
         for forbidden in (BODY, EVIDENCE, SUBJECT, digest):
             self.assertNotIn(forbidden, dumped)
         self.assertEqual(self.fx.control.call("audit_verify", {})["status"], "valid")

@@ -16,7 +16,7 @@ from unittest.mock import patch
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import MAX_FRAME_BYTES, canonical_json
-from continuum_memory.storage import paths
+from continuum_memory.storage import Store, paths
 from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 ROOT = Path(__file__).resolve().parents[1]

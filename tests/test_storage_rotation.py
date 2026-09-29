@@ -654,6 +654,10 @@ class StorageRotationTest(unittest.TestCase):
             write_private(copy_files["storage_key"], next_key)
             write_private(copy_files["audit_key"], self.vault.audit_key)
             write_private(copy_files["audit_head"], self.files["audit_head"].read_bytes())
+            # This is a copy of a completed synthetic vault, not a legacy home.
+            # Preserve its matching initialization records before Store admission.
+            for name in ("bootstrap_claim", "bootstrap_complete"):
+                write_private(copy_files[name], self.files[name].read_bytes())
             store = Store(copy_home)
             try:
                 store.begin()

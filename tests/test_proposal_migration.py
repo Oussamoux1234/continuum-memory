@@ -1,6 +1,7 @@
 """Upgrade the actual v3 schema without silently erasing data during migration."""
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from datetime import datetime, timezone
 from pathlib import Path
 from fixtures.harness import private_test_home
@@ -77,8 +78,8 @@ class ProposalMigrationTest(unittest.TestCase):
                         "disclosure": ["codex"], "idempotency_key": "legacy-" + name + "-delivery"})
                 self.assertEqual(retry.exception.code, "delivery_suppressed")
             self.assertEqual(store.connection.execute("SELECT count(*) FROM proposal_tombstones").fetchone()[0], 2)
-            self.assertNotIn("legacy-rejected", "\n".join(store.connection.iterdump()))
-            self.assertNotIn("legacy-expired", "\n".join(store.connection.iterdump()))
+            self.assertNotIn("legacy-rejected", "\n".join(database_dump(store.connection)))
+            self.assertNotIn("legacy-expired", "\n".join(database_dump(store.connection)))
             self.assertEqual(store.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(store.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(store.verify_audit()["status"], "valid")
@@ -88,7 +89,7 @@ class ProposalMigrationTest(unittest.TestCase):
         reopened.close()
 
     def test_v3_interrupted_upgrade_rolls_back_and_retries_atomically(self):
-        before = list(self.db.iterdump())
+        before = list(database_dump(self.db))
         self.db.set_authorizer(lambda action, name, *args: sqlite3.SQLITE_DENY
             if action == sqlite3.SQLITE_CREATE_INDEX and name == "idx_proposals_delivery" else sqlite3.SQLITE_OK)
         try:
@@ -97,7 +98,7 @@ class ProposalMigrationTest(unittest.TestCase):
         finally:
             self.db.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], 3)
-        self.assertEqual(list(self.db.iterdump()), before)
+        self.assertEqual(list(database_dump(self.db)), before)
         self.assertIsNone(self.db.execute("SELECT name FROM sqlite_master WHERE name='proposal_tombstones'").fetchone())
         self.assertEqual(migrate(self.db, 3), SCHEMA_VERSION)
         self.assertEqual(migrate(self.db, 3), SCHEMA_VERSION)
