@@ -41,10 +41,19 @@ try {
     $ownerSid = $identity.User.Value
     Require-Condition (([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) 'runner_administrator_required'
-    $python = (Get-Command python -CommandType Application).Source
+    # Explicit CommandType can enumerate multiple PATH matches. Start-Process
+    # FilePath requires one string: preserve normal first-command precedence.
+    $commands = @(Get-Command python -CommandType Application -ErrorAction Stop)
+    Require-Condition ($commands.Count -ge 1) 'python_discovery'
+    $python = $commands[0].Source
+    Require-Condition ($python -is [string] -and [IO.Path]::IsPathFullyQualified($python) -and
+        (Test-Path -LiteralPath $python -PathType Leaf)) 'python_application'
+    Write-Output (@{ windows_foreign_account_python = @{ matches = $commands.Count;
+        selected_type = $python.GetType().Name } } | ConvertTo-Json -Compress)
     $helper = Join-Path $PSScriptRoot 'windows_foreign_account.py'
     $name = 'cmfa_' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
-    Require-Condition ($null -eq (Get-LocalUser -Name $name -ErrorAction SilentlyContinue)) 'account_collision'
+    Require-Condition (@(Get-LocalUser -ErrorAction Stop | Where-Object {
+        $_.Name -eq $name }).Count -eq 0) 'account_collision'
     $password = [Security.SecureString]::new()
     foreach ($character in 'aA9!'.ToCharArray()) { $password.AppendChar($character) }
     $alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%+-_'
@@ -108,8 +117,23 @@ try {
     } else {
         $passed = $false
         # Fixed phase/type, never the exception message or PowerShell error record.
-        Write-Output (@{ windows_foreign_account_wrapper_error = @{ stage = $phase;
-            exception_type = $_.Exception.GetType().Name } } | ConvertTo-Json -Compress)
+        $details = @{ stage = $phase; exception_type = $_.Exception.GetType().Name }
+        if ($_.FullyQualifiedErrorId -match '^[A-Za-z0-9_,.\-]{1,256}$') {
+            $details.error_id = $_.FullyQualifiedErrorId
+        }
+        if ($_.Exception -is [Management.Automation.ParameterBindingException] -and
+            $_.Exception.ParameterName -match '^[A-Za-z]{1,64}$') {
+            $details.parameter = $_.Exception.ParameterName
+        }
+        $exception = $_.Exception
+        for ($depth = 0; $depth -lt 8 -and $null -ne $exception; $depth++) {
+            if ($exception -is [ComponentModel.Win32Exception]) {
+                $details.native_status = [int]$exception.NativeErrorCode
+                break
+            }
+            $exception = $exception.InnerException
+        }
+        Write-Output (@{ windows_foreign_account_wrapper_error = $details } | ConvertTo-Json -Compress)
     }
 } finally {
     foreach ($process in @($foreignProcess, $ownerProcess)) {
@@ -126,7 +150,9 @@ try {
             $found = Get-LocalUser -Name $account.Name -ErrorAction Stop
             Require-Condition ($found.SID.Value -eq $account.SID.Value) 'cleanup_identity_changed'
             Remove-LocalUser -SID $account.SID
-            Require-Condition ($null -eq (Get-LocalUser -SID $account.SID -ErrorAction SilentlyContinue)) 'cleanup_account_present'
+            # Query errors fail rather than masquerading as an absent account.
+            Require-Condition (@(Get-LocalUser -ErrorAction Stop | Where-Object {
+                $_.SID.Value -eq $account.SID.Value }).Count -eq 0) 'cleanup_account_present'
         } catch { $cleanupPassed = $false }
     }
     if ($null -ne $password) { $password.Dispose() }
