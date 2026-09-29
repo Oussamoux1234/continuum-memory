@@ -14,9 +14,10 @@ from pathlib import Path
 from continuum_memory.admission import AdmissionPolicy, POLICY_FILE
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
-from continuum_memory.security import canonical_json, require_keys
+from continuum_memory.security import canonical_json, create_private_directory, replace_private, require_keys
 from continuum_memory.storage import Store, load_capability
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, private_test_home
+from fixtures.windows_acl import set_fixture_acl
 from tests import test_snapshot_forget as fixture
 
 SECRETS = {
@@ -41,8 +42,7 @@ SECRETS = {
 
 def policy_file(home, **settings):
     path = home / POLICY_FILE
-    path.write_text(canonical_json(dict(version=1, **settings)), encoding='utf-8')
-    os.chmod(path, 0o600)
+    replace_private(path, canonical_json(dict(version=1, **settings)).encode('utf-8'))
     return path
 
 
@@ -78,7 +78,7 @@ class DetectorTests(unittest.TestCase):
 class PolicyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='continuum-policy-test-')
-        self.home = Path(self.temp.name)
+        self.home = private_test_home(self.temp.name)
         self.addCleanup(self.temp.cleanup)
 
     def test_default_and_exact_owner_exception_bytes(self):
@@ -130,7 +130,7 @@ else:
                  b' ' * 16385]
         path = self.home / POLICY_FILE
         for raw in cases:
-            path.write_bytes(raw); os.chmod(path, 0o600)
+            replace_private(path, raw)
             with self.subTest(case=cases.index(raw)):
                 with self.assertRaises(MemoryError) as caught:
                     AdmissionPolicy.load(self.home)
@@ -138,10 +138,16 @@ else:
                 self.assertNotIn('private-sentinel', str(caught.exception.as_dict()))
                 self.assertTrue(caught.exception.__suppress_context__)
         policy_file(self.home)
-        os.chmod(path, 0o644)
+        if os.name == 'nt':
+            set_fixture_acl(path, broad=True)
+        else:
+            os.chmod(path, 0o644)
         with self.assertRaises(MemoryError):
             AdmissionPolicy.load(self.home)
-        os.chmod(path, 0o600)
+        if os.name == 'nt':
+            set_fixture_acl(path)
+        else:
+            os.chmod(path, 0o600)
         linked = self.home / 'policy-hardlink'
         os.link(path, linked)
         with self.assertRaises(MemoryError):
@@ -288,7 +294,7 @@ class BootstrapAndDiagnosticTests(unittest.TestCase):
                 # A short lower-case configured provider remains syntactically valid.
                 secret = 'private-marker' if field == 'providers' else SECRETS['github_fine']
                 if field == 'providers':
-                    home.mkdir(mode=0o700); policy_file(home, deny_literals=[secret])
+                    create_private_directory(home); policy_file(home, deny_literals=[secret])
                 spec = {'name':'fixture','path_hint':'/synthetic/fixture','providers':['codex']}
                 spec[field] = [secret] if field == 'providers' else secret
                 with self.assertRaises(MemoryError) as caught:
@@ -332,7 +338,8 @@ class BootstrapAndDiagnosticTests(unittest.TestCase):
                     self.assertNotIn(secret.encode(),combined)
                     self.assertNotIn(b'Traceback',combined)
                     self.assertLess(len(combined),160)
-                    self.assertEqual(json.loads(combined)['error']['code'],'local_io_error')
+                    expected = 'unsafe_windows_path' if os.name == 'nt' else 'local_io_error'
+                    self.assertEqual(json.loads(combined)['error']['code'], expected)
             self.assertEqual(list(Path(temporary).iterdir()), [])
 
     @unittest.skipUnless(hasattr(socket,'AF_UNIX') and os.name=='posix','Unix transport')

@@ -8,8 +8,10 @@ default-branch database is still the plaintext prototype.
 
 Use one private vault on a local POSIX filesystem with working `flock` and
 no-follow opens. Every daemon accessing that vault must use this lock-aware version.
-Native Windows, network filesystems, concurrent old/new daemons, and protection
-against malicious same-user processes replacing private files are not supported.
+This runbook covers POSIX, not the [native Windows lifecycle candidate](WINDOWS_IPC.md),
+which uses held pipe instances and no socket-file cleanup. Its integrated native
+acceptance remains pending. Network filesystems, concurrent old/new daemons, and
+protection against malicious same-user processes replacing private files are not supported.
 Development-host macOS tests do not certify the macOS runtime/approval boundary.
 
 Start the daemon with its normal command:

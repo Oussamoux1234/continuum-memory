@@ -42,6 +42,13 @@ PRIVATE_KEY_DIRECTORY = Path("/var/lib/continuum-memory/approval-keys")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def local_posix_uid() -> int:
+    """No synthetic UID fallback: native Windows approval is not implemented."""
+    if os.name != "posix":
+        raise MemoryError("unsupported_platform", "Linux approval requires a POSIX caller identity.")
+    return os.getuid()
+
+
 def _vault_id(value: Any) -> str:
     if not isinstance(value, str) or not ID_RE.fullmatch(value) or not value.startswith("vlt_"):
         raise MemoryError("approval_invalid", "The approval vault identity is invalid.")
@@ -102,7 +109,7 @@ def approval_request(challenge: Dict[str, Any], caller_uid: Optional[int] = None
     preview = challenge["preview"]
     if not isinstance(preview, dict) or digest_json(preview) != challenge["preview_digest"]:
         raise MemoryError("approval_mismatch", "The approval preview digest does not match its content.")
-    uid = os.getuid() if caller_uid is None else caller_uid
+    uid = local_posix_uid() if caller_uid is None else caller_uid
     request = {
         "action": "authorize",
         "caller_uid": uid,
@@ -156,7 +163,7 @@ def validate_approval_request(value: Any, now: Optional[int] = None) -> Dict[str
 
 
 def provision_request(vault_id: str, caller_uid: Optional[int] = None) -> Dict[str, Any]:
-    uid = os.getuid() if caller_uid is None else caller_uid
+    uid = local_posix_uid() if caller_uid is None else caller_uid
     return {
         "action": "provision",
         "caller_uid": _caller_uid(uid),

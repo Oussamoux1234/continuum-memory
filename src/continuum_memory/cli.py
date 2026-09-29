@@ -281,6 +281,12 @@ def run(args: argparse.Namespace) -> Any:
 
 
 def main(argv: Any = None) -> int:
+    # Redirected Windows streams otherwise use the ANSI codepage. The CLI's
+    # JSON output is UTF-8 in both compact and human-readable modes. Embedders
+    # may supply a text-only stream such as StringIO without reconfigure().
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8", newline="\n")
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

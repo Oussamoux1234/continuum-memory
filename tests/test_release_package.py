@@ -76,10 +76,21 @@ class ReleasePackageTest(unittest.TestCase):
 
     def test_rejects_traversal_and_absolute_members_without_extraction(self):
         with tempfile.TemporaryDirectory() as directory:
-            for name in ("../escape", "/escape", "prefix\\escape", "a//b", "a/./b"):
+            for name in ("../escape", "/escape", "prefix\\escape", "a//b", "a/./b",
+                         "C:/escape", "C:relative", "source/a:stream", "source/NUL",
+                         "source/COM1.txt", "source/lpt².log", "source/path.", "source/path ",
+                         "source/a\x01b", "source/a?b"):
                 with self.subTest(name=name):
                     with self.assertRaisesRegex(ValueError, "unsafe"):
                         archive_members(sdist(Path(directory), name))
+
+    def test_rejects_case_aliases_before_extraction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = wheel(Path(directory))
+            with zipfile.ZipFile(archive, "a") as bundle:
+                bundle.writestr("continuum_memory/POLKIT_HELPER.py", b"alias")
+            with self.assertRaisesRegex(ValueError, "unsafe"):
+                archive_members(archive)
 
     def test_rejects_archive_links(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -145,6 +156,7 @@ class ReleasePackageTest(unittest.TestCase):
         self.assertNotIn("PIP_FIND_LINKS", environment)
 
 
+@unittest.skipUnless(os.name == "posix", "Linux installer staging uses POSIX no-follow descriptors")
 class PolkitWheelStagingTest(unittest.TestCase):
     def test_stages_exact_wheel_in_new_destination(self):
         with tempfile.TemporaryDirectory() as directory:

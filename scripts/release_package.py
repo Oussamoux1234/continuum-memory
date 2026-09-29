@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -31,6 +32,18 @@ ENTRY_POINTS = {
 }
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+WINDOWS_DEVICE = re.compile(r"^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)", re.IGNORECASE)
+
+
+def portable_member(name):
+    """One canonical path on both Unix and Windows, never a drive/ADS alias."""
+    path = PurePosixPath(name)
+    if (not path.parts or path.is_absolute() or str(path) != name or ".." in path.parts
+            or any(char in name for char in '\\:<>"|?*')
+            or any(ord(char) < 32 for char in name)
+            or any(part.endswith((".", " ")) or WINDOWS_DEVICE.match(part) for part in path.parts)):
+        raise ValueError("unsafe or duplicate archive member")
+    return path
 
 
 def sha256(payload):
@@ -63,12 +76,13 @@ def archive_members(archive):
     if archive.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("archive exceeds size limit")
     result = {}
+    portable_names = set()
     total = 0
 
     def add(name, size, read):
         nonlocal total
-        path = PurePosixPath(name)
-        if path.is_absolute() or ".." in path.parts or "\\" in name or name in result or str(path) != name:
+        portable_member(name)
+        if name.casefold() in portable_names:
             raise ValueError("unsafe or duplicate archive member")
         if size > MAX_MEMBER_BYTES or total + size > MAX_ARCHIVE_BYTES:
             raise ValueError("expanded archive exceeds size limit")
@@ -77,6 +91,7 @@ def archive_members(archive):
             raise ValueError("archive member size mismatch")
         total += size
         result[name] = payload
+        portable_names.add(name.casefold())
 
     if archive.name.endswith(".whl"):
         with zipfile.ZipFile(archive) as bundle:
@@ -228,6 +243,22 @@ def install_smoke(artifact, directory, wheelhouse, epoch):
     for entry, flag in ENTRY_POINTS.items():
         executable = bin_dir / (entry + (".exe" if os.name == "nt" else ""))
         run([executable, flag], cwd=directory, env=environment)
+    # Exercise the installed launcher, not checkout imports, with a real normal
+    # bootstrap. No approval provider is injected and no existing vault is used.
+    project = "Décision — 東京 — مرحبا — 🧠"
+    for compact in (False, True):
+        vault = directory / ("unicode-compact-vault" if compact else "unicode-pretty-vault")
+        command = [bin_dir / ("continuum.exe" if os.name == "nt" else "continuum"), "--data-dir", vault]
+        if compact:
+            command.append("--json")
+        command.extend(["init", "--project-name", project, "--project-path", directory])
+        result = subprocess.run(list(map(str, command)), cwd=directory,
+            env=dict(environment, PYTHONIOENCODING="cp1252", PYTHONUTF8="0"),
+            capture_output=True, timeout=15, check=True)
+        output = result.stdout.decode("utf-8")
+        if (result.stderr or project not in output or json.loads(output)["projects"][0]["name"] != project
+                or (len(output.splitlines()) == 1) != compact):
+            raise ValueError("installed CLI UTF-8 bootstrap verification failed")
     # The fresh environment must import its installed payload, not this checkout.
     run([python, "-I", "-c", "import continuum_memory; print(continuum_memory.__file__)"], cwd=directory, env=environment)
     if artifact.name.endswith(".whl"):
@@ -263,6 +294,7 @@ def build_release(output, wheelhouse):
             source = temporary / attempt
             source.mkdir()
             for name in sorted(set(tracked) - {""}):
+                portable_member(name)
                 path = ROOT / name
                 if path.is_symlink() or not path.is_file():
                     raise ValueError("release source must contain only regular tracked files")
@@ -296,6 +328,7 @@ def build_release(output, wheelhouse):
         "build_tools": {name: metadata.version(name) for name in ("setuptools", "wheel", "build", "spdx-tools")},
         "reproducible_builds": 2, "offline_installs": [artifact.name for artifact in artifacts],
         "entrypoints_per_artifact": sorted(ENTRY_POINTS),
+        "utf8_cli_init_per_artifact": ["compact", "pretty"],
         "relocated_wheel_helper_module_smoke": True,
         "subjects": {path.name: sha256(path.read_bytes()) for path in artifacts + [sbom_path]},
     }

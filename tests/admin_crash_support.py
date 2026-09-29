@@ -10,12 +10,16 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from continuum_memory import kernel as kernel_module, results, storage
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
-from continuum_memory.security import canonical_json, read_private, sign_grant
+from continuum_memory.security import (
+    canonical_json, create_private_directory, ensure_private_directory,
+    ensure_private_regular, read_private, sign_grant, write_private,
+)
 from continuum_memory.storage import Store, load_capability, paths
 from tests import test_proposal_erasure as erasure
 
@@ -110,7 +114,16 @@ def apply_child(home, crash_after, challenge, identifier_factory, expected_prefi
 
         # Repeatable output from identical closed-vault copies; real SQLite,
         # existing ledger IDs, signatures, digests and audit MACs are unchanged.
+        # The matrix can outlive a grant on slower native runners. Freeze only
+        # the synthetic kernel's approval clock, never the subprocess deadline
+        # clock or production TTL. Require the original stored challenge expiry.
+        expiry = store.connection.execute(
+            "SELECT expires_at FROM admin_challenges WHERE nonce=?", (challenge["nonce"],)
+        ).fetchone()
+        if expiry is None or int(expiry[0]) != int(challenge["expires_at"]):
+            raise AssertionError("Crash fixture challenge expiry does not match storage")
         with patch.object(kernel_module, "random_id", side_effect=identifier_factory) as identifier, \
+                patch.object(kernel_module, "time", SimpleNamespace(time=lambda: int(expiry[0]) - 1)), \
                 patch.object(storage, "now_iso", return_value=FIXED_TIME), \
                 patch.object(results, "now_iso", return_value=FIXED_TIME), \
                 patch.object(store, "_sync_audit_head_raw", side_effect=publish_anchor):
@@ -136,14 +149,41 @@ class AdminCrashFixture:
 
     def copied_vault(self, name):
         destination = self.root / name
-        shutil.copytree(self.fx.home, destination)
+        if os.name == "nt":
+            def copy_private_directory(source, target):
+                ensure_private_directory(source)
+                # A closed synthetic vault needs a new protected DACL on every
+                # directory; ordinary copytree does not preserve that boundary.
+                create_private_directory(target)
+                entries = list(source.iterdir())
+                for entry in entries:
+                    copied = target / entry.name
+                    if entry.is_dir():
+                        copy_private_directory(entry, copied)
+                    else:
+                        ensure_private_regular(entry)
+                        original = entry.read_bytes()
+                        # Claim a new private leaf exclusively, then copy bytes
+                        # without the private-writer's 64 KiB payload limit.
+                        write_private(copied, b"")
+                        shutil.copyfile(entry, copied)
+                        ensure_private_regular(copied)
+                        ensure_private_regular(entry)
+                        self.assertTrue(copied.read_bytes() == original, "Fixture copy changed private file bytes")
+                        self.assertTrue(entry.read_bytes() == original, "Fixture copy changed source file bytes")
+                ensure_private_directory(target)
+                self.assertEqual({entry.name for entry in target.iterdir()}, {entry.name for entry in entries})
+
+            copy_private_directory(self.fx.home, destination)
+        else:
+            shutil.copytree(self.fx.home, destination)
         return destination
 
     def run_child(self, home, ordinal=0):
         result = subprocess.run([sys.executable, "-m", self.child_module, "--crash-child",
                                  str(home), str(ordinal)], input=canonical_json(self.challenge).encode(),
                                 env=self.environment, capture_output=True, timeout=15)
-        self.assertEqual(result.stderr, b"")
+        self.assertEqual(result.stderr, b"", result.stderr.decode("utf-8", errors="replace")[-4096:])
         self.assertLess(len(result.stdout), 32768)
         self.assertEqual(result.returncode, CRASH_EXIT if ordinal else 0)
         return json.loads(result.stdout)

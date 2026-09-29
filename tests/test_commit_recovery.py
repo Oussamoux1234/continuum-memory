@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from fixtures.harness import private_test_home
 from unittest.mock import patch
 
 from continuum_memory import cli, storage
@@ -277,7 +278,7 @@ class RecoveryMigrationTest(unittest.TestCase):
     def test_v4_upgrade_preserves_data_and_rolls_back_failed_ddl(self):
         schema = (ROOT / "tests/fixtures/schema-v4.sql").read_text()
         with tempfile.TemporaryDirectory(prefix="continuum-v4-recovery-") as temp:
-            home = Path(temp)
+            home = private_test_home(temp)
             with patch.object(storage, "SCHEMA_SQL", schema), patch.object(storage, "SCHEMA_VERSION", 4):
                 Store.bootstrap(home, [{"name":"fixture", "path_hint":"/fixture", "providers":["codex"]}])
             db = sqlite3.connect(str(paths(home)["db"]))

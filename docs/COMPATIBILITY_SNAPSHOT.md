@@ -19,4 +19,12 @@ probed or modified. URL content is not fetched during build or runtime.
 |---|---|
 | macOS 26.5.2 arm64, Python 3.9.6 | Full local verifier passed; development evidence, not a packaged support promise |
 | GitHub-hosted Ubuntu 24.04 x86-64, Python 3.9 | Full verifier passed in Actions run 33742253644 |
-| Windows | Unsupported: [experimental native filesystem boundary](WINDOWS_BOUNDARY.md) is isolated from the runtime; IPC, storage integration, lifecycle and full native verifier remain tracked in issue #1 |
+| Windows | [Native plaintext runtime candidate](WINDOWS_BOUNDARY.md): filesystem/SQLite guards and bounded named-pipe client/daemon are integrated; exact-head full native CI and security acceptance remain pending in issue #1. No production Windows approval or encryption claim. |
+
+The Windows candidate's full matrix is GitHub-hosted Windows Server 2025 x64 with
+CPython 3.11–3.14; each job records its exact runner image, Python and bundled
+SQLite versions. The separate real different-account gate runs CPython 3.14.
+These are mutable hosted images, not immutable Windows builds or Windows 10/11
+desktop evidence. Follow [the native verification contract](WINDOWS_VERIFICATION.md)
+and inspect the exact integrated-head results; older passing runs do not validate
+new changes. This remains a plaintext prototype with production approval refused.
