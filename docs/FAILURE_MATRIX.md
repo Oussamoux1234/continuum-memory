@@ -227,6 +227,68 @@ presence, encrypted storage, host power-loss or backup/revocation evidence.
 It covers new-thread acceptance with evidence, not every acceptance variant or
 completion of issue #8.
 
+## Direct owner remember process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_remember_crash -v
+```
+
+This fixture remembers a new subject with nonempty user-authored evidence,
+Codex/Claude disclosure and explicit policy/valid-time metadata. It retains
+unrelated accepted memories in two projects, accepted and pending proposals,
+reviews and prior recalls. It shares only the existing test-side crash/recovery
+mechanics; its exact inventory and semantic assertions are operation-specific.
+
+The reviewed inventory contains 18 direct writes: challenge consumption, sequence,
+thread, evidence, assertion, two disclosures, evidence reference, FTS, three
+attestations, consent, provenance, two audience sequences, audit and owner result.
+Six before/after SQL commit, anchor publication and anchor-transaction commit
+boundaries bring the total to **24 real process exits**. Nineteen are pre-commit;
+five are committed, including two with a stale anchor and three with the new anchor.
+
+Whole logical-state comparison precedes recovery or new recall writes. Independent
+checks distinguish the owner's terminal authorship and `user_authored` evidence
+from agent-proposal acceptance, require `data` authority, exact consent and
+`user_remember` provenance, and preserve nonempty unrelated records. Both disclosed
+providers can retrieve the new claim, but old recalls cannot gain access
+retroactively and agent capabilities do not acquire control authority. Original
+receipts, single pre-commit retry, refused committed replay, reconciliation and
+reopen follow the shared matrix contract.
+
+This is new-subject, nonempty-evidence plaintext/POSIX coverage, not all remember
+variants, human presence, native Windows, encryption or power-loss acceptance.
+
+## Proposal rejection process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_reject_proposal_crash -v
+```
+
+The fixture rejects an actual pending proposal while retaining unrelated drafts,
+an accepted proposal and its genuine review, canonical memory/evidence, recalls,
+feedback and another project. The target's evidence text is also present in
+unrelated retained content: rejection purges the target's inline draft evidence,
+not canonical evidence belonging to another assertion. A schema-valid review row
+is **manually seeded synthetic legacy state** on the pending target before its
+exact preview, solely to exercise the real review foreign-key cascade. It is not
+claimed to be a pending-proposal state produced by the current API.
+
+Seven direct writes consume the challenge, advance the sequence, insert a delivery
+tombstone, remove proposal provenance and the proposal, then insert audit and owner
+result records. Six commit/anchor transitions yield **13 real process exits**:
+eight pre-commit and five committed, of which two have a stale anchor. There is no
+rejection checkpoint or generated result identifier in this inventory.
+
+Beyond pre-recovery whole-state equality, the oracle checks the exact keyed,
+project/provider-scoped rejection tombstone, target/provenance/legacy-review
+removal, no target-specific canaries in live logical tables, and preservation of
+shared evidence and nonempty unrelated state. Delayed deliveries with the original
+key are suppressed even if their body changes; this refusal must not mutate the
+vault. Recovery preserves the original result and never repeats a committed action.
+
+These are plaintext/POSIX process-crash results, not physical erasure, external
+backup revocation, native Windows, encryption, host power loss or completion of #8.
+
 ## POSIX audit-anchor publication faults
 
 ```bash
