@@ -134,6 +134,7 @@ class BackupNativeTest(unittest.TestCase):
         self.codex = self.store.authenticate(load_capability(
             Path(self.projects["alpha"]["capabilities"]["codex"]))["token"])
         first = self.remember("backup retained", CANARY + " original")
+        self.original_id = first["assertion_id"]
         self.live = self.approve(operation="correct", target_id=first["assertion_id"], claim=CANARY + " revised")
         discarded = self.remember("backup forgotten", "Synthetic forgotten body")
         self.approve(operation="forget", target_id=discarded["assertion_id"])
@@ -330,8 +331,15 @@ class BackupNativeTest(unittest.TestCase):
             self.assertEqual([tuple(row) for row in candidate.execute("PRAGMA integrity_check")], [("ok",)])
             self.assertEqual(candidate.execute("PRAGMA cipher_integrity_check").fetchall(), [])
             self.assertEqual(candidate.execute("PRAGMA foreign_key_check").fetchall(), [])
+            # Raw FTS preserves both versions for historical/as-of retrieval.
             self.assertEqual([tuple(row) for row in candidate.execute(
-                "SELECT assertion_id FROM assertion_fts WHERE assertion_fts MATCH ?", (CANARY,))],
+                "SELECT assertion_id FROM assertion_fts WHERE assertion_fts MATCH ? ORDER BY assertion_id",
+                (CANARY,))], sorted([(self.original_id,), (self.live["assertion_id"],)]))
+            # This lifecycle projection is not a restore or authorization test.
+            self.assertEqual([tuple(row) for row in candidate.execute(
+                "SELECT assertion_id FROM assertion_fts JOIN assertion_versions a "
+                "ON a.id=assertion_fts.assertion_id WHERE assertion_fts MATCH ? "
+                "AND a.lifecycle='active' AND a.retired_seq IS NULL ORDER BY assertion_id", (CANARY,))],
                 [(self.live["assertion_id"],)])
             material = candidate.execute("SELECT audit_key,admission_policy FROM continuum_backup_material").fetchone()
             self.assertEqual(tuple(material), (self.store.audit_key, self.policy))

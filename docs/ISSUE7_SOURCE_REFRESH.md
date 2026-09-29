@@ -283,3 +283,21 @@ exact budget equality, overflow and malformed input; real native preflight and
 truncation tests check the pinned backend's `"4096"` return. Existing round-trip
 and fault tests remain unchanged. Hosted revalidation is required; this does not
 activate restore or establish independent backup freshness.
+
+### Backup FTS history oracle
+
+Run `36642658343` at `cec85fc` completed its cp311/cp312 application suites with
+625 tests, one failure, no errors and 91 platform skips each. The remaining
+failure was the backup round-trip test's raw FTS expectation, after export,
+validation, complete row/schema comparison and integrity checks had passed.
+The fixture puts the same search canary in both the original and corrected
+claim. Correction preserves the superseded version for historical/as-of queries;
+a raw FTS query therefore correctly returns both version IDs, not only the live
+one. Production behavior is unchanged.
+
+The corrected oracle requires exactly both IDs in stable order, plus exactly the
+live ID in a separate active/nonretired lifecycle projection. It retains all
+row/schema, receipt, audit, canary and fault checks. That projection does not
+establish restored-vault activation or full provider authorization. The full gate
+stopped at the failed suite, so demo and final packaging/helper-only acceptance
+remain unexecuted on this head. Another exact-head hosted run is required.
