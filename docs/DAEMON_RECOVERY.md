@@ -1,7 +1,8 @@
 # Daemon ownership and crash restart
 
 This held encrypted branch imports the main `152450a` contracts and the bounded
-prepared crash tests/docs from merged PRs #46 (`4b1eaf5`) and #47 (`1e0bb0f`).
+prepared crash tests/docs from merged PRs #46 (`4b1eaf5`), #47 (`1e0bb0f`) and
+#48 (`d0ba7f5`). PR48 initialization containment is adapted to the keyed backend.
 Historical plaintext results below are not validation of this source refresh. No
 application or native test ran for this checkpoint; see [the pending matrix](ISSUE7_SOURCE_REFRESH.md).
 
@@ -57,6 +58,53 @@ could also refuse connections, which is why mixed-version startup is unsupported
 or truncate it to clear an error.** PID files or age/timestamps are not authority.
 The file has only a fixed version marker, not a PID, token, body, or request. Its
 descriptor is non-inheritable across exec; this does not promise fork isolation.
+
+## Interrupted initialization
+
+Prepared encrypted source contract only; native execution is **unrun** and held.
+MAIN plaintext results do not validate this SQLCipher adaptation.
+
+New homes use permanent private `bootstrap.claim` and `bootstrap.complete`
+records bound to the vault identity. The claim is exclusively created before any
+vault key, capability or database. Completion is published only after the initial SQL
+commit, verified audit anchor, private-file/database readback, successful WAL
+checkpoint and closed connection. A partially written record is not completion.
+An existing private directory may contain admission policy or unrelated files;
+initialization does not replace that directory or adopt existing product files.
+
+`initialization_incomplete` means the initialization records or their database
+binding are incomplete or inconsistent. Preserve the entire home for diagnosis.
+Do not delete markers, copy in an anchor, modify metadata, rerun initialization
+over the same location, or treat file age as permission to reclaim it. Choose a
+fresh, unrelated data directory for a new initialization and leave the interrupted
+one untouched. Repeated initialization of an occupied home returns
+`already_initialized`; there is no in-place repair/reset command in this slice.
+
+A visible incomplete record is refused before reading storage/audit keys, opening
+the keyed vault, or acquiring/cleaning a daemon endpoint. The existing Windows
+platform refusal remains first; no plaintext connector is used. Native runtime
+admission and pending-rotation/key-custody checks remain mandatory. The Store
+rechecks after observing database presence to catch a cooperating initializer that created its claim in
+between. A transactional `bootstrap_protocol='1'` flag also prevents a new vault
+whose **both** records are missing from silently becoming legacy. That second
+check uses the existing keyed, query-only connection before connection hardening
+or migration; no stdlib SQLite open of an encrypted vault is permitted. SQLite
+itself may still recover WAL/sidecars while opening/reading;
+there is no zero-filesystem-effects promise for this metadata-only refusal.
+The daemon may already own its endpoint lock or have checked a stale endpoint in
+that both-records-missing case; it still refuses application admission.
+
+Genuine older encrypted homes without either record or the database flag follow
+the existing keyed legacy admission/migration path, including native format,
+storage-generation and custody/rotation rules. This is not plaintext-vault
+admission. No marker or missing audit anchor is backfilled.
+Older already-stranded homes are not repaired or retrospectively certified.
+Completed new homes retain normal audit diagnostics and exact-prefix recovery;
+these markers never authorize reconstructing a missing anchor. A lost reply after
+completion publication can mean initialization succeeded: inspect with normal
+commands, never overwrite the home. Cooperating current-version initialization
+is supported; mixed old/new initializers, malicious same-user edits, coordinated
+rollback and host power-loss durability are not established by this protocol.
 
 ## First upgrade and fail-closed diagnostics
 

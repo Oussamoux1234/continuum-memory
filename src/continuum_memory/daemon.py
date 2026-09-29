@@ -11,6 +11,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from .bootstrap_state import read_initialization_state
 from .daemon_lock import DaemonLock, same_inode
 from .errors import MemoryError
 from .kernel import Kernel
@@ -22,9 +23,10 @@ from .security import (
     canonical_json,
     ensure_private_directory,
     ensure_private_socket,
+    path_exists,
     require_keys,
 )
-from .storage import Store, paths
+from .storage import Store, _require_sqlcipher_platform, paths
 from .transport import (
     CHUNK_BYTES,
     MAX_CONNECTIONS,
@@ -222,10 +224,20 @@ class MemoryServer:
 
 
 def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) -> None:
+    # The held encrypted runtime has no Windows backend; refuse before endpoint
+    # ownership, private-directory observation or native pipe initialization.
+    _require_sqlcipher_platform()
     if os.name == "nt":
         return _serve_windows(data_dir, kernel_factory)
     ensure_private_directory(data_dir)
     file_map = paths(data_dir)
+    # Visible incomplete initialization records must precede endpoint side effects.
+    # Store later binds a complete marker to metadata on its keyed connection.
+    read_initialization_state(data_dir)
+    if not path_exists(file_map["db"]):
+        raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
+    # A concurrent initializer may have claimed a previously empty home.
+    read_initialization_state(data_dir)
     socket_path = file_map["socket"]
     def stop(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt
@@ -247,6 +259,7 @@ def serve(data_dir: Path, kernel_factory: Callable[[Store], Kernel] = Kernel) ->
 
 
 def _serve_windows(data_dir: Path, kernel_factory: Callable[[Store], Kernel]) -> None:
+    _require_sqlcipher_platform()
     from .security import hold_private_binding
     from .windows_runtime import PipePool, WindowsMemoryServer
 

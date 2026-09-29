@@ -1,4 +1,4 @@
-# Held issue #7 source refresh: main 152450a plus PR46/47 crash tests
+# Held issue #7 source refresh: main 152450a plus PR46/47/48 preparation
 
 Recorded 2026-09-29. This is an unsigned local source checkpoint, not native
 acceptance, publication, a release, or issue closure. No application imports,
@@ -13,15 +13,18 @@ retrieval or real-vault operations were performed for this refresh.
 - Subsequent bounded test/docs inputs: PR #46
   `4b1eaf55ee43ba6bc9727f9b6e88506c67fa79c6` and PR #47
   `1e0bb0f772f66f497cec13129674a004a479c738`.
+- Subsequent keyed initialization/preview source input: PR #48
+  `d0ba7f56306515090956982954005a7a800fd657`, applied after local checkpoint
+  `03d67b862bf97e10311a2985b1946b419cb3f1c2`.
 - Local base before this source-only test/docs follow-up:
   `07856f7b43bfc00c1911f310dadb66b3e31c234f`.
 - Local branch: `codex/issue-7-source-refresh-152450a`.
 - A three-way application of the old-main/new-main source delta preserves the
   encrypted candidate's history. This is not a merge of held PRs #12/#14/#27.
-- Only the five new crash helper/test files and their bounded documentation
-  sections are imported from PR46/47, not a new production-code integration.
-  The later, unmerged bootstrap/preview batch and issue #4 backup candidate are
-  outside this checkpoint.
+- PR46/47 imported only five crash helper/test files and bounded documentation.
+  The subsequent PR48 source-only follow-up adds initialization containment and
+  prepared bootstrap/preview checks while retaining the native keyed backend.
+  The issue #4 backup candidate remains outside this checkpoint.
 
 ## File-level compatibility decisions
 
@@ -34,6 +37,7 @@ retrieval or real-vault operations were performed for this refresh.
 | `fixtures/harness.py`, `test_cli_recovery.py`, `test_macos_acl.py`, `test_sqlite_lock_preservation.py` | Shared main harness behavior combines with keyed fixture access. A narrowly scoped read-only URI option keeps live-daemon observers from requesting a writable SQLite open. The future macOS lock regression deliberately retains a keyed writable observer. |
 | `test_encrypted_platform_contract.py`, `test_encrypted_storage.py`, `test_encrypted_recovery_compatibility.py` | Prepared, unexecuted checks cover Windows refusal before side effects, read-only/hardening incompatibility, actual native read-only behavior/live sidecar preservation, and durable receipt recovery across native storage-key rotation. No new acceptance is inferred. |
 | `lifecycle_crash_support.py`, `test_retention_crash.py`, `test_proposal_purge_crash.py`, `test_propose_crash.py`, `test_recall_feedback_crash.py` | Source-only PR46/47 copies preserve merged test logic and literal boundary inventories; only module docstrings identify the hold. Existing helper/fixtures already use the held keyed `Store` interface; no direct stdlib database open or backend bypass was added. These application matrices have not run with SQLCipher. |
+| `bootstrap_state.py`, `storage.py`, `daemon.py`, `test_bootstrap_crash.py`, `test_preview_crash.py`, `test_recovery_protocol.py` | PR48 initialization records/metadata are adapted to native keyed admission. Prepared bootstrap coverage adds storage-key write/directory-sync hooks and uses keyed fixture mutation only; preview preserves its four-point operation oracle. The relabel fixture first expects initialization refusal, then explicitly tampers both synthetic records to reach the independent receipt-binding checks. All native execution remains unrun. |
 | `scripts/release_package.py`, `packaging/build-requirements.txt` | Main's portable archive-member checks and installed Unicode CLI smoke are combined with exact native dependency/origin verification and the existing privileged-installer incompatibility flag. Main's platform-conditional tool lock additions are retained; Linux native pins are unchanged. |
 | `scripts/application_test_results.py`, `tests/platform-skips-linux.json`, `scripts/verify.py` | Source-enumerated exact Linux exclusions now name 91 methods: 62 Windows and 29 macOS. IDs/reasons, missing outcomes and required crypto/recovery suites remain strict. No encryption/rotation/missing-backend skip is allowed. New recovery files must appear in the sdist. |
 | `.github/workflows/windows-runtime.yml`, platform/recovery docs | Imported plaintext Windows runtime/account jobs are explicitly disabled for this encrypted branch. Main's historical evidence and closed plaintext issue #1 are distinguished from encrypted support. macOS remains a primitive-only workflow with native encrypted acceptance held. |
@@ -72,6 +76,10 @@ Linux x86-64 with each CPython ABI 3.11, 3.12, 3.13 and 3.14. For each ABI:
    authorization. Recall/feedback have no idempotency guarantee: only test-proven
    pre-commit cases retry, never ambiguous committed calls. These counts describe
    source coverage, not executed or accepted encrypted behavior.
+   PR48 additionally prepares 51 keyed-bootstrap and four preview process-exit
+   points (55 additional; 122 across PR46/47/48). The three bootstrap additions
+   versus MAIN cover the existing storage-key write and directory sync; these
+   are literal source inventories, not observed native runtime outcomes.
 5. Exercise prepared read-only observer behavior, WAL/SHM preservation and repeated
    writer commits. Verify each rotation/recovery fault and stable audit key, vault,
    capabilities and original receipts. Verify a durable pre-rotation locator still
@@ -134,12 +142,45 @@ recovery, filesystem locking and runtime duration remain unverified.
 
 The corresponding failure-matrix sections are marked as future gated checks.
 MAIN's hosted Windows plaintext evidence is distinguished from this branch's
-unsupported encrypted Windows path. No bootstrap state markers, preview matrix,
-new production code, platform skip exception, dependency pin, hash, license or
-NOASSERTION change is part of this follow-up. Validation is limited to stdlib AST
+unsupported encrypted Windows path. At this PR46/47 checkpoint, no bootstrap
+state markers, preview matrix, new production code, platform skip exception,
+dependency pin, hash, license or NOASSERTION change was included; the subsequent
+PR48 preparation is described separately below. Validation is limited to stdlib AST
 parsing/comparison, textual diff hygiene and unchanged protected/ignored source
 inventory. There were no application imports, test runs, native execution, key or
 vault access, builds, artifact retrieval or remote publication in this refresh.
 An independent source-only review confirmed executable AST equality for all five
 files, the existing keyed-Store interfaces and unchanged protected inputs before
 the unsigned local checkpoint. This is not native acceptance.
+
+
+## PR48 keyed initialization and preview preparation
+
+This subsequent source-only adaptation starts from local `03d67b8` and merged MAIN
+`d0ba7f5`. It preserves native platform/runtime admission, key-first SQLCipher
+configuration, query-only metadata admission, rotation/custody refusal, current
+backend pins and license holds. Immutable private claim/completion records and a
+transactional protocol flag contain interrupted initialization without silently
+repairing an anchor or adopting incomplete residue. Their guarantee is no usable
+partially initialized new-protocol vault, not filesystem rollback or same-user
+tamper/freshness resistance.
+
+`test_bootstrap_crash.py` is intentionally adapted rather than AST-identical:
+its source inventory has 51 points, native storage-mode/cipher-integrity checks,
+distinct synthetic storage/audit keys and keyed metadata-fixture mutations. The
+existing native directory sync remains real inside its observer hooks. No native
+guard is replaced, no missing backend is skipped and no plaintext connection is
+used for the encrypted fixture. The 11 bootstrap methods include incomplete and
+malformed records, daemon/initializer races, structural readback, lost markers,
+metadata/schema refusal before hardening/migration, and unmodified legacy/missing
+anchor semantics. Completion remains after verified checkpoint and close.
+
+`test_preview_crash.py` retains MAIN's executable behavior except its Windows skip
+reason; its four-point matrix creates no target grant or canonical memory. The
+recovery-protocol relabel fixture keeps both initialization refusal and original
+MAC/locator positive/negative controls. Neither preview nor an unknown result
+authorizes replay. Required verification remains the full native application gate
+on each approved ABI; tests, native provider activity, key/vault access and builds
+were not run for this source-only preparation. Source parsing and review are not
+runtime acceptance. Windows encrypted execution and real human-presence, custody,
+backup-freshness and license gates remain unchanged.

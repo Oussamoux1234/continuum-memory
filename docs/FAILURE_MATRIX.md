@@ -1,7 +1,8 @@
 # Local failure-injection matrix
 
 This held encrypted branch imports the main `152450a` contracts and the bounded
-prepared crash tests/docs from merged PRs #46 (`4b1eaf5`) and #47 (`1e0bb0f`).
+prepared crash tests/docs from merged PRs #46 (`4b1eaf5`), #47 (`1e0bb0f`) and
+#48 (`d0ba7f5`). PR48 initialization containment is adapted to the keyed backend.
 Historical plaintext results below are not validation of this source refresh. No
 application or native test ran for this checkpoint; see [the pending matrix](ISSUE7_SOURCE_REFRESH.md).
 
@@ -537,6 +538,80 @@ not OS-backed approval, SQLCipher, native Windows process-crash, host power-loss
 backup-revocation evidence or completion of issue #8.
 
 
+## Initialization containment under process crashes
+
+Prepared encrypted source only; **not executed here**. The command is a future
+gated validation plan, not authorization to run the native backend.
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_bootstrap_crash -v
+```
+
+This fixture initializes two projects with two providers each. Its literal **51 prepared
+process-exit boundaries** cover exclusive claim creation, an actual positive
+partial record write and file flush, private-directory/key/capability/database
+creation, the outer schema script, explicit SQL mutations, SQL commit, initial
+audit-anchor publication, verification readback, checkpoint, connection close,
+completion-record creation/partial write/flush, and lost response. Compared with
+MAIN's 48 points, this keyed fixture adds the storage-key write plus before/after
+the existing required key-directory sync. Backend/key-first connection setup is
+inside the outer database-open hooks, not individually interrupted. The schema
+script, native cascades, VFS instructions and filesystem internals are not each
+individually interrupted. Deterministic IDs, tokens and time are synthetic;
+future execution uses actual private writes, keyed SQLCipher commits and abrupt
+`os._exit(73)`, with no mocked backend or missing-runtime skip. The oracle also
+requires native cipher integrity, distinct synthetic storage/audit key identities
+and encrypted storage-mode metadata. Deliberate metadata-damage and legacy-fixture
+setup use only the existing keyed writable helper, never stdlib SQLite.
+
+Before admission, the parent inventories the residue without opening SQLite or
+following links. Every selected incomplete case must repeatedly refuse Store,
+daemon and initialization attempts without repairing or removing files. Completed
+cases must expose the complete reference database, independently checked projects,
+capabilities, metadata, sequence, audit and empty memory tables; issued owner and
+provider capabilities must authenticate with only their intended scopes. A lost
+reply after completion is already a completed vault, never permission to overwrite.
+Independent tests cover concurrent exclusive claims, unsafe/malformed records,
+orphan SQLite companions, admission-policy refusal, structural readback failures,
+record/database binding, and unchanged legacy/missing-anchor diagnostics.
+
+The guarantee is **no partially initialized usable new-protocol vault**, not
+all-or-nothing creation of a directory. Partial files remain quarantined in place;
+retry uses a fresh unrelated location. See [the operator contract](DAEMON_RECOVERY.md#interrupted-initialization)
+for both-records-missing/SQLite side-effect limits, legacy compatibility and why
+neither initialization record authorizes reconstructing an audit anchor. This
+matrix is prepared POSIX encrypted test source, not executed encrypted
+initialization evidence, native Windows crash, anti-rollback, same-user isolation
+or power-loss proof. MAIN's plaintext execution does not satisfy this native gate.
+
+## Preview creation and expired/used challenge cleanup
+
+Prepared encrypted source only; **not executed here**. This is another future
+gated command, with unchanged native/provider/approval holds.
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_preview_crash -v
+```
+
+The public `admin_preview(accept_proposal)` path is cut after its global challenge
+DELETE and INSERT, and immediately before/after SQL commit: **four prepared process-
+exit points**. Real synthetic previews in two projects supply expired, exactly-at-expiry,
+live and already-used controls. The strict `expires_at < now` boundary retains
+equality; both projects' expired/used challenges disappear atomically with the
+new challenge, or all original rows survive before commit. No target approval
+grant is generated and preview alone accepts no memory.
+
+All other logical tables, old owner receipts, canonical data, audit chain and
+anchor remain unchanged. The exact returned preview, digest, recovery locator
+and content-free stored challenge are independently checked. Old receipts remain
+recoverable even after their used challenges are collected; the new unapproved
+preview has no committed-result receipt. Agents cannot preview/apply/recover owner
+actions, and an invalid owner grant is refused without mutation. Full raw logical
+state and anchor checks precede semantic calls. Only known pre-commit test cases
+retry; a committed preview is never blindly recreated. This is bounded synthetic
+POSIX process-death test source adapted to the keyed Store, not executed encrypted
+coverage, Windows crash or human-approval proof.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
@@ -552,7 +627,7 @@ backup-revocation evidence or completion of issue #8.
 ## Open gates
 
 Issue #8 remains open for the complete operation/fault inventory (including
-bootstrap, preview-challenge creation/cleanup, and remaining proposal/recall/feedback
+remaining bootstrap/proposal/recall/feedback/preview
 variants), approved
 encryption and approval-key rotation/recovery, and the relevant audit-anchor and
 backup/revocation transitions once those implementations exist. SQLCipher must

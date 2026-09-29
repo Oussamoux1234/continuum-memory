@@ -19,6 +19,13 @@ from typing import Any, Dict, List, Optional
 
 from .admission import AdmissionPolicy
 from .audit_validation import verify_audit_snapshot
+from .bootstrap_state import (
+    claim_initialization,
+    complete_initialization,
+    initialization_paths,
+    read_initialization_state,
+    require_initialization_metadata,
+)
 from .errors import CommittedAuditError, MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
 from .storage_key_custody import require_no_legacy_key_residue
@@ -76,6 +83,7 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "control": data_dir / "control.cap",
         "caps": data_dir / "capabilities",
         "ipc_binding": data_dir / "ipc.binding",
+        **initialization_paths(data_dir),
     }
 
 
@@ -316,6 +324,13 @@ def _connect(
                     "storage_validation_failed",
                     "The encrypted vault's query-only preflight could not be enabled.",
                 )
+        connection.execute("PRAGMA trusted_schema=OFF")
+        trusted_schema = connection.execute("PRAGMA trusted_schema").fetchone()
+        if not trusted_schema or int(trusted_schema[0]) != 0:
+            raise MemoryError(
+                "storage_validation_failed",
+                "The encrypted vault's trusted-schema preflight could not be enabled.",
+            )
         # Force page authentication before applying any write-affecting pragmas.
         connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
         _validate_database_files(db_path)
@@ -368,6 +383,8 @@ class Store:
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
         self.owner_uid = int(directory_info.st_uid)
+        # Bootstrap admission is mandatory even for the internal rotation opener.
+        read_initialization_state(data_dir)
         if not allow_rotation:
             require_no_pending_rotation(data_dir)
             # Normal operation uses WAL. A rollback journal belongs to offline
@@ -380,6 +397,8 @@ class Store:
                 )
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
+        # Re-observe after DB presence so a newly claimed attempt is not admitted.
+        marker_vault_id = read_initialization_state(data_dir)
         ensure_private_sqlite_file(self.files["db"], "The vault database")
         storage_key = _read_storage_key(self.files["storage_key"])
         audit_key = read_private(self.files["audit_key"], 128)
@@ -388,13 +407,15 @@ class Store:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version not in (2, 3, 4, SCHEMA_VERSION):
                 raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
-            mode = connection.execute("SELECT value FROM metadata WHERE key='storage_mode'").fetchone()
-            if not mode or mode[0] != STORAGE_MODE:
+            vault_metadata = dict(connection.execute(
+                "SELECT key,value FROM metadata WHERE key IN ('vault_id','storage_mode','bootstrap_protocol')"))
+            vault_id = vault_metadata.get("vault_id")
+            require_initialization_metadata(vault_metadata.get("bootstrap_protocol"), vault_id, marker_vault_id)
+            if vault_metadata.get("storage_mode") != STORAGE_MODE:
                 raise MemoryError("storage_mode_mismatch", "The vault storage mode is unsupported.")
-            vault = connection.execute("SELECT value FROM metadata WHERE key='vault_id'").fetchone()
-            if not vault:
+            if vault_id is None:
                 raise MemoryError("integrity_error", "The vault identity is unavailable.")
-            vault_id = bounded_id(vault[0], "vault_id")
+            vault_id = bounded_id(vault_id, "vault_id")
             # Admit the encrypted format and identity before enabling writes or schema upgrades.
             _apply_connection_hardening(connection, self.files["db"])
             if migrate(connection, version) != SCHEMA_VERSION:
@@ -433,17 +454,29 @@ class Store:
             admission_policy.check([name, path_hint] + providers)
             normalized_projects.append({"name": name, "path_hint": path_hint, "providers": providers})
         projects = normalized_projects
+        file_map = paths(data_dir)
+        reserved = list(file_map.values()) + [data_dir / "memoryd.lock"] + [
+            Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+        if path_exists(data_dir):
+            ensure_private_directory(data_dir)
+            require_no_pending_rotation(data_dir)
+            if any(path_exists(path) for path in reserved):
+                raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
+        # Refuse a visible interrupted attempt before any native runtime opening;
+        # for a new home, runtime admission still precedes filesystem creation.
         _require_sqlcipher_runtime()
         if path_exists(data_dir):
             ensure_private_directory(data_dir)
             require_no_pending_rotation(data_dir)
         else:
             create_private_directory(data_dir, parents=True)
-        file_map = paths(data_dir)
-        occupied = ("db", "socket", "storage_key", "audit_key", "audit_head", "control", "caps", "ipc_binding")
-        sidecars = [Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
-        if (any(path_exists(file_map[name]) for name in occupied)
-                or any(path_exists(path) for path in sidecars)):
+        if any(path_exists(path) for path in reserved):
+            raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
+        vault_id = random_id("vlt")
+        # Exclusive reservation precedes all key, capability and database writes.
+        # Failed attempts remain occupied; no retry adopts or repairs their files.
+        claim_initialization(data_dir, vault_id)
+        if any(path_exists(path) for path in reserved if path != file_map["bootstrap_claim"]):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         create_private_directory(file_map["caps"])
         storage_key = secrets.token_bytes(STORAGE_KEY_BYTES)
@@ -452,20 +485,20 @@ class Store:
         _sync_private_directory(data_dir)
         write_private(file_map["audit_key"], audit_key)
         control_token = secrets.token_urlsafe(32)
-        write_private(
-            file_map["control"],
-            _capability_document(None, "user_control", ["control", "read"], control_token),
-        )
+        control_document = _capability_document(None, "user_control", ["control", "read"], control_token)
+        write_private(file_map["control"], control_document)
+        expected_files = {file_map["storage_key"]: storage_key, file_map["audit_key"]: audit_key,
+                          file_map["control"]: control_document}
         write_private(file_map["db"], b"")
         connection = _connect(file_map["db"], storage_key, apply_hardening=True)
         try:
             connection.executescript(SCHEMA_SQL)
             connection.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             connection.execute("BEGIN IMMEDIATE")
-            vault_id = random_id("vlt")
             connection.execute("INSERT INTO metadata(key,value) VALUES ('vault_id',?)", (vault_id,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode',?)", (STORAGE_MODE,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('policy_version',?)", (POLICY_VERSION,))
+            connection.execute("INSERT INTO metadata(key,value) VALUES ('bootstrap_protocol','1')")
             now = now_iso()
             control_id = random_id("cap")
             connection.execute(
@@ -473,6 +506,10 @@ class Store:
                 "VALUES (?,?,?,?,?,?)",
                 (control_id, token_hash(control_token), None, "user_control", '["control","read"]', now),
             )
+            expected_capabilities = [(control_id, token_hash(control_token), None, "user_control",
+                                      '["control","read"]', now, None)]
+            expected_projects = []
+            expected_scopes = []
             created = []
             for spec in projects:
                 project_id = random_id("prj")
@@ -483,11 +520,13 @@ class Store:
                     "INSERT INTO projects(id,name,path_hint,created_at,created_seq) VALUES (?,?,?,?,?)",
                     (project_id, name, path_hint, now, sequence),
                 )
+                expected_projects.append((project_id, name, path_hint, now, sequence))
                 scope_id = random_id("scp")
                 connection.execute(
                     "INSERT INTO scopes(id,project_id,kind,value) VALUES (?,?,?,?)",
                     (scope_id, project_id, "project", project_id),
                 )
+                expected_scopes.append((scope_id, project_id, "project", project_id))
                 cap_files = {}
                 for provider in spec["providers"]:
                     cap_token = secrets.token_urlsafe(32)
@@ -497,8 +536,12 @@ class Store:
                         "VALUES (?,?,?,?,?,?)",
                         (cap_id, token_hash(cap_token), project_id, provider, '["propose","read"]', now),
                     )
+                    expected_capabilities.append((cap_id, token_hash(cap_token), project_id, provider,
+                                                  '["propose","read"]', now, None))
                     cap_path = file_map["caps"] / ("%s.%s.cap" % (project_id, provider))
-                    write_private(cap_path, _capability_document(project_id, provider, ["propose", "read"], cap_token))
+                    cap_document = _capability_document(project_id, provider, ["propose", "read"], cap_token)
+                    write_private(cap_path, cap_document)
+                    expected_files[cap_path] = cap_document
                     cap_files[provider] = str(cap_path)
                 created.append({"id": project_id, "scope_id": scope_id, "name": name, "capabilities": cap_files})
             event_seq = cls._next_sequence(connection)
@@ -517,20 +560,58 @@ class Store:
             connection.commit()
             ensure_private_sqlite_file(file_map["db"], "The vault database")
             cls._sync_audit_head_raw(connection, file_map["audit_head"])
-            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            return {
-                "vault_id": vault_id,
-                "data_dir": str(data_dir),
-                "socket": str(file_map["socket"]),
-                "control_capability": str(file_map["control"]),
-                "projects": created,
-                "storage_mode": STORAGE_MODE,
-            }
+            cls._verify_bootstrap(connection, file_map, vault_id, audit_key, expected_files,
+                                  expected_capabilities, expected_projects, expected_scopes)
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if tuple(checkpoint) != (0, 0, 0):
+                raise MemoryError("initialization_incomplete", "Initialization did not complete safely.")
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+        # A completion record is published only after successful verification,
+        # checkpoint and real close. Preserve every interrupted attempt in place.
+        complete_initialization(data_dir, vault_id)
+        return {
+            "vault_id": vault_id,
+            "data_dir": str(data_dir),
+            "socket": str(file_map["socket"]),
+            "control_capability": str(file_map["control"]),
+            "projects": created,
+            "storage_mode": STORAGE_MODE,
+        }
+
+    @classmethod
+    def _verify_bootstrap(cls, connection, file_map, vault_id, audit_key, expected_files,
+                          expected_capabilities, expected_projects, expected_scopes) -> None:
+        """Read back this claimed encrypted initialization before admission."""
+        ensure_private_directory(file_map["caps"])
+        expected_cap_files = {path for path in expected_files if path.parent == file_map["caps"]}
+        valid = set(file_map["caps"].iterdir()) == expected_cap_files
+        for path, expected in expected_files.items():
+            valid = hmac.compare_digest(read_private(path), expected) and valid
+        expected_metadata = {"vault_id": vault_id, "storage_mode": STORAGE_MODE,
+                             "policy_version": POLICY_VERSION, "bootstrap_protocol": "1"}
+        valid = dict(connection.execute("SELECT key,value FROM metadata")) == expected_metadata and valid
+        for table, columns, expected in (
+            ("capabilities", "id,token_hash,project_id,provider,permissions_json,created_at,revoked_at",
+             expected_capabilities),
+            ("projects", "id,name,path_hint,created_at,created_seq", expected_projects),
+            ("scopes", "id,project_id,kind,value", expected_scopes),
+        ):
+            rows = [tuple(row) for row in connection.execute("SELECT " + columns + " FROM " + table + " ORDER BY id")]
+            valid = rows == sorted(expected) and valid
+        valid = connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION and valid
+        valid = connection.execute("SELECT count(*) FROM audit_events").fetchone()[0] == 1 and valid
+        valid = not connection.execute("PRAGMA cipher_integrity_check").fetchall() and valid
+        valid = [row[0] for row in connection.execute("PRAGMA integrity_check")] == ["ok"] and valid
+        valid = not connection.execute("PRAGMA foreign_key_check").fetchall() and valid
+        audit = verify_audit_snapshot(connection, audit_key,
+                                     lambda: decode_frame(read_private(file_map["audit_head"], 1024)))
+        valid = audit["status"] == "valid" and valid
+        if not valid:
+            raise MemoryError("initialization_incomplete", "Initialization did not complete safely.")
 
     @staticmethod
     def _next_sequence(connection: sqlite3.Connection) -> int:
