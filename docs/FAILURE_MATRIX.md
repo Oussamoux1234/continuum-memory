@@ -180,6 +180,50 @@ correction with nonempty evidence and narrowed disclosure, not every correction
 variant, native cascade/VFS instruction, concurrent writer, CLI pending journal,
 SQLCipher, key rotation, power loss or backup transition. Issue #8 remains open.
 
+## POSIX audit-anchor publication faults
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_anchor_publication_faults -v
+```
+
+This bounded matrix enters the actual private-file replacement **after** a real
+synthetic owner operation's SQL commit. It targets only that operation's existing
+`audit.head` path, the exact generated temporary path, and tracked live file or
+directory descriptors whose device/inode/type still match. Closing a descriptor
+removes its tracking, so reuse cannot redirect a fault to SQLite or unrelated I/O.
+Bootstrap, preview, other paths and all unaffected calls use real implementations.
+The test forces a real positive partial write and returns its byte count to the
+normal write loop. It never substitutes a fictitious successful write or fsync.
+
+| Fault point | Required anchor and temporary state before reconciliation |
+|---|---|
+| Process exit after temporary creation | Exact old anchor; one private empty temporary |
+| Process exit after partial real write | Exact old anchor; one private new-anchor prefix |
+| Process exit after file fsync or immediately before rename | Exact old anchor; one private complete new-anchor temporary |
+| Process exit immediately after rename or after directory fsync | Exact new anchor; no temporary |
+| ENOSPC on the write after a positive short write; EIO at file fsync or rename | Exact old anchor; normal exception cleanup removes the temporary |
+| EIO at directory fsync after successful rename | Exact new valid anchor; no temporary; the response still truthfully reports committed/degraded |
+
+There are six actual `os._exit(73)` cases, four exact-once errno injections, and a
+successful control that reaches all six checkpoints in their reviewed order.
+Each child has a bounded timeout/output and empty stderr; an unexpected exception,
+missed hook or wrong exit/marker fails. Every crash leaves the SQL mutation, grant
+consumption and content-free original receipt committed. Independent assertions
+check expected table growth, retained original rows, claim/evidence/disclosure/FTS
+semantics, sequence and audit target, plus database/foreign-key integrity. Expected
+new anchor bytes are derived from the durable audit head, not the publication
+implementation. Pre-rename cases report a stale verified prefix; post-rename
+cases report the exact valid new anchor.
+
+Reconciliation and refused grant replay leave every logical database row unchanged;
+the original receipt survives another reopen. Crash leftovers are single-link,
+owner-only regular files containing only empty/partial/complete anchor metadata.
+They remain untouched and non-authoritative through recovery; no automatic orphan
+cleanup is introduced. Windows is explicitly skipped because it uses a different
+private-file implementation. These are POSIX process-exit/I/O-error results, not
+power-loss or disk-controller durability, encrypted-key custody, malicious same-UID
+isolation, full Windows evidence, or completion of issue #8.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
