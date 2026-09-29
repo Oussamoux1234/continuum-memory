@@ -102,6 +102,40 @@ class BackupContractTest(unittest.TestCase):
                 self.assertEqual(validate_manifest(value)["revocation_checkpoint"]["generation"], generation)
 
 
+class BackupSourceSizeContractTest(unittest.TestCase):
+    """Pure scalar validation; no simulated encryption or native acceptance."""
+
+    def test_integer_and_sqlcipher_text_page_sizes_preserve_exact_budget(self):
+        for size in (512, 1024, 2048, 4096, 8192, 16384, 32768, 65536):
+            limit = (backup.MAX_BACKUP_BYTES - 65536) // size
+            for value in (size, str(size)):
+                with self.subTest(page_size=value):
+                    backup._require_source_size(1, value)
+                    backup._require_source_size(limit, value)
+                    with self.assertRaises(MemoryError) as caught:
+                        backup._require_source_size(limit + 1, value)
+                    self.assertEqual(caught.exception.code, "backup_invalid")
+
+    def test_malformed_sizes_and_counts_fail_with_redacted_error(self):
+        invalid_sizes = (
+            None, True, False, 4096.0, b"4096", [], {}, -4096, 0, 1, 256,
+            513, 4095, 65537, 131072, "", "0", "-4096", "+4096", " 4096",
+            "4096 ", "4096\n", "04096", "４０９６", "4096.0", "4096e0",
+            "131072", "9" * 10000,
+        )
+        invalid_counts = (None, True, False, 1.0, "1", b"1", [], {}, -1, 0, 2**63)
+        cases = [(1, value) for value in invalid_sizes]
+        cases += [(value, size) for value in invalid_counts for size in (4096, "4096")]
+        for index, (count, size) in enumerate(cases):
+            with self.subTest(case=index):
+                with self.assertRaises(MemoryError) as caught:
+                    backup._require_source_size(count, size)
+                self.assertEqual(caught.exception.as_dict(), {
+                    "code": "backup_invalid",
+                    "message": "The encrypted backup candidate failed validation.",
+                })
+
+
 class CapturedPolicyContractTest(unittest.TestCase):
     """Pure captured-byte admission contracts; no cipher or restore evidence."""
 

@@ -286,6 +286,13 @@ class BackupNativeTest(unittest.TestCase):
                     self.assertEqual(db.execute("PRAGMA " + name).fetchone()[0], required)
             with self.subTest(stage="required_headers"):
                 backup._require_headers(db)
+            with self.subTest(stage="source_size"):
+                page_count = db.execute("PRAGMA page_count").fetchone()[0]
+                page_size = db.execute("PRAGMA page_size").fetchone()[0]
+                self.assertIs(type(page_count), int)
+                self.assertGreater(page_count, 0)
+                self.assertEqual(page_size, "4096")
+                backup._require_source_size(page_count, page_size)
             with self.subTest(stage="bounded_metadata"):
                 metadata = backup._bounded_metadata(db)
                 self.assertTrue(metadata["storage_mode"] == storage.STORAGE_MODE)
@@ -716,6 +723,8 @@ class BackupNativeTest(unittest.TestCase):
         connection = self.open_keyed(self.target(), self.backup_key)
         try:
             page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+            self.assertEqual(page_size, "4096")
+            page_size = int(page_size)
         finally:
             connection.close()
         self.assertGreater(len(ciphertext), 2 * page_size)

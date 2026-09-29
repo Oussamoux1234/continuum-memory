@@ -264,3 +264,22 @@ metadata and adds a separate actual-wheel, offline helper-only import/relocation
 probe without SQLCipher. It leaves privileged installation and real polkit
 acceptance unexecuted. These repairs require another hosted evaluation; no local
 application/native tests, privileged installation, merge or release are claimed.
+
+### Native backup page-size compatibility
+
+Repaired run `36641004079` at `7dc00ca` reached 623 tests. Its completed cp312
+and cp313 jobs each reported 12 failures, 13 errors and 91 platform skips, all
+remaining failures in backup tests. The dump, rotation, import and report repairs
+cleared their earlier failures. Backup schema/header/metadata/audit preflight
+passed; content-free diagnostics isolated `TypeError` at the page-count times
+page-size budget check. The full application gate still failed.
+
+The pinned [SQLCipher implementation](https://github.com/sqlcipher/sqlcipher/blob/c4b275a47932888216bade83aff2bbc73df0ff85/src/sqlcipher.c#L3002)
+returns keyed `PRAGMA page_size` as decimal text, unlike SQLite's integer result.
+The focused repair validates and normalizes only canonical bounded page-size
+text, checks supported power-of-two sizes and positive integer page counts, and
+retains the same maximum-byte budget and reserve. Pure scalar regressions cover
+exact budget equality, overflow and malformed input; real native preflight and
+truncation tests check the pinned backend's `"4096"` return. Existing round-trip
+and fault tests remain unchanged. Hosted revalidation is required; this does not
+activate restore or establish independent backup freshness.

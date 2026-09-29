@@ -202,6 +202,22 @@ def _require_headers(connection):
             raise _invalid()
 
 
+def _require_source_size(page_count, page_size):
+    # Keyed SQLCipher returns page_size as decimal TEXT, unlike SQLite's
+    # integer PRAGMA. Normalize only its bounded canonical representation.
+    if type(page_size) is str:
+        if (not 1 <= len(page_size) <= 5 or page_size[0] == "0"
+                or any(character not in "0123456789" for character in page_size)):
+            raise _invalid()
+        page_size = int(page_size)
+    if (type(page_size) is not int or not 512 <= page_size <= 65536
+            or page_size & (page_size - 1)):
+        raise _invalid()
+    if (type(page_count) is not int or page_count <= 0
+            or page_count > (MAX_BACKUP_BYTES - 65536) // page_size):
+        raise _invalid()
+
+
 def validate_candidate(path, key):
     """Check a presented candidate, not its freshness, without activating/repairing.
 
@@ -415,8 +431,7 @@ def _export_candidate(store, staging_dir, key_file, revocation_checkpoint):
             raise _invalid()
         page_count = connection.execute("PRAGMA page_count").fetchone()[0]
         page_size = connection.execute("PRAGMA page_size").fetchone()[0]
-        if page_count * page_size > MAX_BACKUP_BYTES - 65536:
-            raise _invalid()
+        _require_source_size(page_count, page_size)
         audit_key_path = store.files["audit_key"]
         audit_head_path = store.files["audit_head"]
         audit_key = _export_control_snapshot(audit_key_path, 32)
