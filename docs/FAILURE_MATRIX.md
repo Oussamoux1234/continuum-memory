@@ -296,6 +296,43 @@ vault. Recovery preserves the original result and never repeats a committed acti
 These are plaintext/POSIX process-crash results, not physical erasure, external
 backup revocation, native Windows, encryption, host power loss or completion of #8.
 
+## Unaccepted-proposal forget process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_forget_proposal_crash -v
+```
+
+This separate owner-approved `forget` branch purges a pending proposal without
+deleting a canonical claim thread. The fixture retains an unrelated pending
+proposal, accepted memories in two projects, accepted review/provenance, recalls,
+feedback, evidence and earlier approval results. The target's inline evidence
+text also appears in retained canonical evidence; this is matching text, not a
+shared evidence-reference row. A manually seeded, schema-valid synthetic legacy
+review makes the target's review cascade non-vacuous. The exact preview must
+identify a proposal with no accepted assertion dependency.
+
+The literal inventory contains eight writes: consume the challenge, advance the
+global sequence, insert the forgotten-delivery tombstone, remove provenance and
+the proposal, then insert deletion, audit and owner-result receipts. Six
+commit/anchor boundaries and two checkpoint boundaries make **16 real process
+exits**: nine pre-commit and seven committed. Two committed exits precede anchor
+publication and must report a stale anchor; the other five retain the new anchor.
+
+Before reconciliation or semantic reads, the shared crash oracle compares every
+logical table/FTS shadow row and exact old/new anchor against the untouched or
+completed state. Independent assertions check the proposal/review/provenance
+purge, absence of unique target text and its request digest, exact content-free
+tombstone and deletion receipt, `proposal_forgotten` audit event, sequence
+counters, unchanged audience sequences and nonempty unrelated retained data.
+Both original-result and opaque recovery lookups identify the same committed
+result. Original and modified delayed deliveries with the same delivery key
+remain suppressed without writes. Retry, replay refusal and semantic checks
+repeat after reopening.
+
+This is synthetic plaintext/POSIX process-crash coverage, not physical erasure,
+native Windows crashes, OS-backed human presence, encrypted storage, backup
+revocation or power-loss acceptance. Issue #8 remains incomplete.
+
 ## Read-triggered retention and proposal-purge process crashes
 
 Prepared source only on this held encrypted candidate; **not executed here**.
