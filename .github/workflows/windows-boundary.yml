@@ -2,6 +2,8 @@ name: Windows boundary evidence (not runtime support)
 
 on:
   push:
+    branches: [main]
+    tags: ['**']
   pull_request:
   workflow_dispatch:
 
