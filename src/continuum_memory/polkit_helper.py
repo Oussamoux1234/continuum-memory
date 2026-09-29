@@ -1,7 +1,6 @@
 """Root-side Linux approval helper. Install only at a root-owned system path."""
 
 import argparse
-import fcntl
 import json
 import os
 import stat
@@ -30,6 +29,11 @@ from .approval import (
 from .errors import MemoryError
 from .security import canonical_json, path_exists
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 
 MAX_POLICY_BYTES = 65_536
 PROVISION_LOCK_NAME = ".provision.lock"
@@ -47,6 +51,8 @@ def _root_directory(path: Path, private: bool) -> None:
 
 @contextmanager
 def _provision_lock(path: Path, expected_owner: int = 0) -> Iterator[None]:
+    if fcntl is None:
+        raise MemoryError("unsupported_platform", "Approval provisioning requires POSIX file locking.")
     flags = os.O_RDWR | os.O_CREAT
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
@@ -108,7 +114,7 @@ def validate_installed_policy(
         for item in action.findall("./annotate")
         if item.get("key") == "org.freedesktop.policykit.exec.path"
     ]
-    if len(annotations) != 1 or (annotations[0].text or "").strip() != str(POLKIT_HELPER_PATH):
+    if len(annotations) != 1 or (annotations[0].text or "").strip() != POLKIT_HELPER_PATH.as_posix():
         raise MemoryError("approval_broker_unsafe", "The approval policy helper path is invalid.")
 
 

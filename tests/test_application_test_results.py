@@ -27,7 +27,7 @@ def complete_report():
 class ApplicationTestPolicyTest(unittest.TestCase):
     def test_exact_platform_exclusions_and_required_suites_pass(self):
         summary = validate_report(complete_report())
-        self.assertEqual(summary["platformTestsSkipped"], 30)
+        self.assertEqual(summary["platformTestsSkipped"], 91)
         self.assertEqual(summary["cryptoTestsSkipped"], 0)
         self.assertEqual(summary["testsPassed"], len(REQUIRED_MODULES))
 

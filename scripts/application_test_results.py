@@ -20,13 +20,26 @@ REQUIRED_MODULES = (
     "tests.test_lifecycle",
     "tests.test_provider_authority",
     "tests.test_pagination",
+    "tests.test_encrypted_platform_contract",
+    "tests.test_encrypted_recovery_compatibility",
+    "tests.test_cli_recovery",
+    "tests.test_cli_recovery_control",
+    "tests.test_recovery_journal",
+    "tests.test_recovery_protocol",
+    "tests.test_anchor_publication_faults",
+    "tests.test_accept_proposal_crash",
+    "tests.test_correction_crash",
+    "tests.test_forget_crash",
+    "tests.test_remember_crash",
+    "tests.test_reject_proposal_crash",
+    "tests.test_sqlite_lock_preservation",
 )
 
 
 def linux_skip_inventory():
     """An explicit reviewed inventory; additions require changing this file's input."""
     value = json.loads((ROOT / "tests/platform-skips-linux.json").read_text())
-    if not isinstance(value, dict) or len(value) != 30 or not all(
+    if not isinstance(value, dict) or len(value) != 91 or not all(
         isinstance(key, str) and isinstance(reason, str) and reason
         for key, reason in value.items()
     ):

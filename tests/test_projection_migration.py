@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from fixtures.harness import private_test_home
 from unittest.mock import patch
 
 from continuum_memory import storage
@@ -15,7 +16,7 @@ from fixtures.harness import open_fixture_connection
 class ProjectionMigrationTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="continuum-v2-upgrade-")
-        self.home = Path(self.temp.name)
+        self.home = private_test_home(self.temp.name)
         schema = (Path(__file__).parent / "fixtures" / "schema-v2.sql").read_text()
         with patch.object(storage, "SCHEMA_SQL", schema), patch.object(storage, "SCHEMA_VERSION", 2):
             boot = Store.bootstrap(self.home, [{"name": "alpha", "path_hint": "/synthetic/alpha",

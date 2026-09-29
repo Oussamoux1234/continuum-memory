@@ -16,6 +16,7 @@ from continuum_memory.storage import Store, paths
 
 
 class PeerCredentialTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Native Unix peer UID; Windows verifies process-token SIDs")
     def test_connected_native_socket_pair_has_kernel_effective_uid(self):
         first, second = socket.socketpair()
         try:
@@ -26,6 +27,7 @@ class PeerCredentialTest(unittest.TestCase):
             first.close()
             second.close()
 
+    @unittest.skipUnless(os.name == "posix", "Native Unix socket; Windows pipe closure is tested separately")
     def test_closed_socket_fails_closed(self):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.close()
@@ -73,7 +75,8 @@ class PeerCredentialTest(unittest.TestCase):
         self.assertEqual(library.getpeereid.argtypes, [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)])
 
     def test_wrong_uid_injection_is_rejected(self):
-        with patch("continuum_memory.peer.peer_uid", return_value=os.geteuid() + 1):
+        # Explicit Unix-contract fixture IDs, not a synthetic production Windows UID.
+        with patch("continuum_memory.peer.peer_uid", return_value=1002), patch("continuum_memory.peer.os.geteuid", return_value=1001, create=True):
             with self.assertRaises(MemoryError) as caught:
                 verify_peer_owner(Mock())
         self.assertEqual(caught.exception.code, "unsafe_owner")
@@ -85,6 +88,7 @@ class PeerCredentialTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "peer_credentials_unavailable")
 
 
+@unittest.skipUnless(os.name == "posix", "Unix socket peer contract; Windows uses native pipe/peer-token checks")
 class PeerTransportBoundaryTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cm-peer-")

@@ -20,9 +20,12 @@ Context response v3 uses `accepted_claims`, not `verified_current`: user accepta
 recorded verification, and declared date applicability are separate. Existing clients
 must update their JSON field access. See the [read contract and upgrade guide](docs/CONTEXT_CONTRACT.md).
 
-Owner operations now retain content-free committed-result receipts. A lost reply or
-audit-file failure must not trigger another memory write; see the
-[recovery commands and schema v5 boundary](docs/COMMIT_RECOVERY.md).
+Owner operations retain content-free committed-result receipts. After exact human
+approval and before sending the action, the CLI privately journals an opaque
+recovery locator, so a fresh `continuum recover` process can query the original
+outcome after the CLI exits. It never repeats the action; a missing receipt remains
+unknown, not permission to retry. See the [recovery commands, pagination and
+prototype boundaries](docs/COMMIT_RECOVERY.md).
 
 This is a standalone product. Agent Relay is not a dependency and will only become an
 optional MCP client under the contract in `docs/AGENT_RELAY_INTEGRATION.md`.
@@ -103,8 +106,9 @@ CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/native-wheelhouse \
 The demo prints an ephemeral directory, assertion/version IDs, provenance, correction
 history, conflict output, deletion receipt, replay rejection, and isolation checks.
 This command is not a recorded native application pass. The proposed Linux allowance for
-30 exact platform-only skip IDs/reasons (11 Windows filesystem, 15 Windows IPC, four macOS
-application tests) has passed independent source review; encryption and cryptographic skips are forbidden.
+91 exact platform-only skip IDs/reasons (62 Windows and 29 macOS methods) is
+source-enumerated in `tests/platform-skips-linux.json`; its refreshed native execution
+remains unrun. Encryption, rotation and missing-backend skips are forbidden.
 
 Native agent installers and plugins are roadmap work. Nothing here mutates real Codex,
 Claude Code, Antigravity, or Agent Relay profiles.
@@ -146,6 +150,9 @@ installer compatibility, and artifact signing/publication decisions remain open.
 macOS is limited to planned source-only peer checks until an approved native artifact
 exists; prepared APFS application tests remain pending. Neither macOS nor Windows encrypted
 application support is established by Linux CI.
+
+See [the source-refresh checkpoint](docs/ISSUE7_SOURCE_REFRESH.md) for the exact
+152450a integration, static evidence, preserved holds and still-unrun validation plan.
 
 ## Repository map
 

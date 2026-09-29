@@ -24,6 +24,38 @@ CANARY = "CONTINUUM_SQLCIPHER_CANARY_7e65b1"
 
 
 class EncryptedStorageTest(unittest.TestCase):
+    def test_read_only_keyed_observer_preserves_live_writer_state_and_sidecars(self):
+        from fixtures.harness import open_fixture_connection
+        with tempfile.TemporaryDirectory(prefix="continuum-keyed-observer-") as temporary:
+            home = Path(temporary)
+            Store.bootstrap(home, PROJECTS)
+            writer = Store(home)
+            try:
+                writer.connection.execute("INSERT INTO metadata VALUES ('observer_probe','one')")
+                companions = [Path(str(paths(home)["db"]) + suffix) for suffix in ("-wal", "-shm")]
+                identities = [(path.stat().st_dev, path.stat().st_ino) for path in companions]
+                observer = open_fixture_connection(home, read_only=True)
+                try:
+                    self.assertEqual(observer.execute("PRAGMA query_only").fetchone(), (1,))
+                    self.assertEqual(observer.execute("SELECT value FROM metadata WHERE key='observer_probe'").fetchone(),
+                                     ("one",))
+                    # Prove mode=ro itself, not only the query-only preflight.
+                    observer.execute("PRAGMA query_only=OFF")
+                    with self.assertRaises(storage.sqlite3.DatabaseError):
+                        observer.execute("UPDATE metadata SET value='changed' WHERE key='observer_probe'")
+                finally:
+                    observer.close()
+                self.assertEqual([(path.stat().st_dev, path.stat().st_ino) for path in companions], identities)
+                writer.connection.execute("UPDATE metadata SET value='two' WHERE key='observer_probe'")
+                observer = open_fixture_connection(home, read_only=True)
+                try:
+                    self.assertEqual(observer.execute("SELECT value FROM metadata WHERE key='observer_probe'").fetchone(),
+                                     ("two",))
+                finally:
+                    observer.close()
+            finally:
+                writer.close()
+
     def test_orphan_sqlite_sidecars_refuse_bootstrap_before_key_creation(self):
         for suffix in ("-wal", "-shm", "-journal"):
             with self.subTest(suffix=suffix), tempfile.TemporaryDirectory(prefix="continuum-orphan-") as temporary:

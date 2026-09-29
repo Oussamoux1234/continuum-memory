@@ -59,8 +59,8 @@ checks byte equality and strict hashes, verifies native/source evidence and the
 installed native regression suite, then installs that wheel and the pinned build
 tools into a fresh isolated environment. Full application tests, fixture demo and
 reproducible source/wheel packaging and both fresh installations run in a disposable
-checkout with network disabled. The structured report admits exactly 30 reviewed
-Linux platform exclusions (11 Windows filesystem, 15 Windows pipe, 4 macOS/APFS),
+checkout with network disabled. The refreshed report requires exactly 91 source-enumerated
+Linux platform exclusions (62 Windows and 29 macOS methods),
 bound to explicit test IDs and reasons in `tests/platform-skips-linux.json`. Every
 other skip, missing required crypto suite, wrong native import or incomplete result
 fails the gate. This policy never admits a missing encryption backend as a skip.

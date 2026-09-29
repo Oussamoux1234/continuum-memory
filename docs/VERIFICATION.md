@@ -72,10 +72,11 @@ backend's version and origin, and runs the full application verifier in a dispos
 of the checkout. All applicable tests, all 17 demo checks, reproducible distributions and
 fresh offline installs must pass. This workflow uploads no wheels.
 
-The integrated Linux skip policy has passed independent source review: exactly 30 identified tests with
-their expected platform reasons, comprising 11 Windows filesystem, 15 Windows IPC and four
-macOS application tests. Unknown, missing, duplicate or changed skip IDs/reasons must fail;
-a count of 30 alone is insufficient. No cryptographic, encryption, rotation, recovery or
+The refreshed Linux skip policy names exactly 91 platform-only methods with their
+expected reasons: 62 Windows and 29 macOS methods, including the new native ACL,
+SQLite-lock and recovery-journal cases. This inventory was enumerated from source,
+not by importing or running tests. Native report acceptance remains unrun. Unknown,
+missing, duplicate or changed skip IDs/reasons must fail; a count of 91 alone is insufficient. No cryptographic, encryption, rotation, recovery or
 missing-runtime skip is allowed. This is a reviewed platform inventory, not a native pass.
 
 The reproducible PEP 517/SPDX pipeline is implemented; combined application execution

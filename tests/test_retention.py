@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from fixtures.harness import private_test_home
 
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
@@ -26,7 +27,7 @@ class MutableClock:
 class DirectKernelHarness:
     def __init__(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-retention-")
-        self.data_dir = Path(self.temporary.name)
+        self.data_dir = private_test_home(self.temporary.name)
         result = Store.bootstrap(self.data_dir, PROJECTS)
         self.project = result["projects"][0]["id"]
         self.store = Store(self.data_dir)

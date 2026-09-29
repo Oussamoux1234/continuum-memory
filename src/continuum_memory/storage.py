@@ -29,9 +29,9 @@ from .security import (
     bounded_provider,
     bounded_text,
     canonical_json,
+    create_private_directory,
     ensure_private_directory,
-    ensure_private_regular,
-    ensure_safe_ancestors,
+    ensure_private_sqlite_file,
     now_iso,
     path_exists,
     random_id,
@@ -72,6 +72,7 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "audit_head": data_dir / "audit.head",
         "control": data_dir / "control.cap",
         "caps": data_dir / "capabilities",
+        "ipc_binding": data_dir / "ipc.binding",
     }
 
 
@@ -128,7 +129,15 @@ def _sync_private_directory(directory: Path) -> None:
         ) from None
 
 
+def _require_sqlcipher_platform() -> None:
+    # Main's Windows connector opens plaintext SQLite. It is never a fallback
+    # for this held encrypted candidate or an authority to create Windows keys.
+    if os.name == "nt":
+        raise MemoryError("unsupported_platform", "Encrypted storage is unavailable on Windows.")
+
+
 def _require_sqlcipher_runtime() -> None:
+    _require_sqlcipher_platform()
     if sqlite3 is None:
         raise MemoryError(
             "sqlcipher_unavailable",
@@ -207,12 +216,13 @@ def _read_connection_settings(
     return settings
 
 
-def _validate_database_artifacts(db_path: Path) -> None:
-    ensure_private_regular(db_path, "The vault database")
+def _validate_database_files(db_path: Path) -> None:
+    ensure_private_directory(db_path.parent)
+    ensure_private_sqlite_file(db_path, "The vault database")
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = Path(str(db_path) + suffix)
         if path_exists(sidecar):
-            ensure_private_regular(sidecar, "The SQLite %s sidecar" % suffix[1:])
+            ensure_private_sqlite_file(sidecar, "The SQLite %s sidecar" % suffix[1:])
 
 
 def _apply_connection_hardening(connection: sqlite3.Connection, db_path: Path) -> None:
@@ -255,21 +265,27 @@ def _apply_connection_hardening(connection: sqlite3.Connection, db_path: Path) -
         connection.execute("DROP TABLE temp.continuum_fts_probe")
     except sqlite3.Error:
         raise MemoryError("fts5_unavailable", "The SQLite runtime does not provide FTS5.") from None
-    _validate_database_artifacts(db_path)
+    _validate_database_files(db_path)
 
 
 def _connect(
     db_path: Path,
     storage_key: bytes,
     apply_hardening: bool = False,
+    *,
+    read_only: bool = False,
 ) -> sqlite3.Connection:
-    ensure_private_directory(db_path.parent)
-    _validate_database_artifacts(db_path)
+    _require_sqlcipher_platform()
+    if read_only and apply_hardening:
+        raise MemoryError("storage_validation_failed", "A read-only observer cannot enable storage writes.")
+    _validate_database_files(db_path)
     _require_sqlcipher_runtime()
     if len(storage_key) != STORAGE_KEY_BYTES:
         raise MemoryError("storage_key_unavailable", "The vault storage key is unavailable.")
     try:
-        connection = sqlite3.connect(db_path.resolve().as_uri() + "?mode=rw", uri=True, timeout=5.0, isolation_level=None)
+        mode = "ro" if read_only else "rw"
+        connection = sqlite3.connect(db_path.resolve().as_uri() + "?mode=" + mode,
+                                     uri=True, timeout=5.0, isolation_level=None)
     except sqlite3.Error:
         raise MemoryError("storage_unavailable", "The encrypted vault could not be opened.") from None
     connection.row_factory = sqlite3.Row
@@ -299,6 +315,7 @@ def _connect(
                 )
         # Force page authentication before applying any write-affecting pragmas.
         connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        _validate_database_files(db_path)
     except MemoryError:
         connection.close()
         raise
@@ -308,6 +325,9 @@ def _connect(
             "storage_key_invalid",
             "The encrypted vault could not be opened.",
         ) from None
+    except BaseException:
+        connection.close()
+        raise
     if apply_hardening:
         try:
             _apply_connection_hardening(connection, db_path)
@@ -340,6 +360,7 @@ class Store:
         return store
 
     def _initialize(self, data_dir: Path, *, allow_rotation: bool) -> None:
+        _require_sqlcipher_platform()
         self.data_dir = data_dir
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
@@ -356,7 +377,7 @@ class Store:
                 )
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
-        ensure_private_regular(self.files["db"], "The vault database")
+        ensure_private_sqlite_file(self.files["db"], "The vault database")
         storage_key = _read_storage_key(self.files["storage_key"])
         audit_key = read_private(self.files["audit_key"], 128)
         connection = _connect(self.files["db"], storage_key)
@@ -391,6 +412,7 @@ class Store:
 
     @classmethod
     def bootstrap(cls, data_dir: Path, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
+        _require_sqlcipher_platform()
         if not projects or len(projects) > 16:
             raise MemoryError("invalid_request", "Bootstrap requires one to sixteen projects.")
         admission_policy = AdmissionPolicy.load(data_dir)
@@ -413,19 +435,14 @@ class Store:
             ensure_private_directory(data_dir)
             require_no_pending_rotation(data_dir)
         else:
-            ensure_safe_ancestors(data_dir.parent)
-            data_dir.mkdir(mode=0o700, parents=True)
-            os.chmod(str(data_dir), 0o700)
-            ensure_private_directory(data_dir)
+            create_private_directory(data_dir, parents=True)
         file_map = paths(data_dir)
-        occupied = ("db", "socket", "storage_key", "audit_key", "audit_head", "control", "caps")
+        occupied = ("db", "socket", "storage_key", "audit_key", "audit_head", "control", "caps", "ipc_binding")
         sidecars = [Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
         if (any(path_exists(file_map[name]) for name in occupied)
                 or any(path_exists(path) for path in sidecars)):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
-        file_map["caps"].mkdir(mode=0o700)
-        os.chmod(str(file_map["caps"]), 0o700)
-        ensure_private_directory(file_map["caps"])
+        create_private_directory(file_map["caps"])
         storage_key = secrets.token_bytes(STORAGE_KEY_BYTES)
         audit_key = secrets.token_bytes(32)
         write_private(file_map["storage_key"], storage_key)
@@ -495,7 +512,7 @@ class Store:
                 now,
             )
             connection.commit()
-            ensure_private_regular(file_map["db"], "The vault database")
+            ensure_private_sqlite_file(file_map["db"], "The vault database")
             cls._sync_audit_head_raw(connection, file_map["audit_head"])
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             return {

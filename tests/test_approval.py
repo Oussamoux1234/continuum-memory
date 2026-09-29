@@ -1,4 +1,3 @@
-import fcntl
 import json
 import os
 import subprocess
@@ -9,6 +8,10 @@ import xml.etree.ElementTree as ElementTree
 from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
+from fixtures.harness import private_test_home
+
+if os.name == "posix":
+    import fcntl
 
 from continuum_memory.approval import (
     LINUX_APPROVAL_BOUNDARY,
@@ -18,6 +21,7 @@ from continuum_memory.approval import (
     approval_request,
     encode_grant,
     private_key_path,
+    provision_request,
     public_key_path,
     sign_payload,
     validate_approval_request,
@@ -104,7 +108,7 @@ class ApprovalContractTest(unittest.TestCase):
         challenge = self.challenge()
         self.assertEqual(broker.authorize(challenge), grant)
         arguments, options = calls[0]
-        self.assertEqual(arguments, ["/trusted/pkexec", "/trusted/approval-helper", "authorize"])
+        self.assertEqual(arguments, [str(Path("/trusted/pkexec")), str(Path("/trusted/approval-helper")), "authorize"])
         self.assertNotIn(challenge["preview_digest"], " ".join(arguments))
         request = json.loads(options["input"].decode("utf-8"))
         self.assertEqual(request["preview"], challenge["preview"])
@@ -192,7 +196,7 @@ class ApprovalContractTest(unittest.TestCase):
 
     def test_privileged_runtime_requires_policy_validation(self):
         with mock.patch("continuum_memory.polkit_helper.sys.platform", "linux"):
-            with mock.patch("continuum_memory.polkit_helper.os.geteuid", return_value=0):
+            with mock.patch("continuum_memory.polkit_helper.os.geteuid", return_value=0, create=True):
                 with mock.patch("continuum_memory.polkit_helper.ensure_root_owned_regular"):
                     failure = MemoryError("approval_broker_unsafe", "Synthetic unsafe policy.")
                     with mock.patch(
@@ -216,6 +220,7 @@ class ApprovalContractTest(unittest.TestCase):
             chmod.assert_not_called()
             self.assertEqual(unsafe.exception.code, "approval_broker_unsafe")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX root-helper lock and UID contract")
     def test_provisioning_uses_a_private_exclusive_lock(self):
         with tempfile.TemporaryDirectory(prefix="continuum-provision-lock-") as temporary:
             lock_path = Path(temporary) / ".provision.lock"
@@ -268,6 +273,10 @@ class ApprovalContractTest(unittest.TestCase):
         self.assertIn('"$BUILD_DIRECTORY/bin/python" -I -m pip', source)
         self.assertNotIn('"$RUNTIME_DIRECTORY/bin/python" -I -m pip', source)
         self.assertIn("existing approval runtime is unsafe", source)
+
+    @unittest.skipUnless(os.name == "posix", "Execute the Linux installer refusal under a POSIX shell")
+    def test_root_installer_executes_no_caller_path_program(self):
+        installer = ROOT / "packaging" / "linux" / "install-polkit.sh"
         if os.geteuid() == 0:
             self.skipTest("the non-root installer environment test must not mutate system paths")
         with tempfile.TemporaryDirectory(prefix="continuum-installer-path-") as temporary:
@@ -293,7 +302,31 @@ class ApprovalContractTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertFalse(marker.exists())
 
+    def test_windows_approval_refuses_without_fabricating_a_posix_identity(self):
+        challenge = self.challenge()
+        with mock.patch("continuum_memory.approval.os.name", "nt"):
+            for action in (lambda: approval_request(challenge),
+                           lambda: provision_request(challenge["vault_id"]), LinuxPolkitApprovalBroker):
+                with self.subTest(action=action), self.assertRaises(MemoryError) as denied:
+                    action()
+                self.assertEqual(denied.exception.code, "unsupported_platform")
+        with mock.patch("continuum_memory.polkit_helper.sys.platform", "win32"):
+            with self.assertRaises(MemoryError) as denied:
+                _ensure_privileged_runtime()
+            self.assertEqual(denied.exception.code, "approval_broker_unsafe")
 
+    def test_missing_posix_lock_api_is_refused_before_any_file_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "must-not-exist"
+            with mock.patch("continuum_memory.polkit_helper.fcntl", None):
+                with self.assertRaises(MemoryError) as denied:
+                    with _provision_lock(destination):
+                        self.fail("Unsupported provisioning acquired a lock")
+            self.assertEqual(denied.exception.code, "unsupported_platform")
+            self.assertFalse(destination.exists())
+
+
+@unittest.skipUnless(os.name == "posix", "Linux RSA contract uses real POSIX-owned /usr/bin/openssl; no Windows broker is implemented")
 class AsymmetricApprovalIntegrationTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-approval-test-")
@@ -497,6 +530,22 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
                 },
             )
         self.assertEqual(rejected.exception.code, "approval_expired")
+
+class UnprovisionedApprovalTest(unittest.TestCase):
+    """Run real Store/Kernel refusal on Windows too, without OS approval simulation."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="continuum-unprovisioned-")
+        self.addCleanup(self.temporary.cleanup)
+        home = private_test_home(self.temporary.name)
+        boot = Store.bootstrap(home, [{"name": "fixture", "path_hint": "/synthetic",
+                                       "providers": ["codex"]}])
+        self.project = boot["projects"][0]["id"]
+        self.store = Store(home)
+        self.addCleanup(self.store.close)
+        self.control = self.store.authenticate(load_capability(paths(home)["control"])["token"])
+        self.agent = self.store.authenticate(load_capability(Path(boot["projects"][0]["capabilities"]["codex"]))["token"])
+        self.kernel = Kernel(self.store, approval_public_key_provider=lambda uid: None)
 
     def test_unprovisioned_runtime_fails_closed(self):
         kernel = Kernel(self.store, approval_public_key_provider=lambda _caller_uid: None)

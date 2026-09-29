@@ -62,4 +62,7 @@ These limits prevent an individual stalled peer from monopolizing socket I/O;
 they do not guarantee service under continuous same-user admission floods or
 preempt long-running synchronous kernel/SQLite operations. Slow peers may need to
 reconnect/restart the bridge. This remains an owner-only, local, low-throughput
-prototype, not a network service. Native Windows daemon support is not claimed.
+prototype, not a network service. The [native Windows candidate](../WINDOWS_IPC.md)
+uses sixteen fixed I/O workers with a bounded queue and owning-thread application
+dispatch; its separate filesystem/runtime acceptance remains pending. It is not
+a production Windows approval or encryption claim.

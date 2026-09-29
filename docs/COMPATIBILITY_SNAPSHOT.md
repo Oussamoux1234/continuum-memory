@@ -1,8 +1,10 @@
 # Compatibility snapshot
 
-Integration state updated 2026-09-24. Main's context/pagination, provider authority,
-platform primitives and reproducible packaging are combined with the held encrypted
-application/rotation candidate. Native application CI remains pending. The earlier
+Source integration updated 2026-09-29 against merged main `152450a`. Durable owner
+receipt recovery, macOS SQLite-lock-preserving ACL checks, platform primitives and
+packaging changes are combined with the held encrypted application/rotation candidate.
+Only syntax/static inspection was performed for this refresh; native application CI
+remains pending. See [the exact checkpoint and validation plan](ISSUE7_SOURCE_REFRESH.md). The earlier
 `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4` checkpoint's 28 passing source tests and the
 2026-09-03 plaintext baseline do not establish a pass for this integration.
 The application runtime makes no network requests. The patched-wheel workflow permits network
@@ -39,10 +41,10 @@ databases; there is no standard-library SQLite fallback. See
 | manylinux_2_28 x86-64, CPython 3.11-3.14 | Strict native artifact gate passed for `2e90daa`; separate held application workflow repeats the native gates and runs full offline application tests, with initial application CI pending |
 | macOS arm64, CPython 3.11-3.14 native wheel | Blocked: no approved immutable macOS builder/toolchain currently satisfies the Linux evidence standard |
 | macOS peer/APFS boundary | Source-only peer workflow integration is pending; prepared encrypted application/APFS tests are not a macOS application pass |
-| Windows | Unsupported application runtime; isolated experimental [filesystem](WINDOWS_BOUNDARY.md) and [pipe](WINDOWS_IPC.md) primitives do not establish encrypted application support. Issue #1 remains open. |
+| Windows | Encrypted runtime explicitly refused before keys or database access. Main's separately accepted plaintext runtime and closed issue #1 do not establish encrypted support; the imported Windows runtime/account workflows are disabled in this candidate. |
 
-The proposed Linux skip policy remains under review: exactly 30 named platform-only
-tests (11 Windows filesystem, 15 Windows IPC, four macOS application), with exact reasons
+The refreshed Linux skip policy requires exactly 91 named platform-only methods
+(62 Windows and 29 macOS), enumerated statically with exact reasons
 and no encryption/cryptographic skips. The privileged Linux helper stager still rejects
 all runtime dependencies; the encrypted application wheel must fail that separate
 compatibility gate. See [verification](VERIFICATION.md) and [release gates](LINUX_RELEASE.md).

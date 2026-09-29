@@ -9,10 +9,12 @@ import re
 import secrets
 import stat
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .errors import MemoryError, invalid
+from .macos_acl import require_no_acl_fd, require_no_acl_path, require_no_acl_sqlite_path
 
 MAX_FRAME_BYTES = 65_536
 MAX_BODY_BYTES = 4_096
@@ -24,6 +26,7 @@ MAX_RESULTS = 25
 MIN_CONTEXT_BYTES = 256
 MAX_CONTEXT_BYTES = 8_192
 GRANT_TTL_SECONDS = 120
+MAX_DIRECTORY_ACL_OBSERVATIONS = 8
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 PROVIDER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -183,25 +186,76 @@ def _reject_untrusted_symlink_ancestors(path: Path) -> None:
 
 
 def ensure_safe_ancestors(path: Path) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary, local_path
+        with WindowsBoundary()._parents(local_path(path / "boundary-probe")):
+            return
     _reject_untrusted_symlink_ancestors(path)
 
 
-def ensure_private_directory(path: Path) -> os.stat_result:
-    _reject_untrusted_symlink_ancestors(path.parent)
-    try:
-        info = path.lstat()
-    except FileNotFoundError as exc:
-        raise MemoryError("unsafe_directory", "The private data directory does not exist.") from exc
-    if not stat.S_ISDIR(info.st_mode):
-        raise MemoryError("unsafe_directory", "The private data path must be a real directory, not a link.")
-    if info.st_uid != os.getuid():
-        raise MemoryError("unsafe_owner", "The private data directory is not owned by the current user.")
-    if info.st_mode & 0o077:
-        raise MemoryError("unsafe_permissions", "The private data directory is not owner-only.")
-    return info
+def create_private_directory(path: Path, parents: bool = False) -> None:
+    """Create owner-only directories; never tighten or adopt an existing object."""
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary, local_path
+        boundary = WindowsBoundary()
+        boundary._volume(local_path(path)[:3])
+        missing = [path]
+        if parents:
+            while not path_exists(missing[-1].parent):
+                if missing[-1].parent == missing[-1]:
+                    raise MemoryError("unsafe_directory", "The private directory has no existing local ancestor.")
+                missing.append(missing[-1].parent)
+        for directory in reversed(missing):
+            boundary.create_directory(directory)
+        return
+    ensure_safe_ancestors(path.parent)
+    path.mkdir(mode=0o700, parents=parents)
+    ensure_private_directory(path)
 
 
-def ensure_private_regular(path: Path, label: str = "Private material") -> os.stat_result:
+def ensure_private_directory(path: Path):
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path, directory=True)
+    baseline = None
+    fixed_fields = ("st_dev", "st_ino", "st_uid", "st_gid", "st_mode")
+    for observation in range(MAX_DIRECTORY_ACL_OBSERVATIONS):
+        _reject_untrusted_symlink_ancestors(path.parent)
+        try:
+            info = path.lstat()
+        except FileNotFoundError as exc:
+            raise MemoryError("unsafe_directory", "The private data directory does not exist.") from exc
+        if not stat.S_ISDIR(info.st_mode):
+            raise MemoryError("unsafe_directory", "The private data path must be a real directory, not a link.")
+        if info.st_uid != os.getuid():
+            raise MemoryError("unsafe_owner", "The private data directory is not owned by the current user.")
+        if info.st_mode & 0o077:
+            raise MemoryError("unsafe_permissions", "The private data directory is not owner-only.")
+        identity = tuple(getattr(info, field) for field in fixed_fields)
+        if baseline is None:
+            baseline = identity
+        elif identity != baseline:
+            raise MemoryError("unsafe_file", "Private material changed during permission validation.")
+        try:
+            require_no_acl_path(path, info)
+        except MemoryError as error:
+            if error.code != "unsafe_file" or observation + 1 == MAX_DIRECTORY_ACL_OBSERVATIONS:
+                raise
+            try:
+                current = path.lstat()
+            except FileNotFoundError:
+                raise MemoryError("unsafe_directory", "The private data directory does not exist.") from None
+            # Creating an entry legitimately changes directory ctime/link count.
+            # A fresh complete ACL observation may resolve that race, but never
+            # adopt a replacement or changed owner/group/mode across attempts.
+            if (tuple(getattr(current, field) for field in fixed_fields) != baseline
+                    or current.st_ctime_ns == info.st_ctime_ns):
+                raise
+        else:
+            return info
+
+
+def _private_regular_metadata(path: Path, label: str):
     _reject_untrusted_symlink_ancestors(path.parent)
     try:
         info = path.lstat()
@@ -213,6 +267,25 @@ def ensure_private_regular(path: Path, label: str = "Private material") -> os.st
         raise MemoryError("unsafe_owner", "%s is not owned by the current user." % label)
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "%s is not owner-only." % label)
+    return info
+
+
+def ensure_private_regular(path: Path, label: str = "Private material"):
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path)
+    info = _private_regular_metadata(path, label)
+    require_no_acl_path(path, info)
+    return info
+
+
+def ensure_private_sqlite_file(path: Path, label: str = "SQLite material"):
+    """Observe DB/sidecar permissions without disturbing live SQLite locks."""
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().inspect(path)
+    info = _private_regular_metadata(path, label)
+    require_no_acl_sqlite_path(path, info)
     return info
 
 
@@ -228,6 +301,7 @@ def ensure_private_socket(path: Path) -> os.stat_result:
         raise MemoryError("unsafe_owner", "The daemon socket is not owned by the current user.")
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "The daemon socket is not owner-only.")
+    require_no_acl_path(path, info)
     return info
 
 
@@ -239,10 +313,15 @@ def _validate_open_regular(fd: int, label: str) -> os.stat_result:
         raise MemoryError("unsafe_owner", "%s is not owned by the current user." % label)
     if info.st_mode & 0o077:
         raise MemoryError("unsafe_permissions", "%s is not owner-only." % label)
+    require_no_acl_fd(fd, info)
     return info
 
 
 def write_private(path: Path, data: bytes) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        WindowsBoundary().write_new(path, data)
+        return
     ensure_private_directory(path.parent)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -262,6 +341,10 @@ def write_private(path: Path, data: bytes) -> None:
 
 
 def replace_private(path: Path, data: bytes) -> None:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        WindowsBoundary().replace(path, data)
+        return
     ensure_private_directory(path.parent)
     if path_exists(path):
         ensure_private_regular(path)
@@ -283,6 +366,9 @@ def replace_private(path: Path, data: bytes) -> None:
 
 
 def read_private(path: Path, maximum: int = 4096) -> bytes:
+    if os.name == "nt":
+        from .windows_boundary import WindowsBoundary
+        return WindowsBoundary().read(path, maximum)
     ensure_private_directory(path.parent)
     # Only regular files are valid; a raced-in FIFO must not block before fstat.
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
@@ -306,6 +392,14 @@ def read_private(path: Path, maximum: int = 4096) -> bytes:
         return bytes(chunks)
     finally:
         os.close(fd)
+
+
+@contextmanager
+def hold_private_binding(path: Path):
+    """Windows-only lifetime guard for the immutable nonsecret IPC identity."""
+    from .windows_boundary import WindowsBoundary
+    with WindowsBoundary().hold_binding(path) as binding:
+        yield binding
 
 
 def now_iso() -> str:
