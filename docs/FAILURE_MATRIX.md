@@ -466,6 +466,62 @@ readback, not POSIX directory sync. The tests do not prove host power-loss survi
 same-user isolation, production encryption, key rotation or backup freshness.
 They neither add approval authority nor complete issue #8.
 
+## Agent proposal, recall and feedback process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest \
+  tests.test_propose_crash tests.test_recall_feedback_crash -v
+```
+
+These fixtures exercise the real public proposal, search, context and feedback
+methods against closed, copied synthetic vaults. They reuse only the existing
+subprocess, SQLite-write observer and snapshot mechanics, not the owner-grant or
+automatic-retention retry oracle. All seeded retention deadlines remain in the
+future relative to the fixture clock, so an incidental lifecycle transaction
+cannot account for the observed writes.
+
+| Operation | Reviewed direct writes | Commit/publication boundaries | Total exits |
+|---|---|---:|---:|
+| New agent proposal | Sequence, proposal, provenance, audit | 6 | 10 |
+| Search recall | Recall | 2 | 3 |
+| Context recall | Recall | 2 | 3 |
+| Recall-bound feedback | Sequence, feedback, audit | 6 | 9 |
+
+Each selected boundary must emit its exact ordinal/label and exit via
+`os._exit(73)`; unexpected errors, stderr, timeouts or missing hooks fail the test.
+Whole logical state, including FTS shadow rows, and exact anchor bytes are compared
+before reconciliation or additional semantic API calls. Before SQL commit the
+original state must survive; afterward the entire completed state must survive.
+Proposal and feedback each have two committed-but-unpublished-anchor cases.
+Recall insertion changes neither the global sequence nor audit chain/anchor.
+
+The proposal oracle independently verifies the pending payload, source capability,
+provider/project scope, normalized metadata, keyed request digest, provenance and
+audit event. A proposal alone creates no canonical memory, consent, disclosure,
+FTS entry or owner result. Same-key deliveries from another provider or project
+are controls, not duplicates. Replaying the original delivery returns its original
+proposal with `replayed: true`: it has no writes or anchor publication but still
+executes a transaction commit. A changed payload with the same scoped key is
+refused without mutation.
+
+Search/context independently verify the exact scoped recall and query digest,
+visible result IDs, watermark and temporal fields. Feedback must refer to a
+visible item in a recall bound to the caller's project/provider, preserve all
+canonical truth and audience sequences, and record the current source capability
+and audit event. These recall fixtures cover current, nonpaginated results, not
+every historical or pagination variant.
+Nonempty unrelated and cross-provider/project controls remain unchanged. Fresh
+reopen checks preserve these outcomes.
+
+Recall and feedback have no idempotency or durable-result-recovery contract.
+The matrix retries only fixtures whose exact pre-commit state has already been
+observed; it never retries a committed recall or feedback request. That controlled
+test observation does not make a real ambiguous client timeout safe to retry.
+Fixed synthetic IDs serve only to compare identical fixture copies, never as
+evidence of deduplication. These are bounded POSIX plaintext process-death cases,
+not OS-backed approval, SQLCipher, native Windows process-crash, host power-loss,
+backup-revocation evidence or completion of issue #8.
+
 ## Other current failure coverage
 
 | Surface | Existing evidence | Remaining boundary |
@@ -481,7 +537,8 @@ They neither add approval authority nor complete issue #8.
 ## Open gates
 
 Issue #8 remains open for the complete operation/fault inventory (including
-proposal creation, recall/feedback recording and bootstrap), approved
+bootstrap, preview-challenge creation/cleanup, and remaining proposal/recall/feedback
+variants), approved
 encryption and approval-key rotation/recovery, and the relevant audit-anchor and
 backup/revocation transitions once those implementations exist. SQLCipher must
 rerun applicable migration/crash cases with its reviewed provider before those
