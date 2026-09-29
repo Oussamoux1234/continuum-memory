@@ -290,6 +290,62 @@ vault. Recovery preserves the original result and never repeats a committed acti
 These are plaintext/POSIX process-crash results, not physical erasure, external
 backup revocation, native Windows, encryption, host power loss or completion of #8.
 
+## Read-triggered retention and proposal-purge process crashes
+
+```bash
+PYTHONPATH=src python3 -W error::ResourceWarning -m unittest \
+  tests.test_retention_crash tests.test_proposal_purge_crash -v
+```
+
+These two fixtures exercise automatic lifecycle work, not a new owner approval.
+They share the existing real-SQLite write observer and closed-vault/subprocess
+mechanics through `tests/lifecycle_crash_support.py`, but not the owner-operation
+grant/receipt oracle. Each fixture deliberately isolates one lifecycle transaction
+and its separately locked audit-anchor publication. A request that first purges
+proposals and then expires assertions has two transactions; these tests do not
+claim that combined request is one atomic operation.
+
+| Production entry point and seed | Reviewed process-exit inventory |
+|---|---|
+| Actual Codex `status`: two active assertions with different disclosures, one overdue and one expiring exactly at the fixed clock; no due proposals | 10 direct writes plus six commit/anchor boundaries: **16 exits** |
+| Actual owner `inbox`: two overdue pending drafts, an overdue accepted draft, and a manually seeded rejected legacy draft with forever retention; no active due assertions | 20 direct writes plus six commit/anchor boundaries: **26 exits** |
+
+Each child must reach the exact constant ordinal/label and exit via `os._exit(73)`
+with empty stderr and bounded execution/output. The operation-specific expected
+inventory is literal and source-reviewed, not learned from a successful run.
+Whole logical rows, including FTS shadow tables, and byte-exact old/new anchors
+are compared before any reconciliation or lifecycle-triggering semantic reads.
+Pre-commit exits must expose exactly the original state; post-commit exits must
+expose exactly the complete transition. Two exits between the lifecycle commit
+and anchor publication require `external_anchor_stale`. All other anchor states
+must match the committed state. Reconciliation must change no logical rows.
+
+For expiry, the independent oracle checks exact retirement times/sequences,
+provider-specific audience changes and audit events, while retaining bodies,
+evidence, provenance, FTS, consent, capabilities and original recalls. Current
+retrieval loses the expired versions; historical retrieval retains only the
+originally disclosed versions. Explicitly seeded legacy conflict caches cover a
+conflict that must resolve, one with two surviving active members that must remain
+open, and another project's unchanged conflict. Memberships are unchanged. These
+legacy rows are not claimed to be produced by the current conflict projection.
+
+For purge, the accepted draft's canonical claim is legitimately corrected to
+forever retention before the deadline, so inbox performs no assertion-expiry
+transaction. Drafts, associated reviews and proposal-only provenance disappear;
+accepted canonical history/evidence/provenance and unrelated rows remain. Exact
+content-free, project/provider-bound suppression tombstones prevent delayed
+original or changed deliveries from recreating the purged drafts. The rejected
+legacy row and its review are explicitly synthetic state, not modern rejection
+output. Scope controls retain the same raw delivery key in other audiences.
+
+Every pre-commit case retries to the same complete state. Committed retries and
+another repetition must produce **zero observed writes or commits**, unchanged
+rows and anchors, and the same response. Independent semantics and SQLite/foreign
+key integrity are checked again after reopening. These are plaintext, synthetic,
+POSIX process-exit tests. They do not prove physical erasure, Windows crash
+semantics, host power-loss durability, encrypted rotation, backup freshness, or
+completion of issue #8.
+
 ## POSIX audit-anchor publication faults
 
 ```bash
@@ -424,7 +480,8 @@ They neither add approval authority nor complete issue #8.
 
 ## Open gates
 
-Issue #8 remains open for the complete operation/fault inventory, approved
+Issue #8 remains open for the complete operation/fault inventory (including
+proposal creation, recall/feedback recording and bootstrap), approved
 encryption and approval-key rotation/recovery, and the relevant audit-anchor and
 backup/revocation transitions once those implementations exist. SQLCipher must
 rerun applicable migration/crash cases with its reviewed provider before those
