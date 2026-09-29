@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 from scripts.release_package import (
-    ROOT, RUNTIME_PACKAGE_ID, archive_members, build_release, install_smoke, make_sbom,
+    ROOT, RUNTIME_PACKAGE_ID, archive_members, build_release, build_tool_pins, install_smoke, make_sbom,
     normalize_sdist, offline_environment, validate_metadata, validate_sbom,
 )
 
@@ -57,6 +57,49 @@ def helper_wheel(directory, fields=HELPER_METADATA, entry="continuum_memory.polk
 
 
 class ReleasePackageTest(unittest.TestCase):
+    def test_build_tool_markers_select_only_matching_host_pins(self):
+        requirements = 'base==1.0 \\\n --hash=sha256:fixture\ncolorama==0.4.6 ; os_name == "nt" \\\n --hash=sha256:fixture\n'
+        self.assertEqual(build_tool_pins(requirements, environment={"os_name": "posix"}), {"base": "1.0"})
+        self.assertEqual(build_tool_pins(requirements, environment={"os_name": "nt"}),
+                         {"base": "1.0", "colorama": "0.4.6"})
+
+    def test_build_tool_pins_reject_ranges_wildcards_urls_extras_and_invalid_markers(self):
+        invalid = ('tool', 'tool>=1.0', 'tool==1.*', 'tool===1.0', 'tool==1.0,!=2.0', 'tool==1.0,==1.0',
+                   'tool[extra]==1.0', 'tool @ https://example.invalid/tool.whl',
+                   'tool==not-a-version', 'tool==1.0 ; unknown_platform == "nt"')
+        for requirement in invalid:
+            with self.subTest(requirement=requirement), self.assertRaises(ValueError):
+                build_tool_pins('base==1.0\n' + requirement, environment={"os_name": "posix"})
+        with self.assertRaises(ValueError):
+            build_tool_pins('base==1.0\ntool==1.* ; os_name == "nt"', environment={"os_name": "posix"})
+
+    def test_duplicate_normalized_build_tools_fail_even_in_inactive_marker_branches(self):
+        for second in ('example-package==1.0', 'example.package==2.0 ; os_name == "nt"'):
+            with self.subTest(second=second), self.assertRaisesRegex(ValueError, "duplicate"):
+                build_tool_pins('Example_Package==1.0\n' + second, environment={"os_name": "posix"})
+
+    def test_build_tool_metadata_and_resolver_preserve_marker_contract(self):
+        from unittest.mock import patch
+        from packaging.markers import default_environment
+        from scripts import release_package
+        environment = dict(default_environment(), os_name="posix")
+        requirements = 'base==1.0\ncolorama==0.4.6 ; os_name == "nt"\n'
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            lock = directory / "build-requirements.txt"
+            lock.write_text(requirements)
+            with patch.object(release_package, "BUILD_REQUIREMENTS", lock), \
+                    patch("packaging.markers.default_environment", return_value=environment), \
+                    patch.object(release_package.metadata, "version", return_value="1.0") as version, \
+                    patch.object(release_package, "run") as resolver:
+                release_package.require_build_tools(directory)
+                version.assert_called_once_with("base")
+                command = resolver.call_args.args[0]
+                self.assertIn("--require-hashes", command)
+                self.assertIn("--dry-run", command)
+                self.assertEqual(command[-2:], ["-r", lock])
+            self.assertEqual(lock.read_text(), requirements)
+
     def test_exact_metadata_and_payload_are_verified_for_both_artifact_types(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

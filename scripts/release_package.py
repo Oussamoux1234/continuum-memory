@@ -114,6 +114,42 @@ def offline_environment(epoch):
     return environment
 
 
+def build_tool_pins(requirements, *, environment=None):
+    """Validate every exact pin, then select tools whose host markers match."""
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    pins, seen = {}, set()
+    for raw_line in requirements.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("#", "--hash=")):
+            continue
+        if line.endswith("\\"):
+            line = line[:-1].rstrip()
+        try:
+            match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)(?:\s*;\s*(.+))?", line)
+            if match is None:
+                raise ValueError("not a bare distribution with an exact pin")
+            requirement = Requirement(line)
+            specifiers = list(requirement.specifier)
+            if requirement.url or requirement.extras or len(specifiers) != 1 or specifiers[0].operator != "==":
+                raise ValueError("not one exact version")
+            version = match.group(2)
+            Version(version)  # Reject wildcard and non-version pins, even when inactive.
+        except ValueError as exc:
+            raise ValueError("build requirements must contain exact version pins") from exc
+        normalized = re.sub(r"[-_.]+", "-", requirement.name).lower()
+        # Reject aliases/duplicates across all marker branches, not just this host.
+        if normalized in seen:
+            raise ValueError("build requirements contain a duplicate distribution")
+        seen.add(normalized)
+        if requirement.marker is None or requirement.marker.evaluate(environment=environment):
+            pins[normalized] = version
+    if not pins:
+        raise ValueError("build requirements must contain active exact version pins")
+    return pins
+
+
 def require_build_tools(wheelhouse):
     """Check installed versions and available locked wheels, without installing.
 
@@ -121,21 +157,7 @@ def require_build_tools(wheelhouse):
     """
     if not wheelhouse.is_dir():
         raise ValueError("offline build wheelhouse is missing; see docs/LINUX_RELEASE.md")
-    pins = {}
-    for raw_line in BUILD_REQUIREMENTS.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith(("#", "--hash=")):
-            continue
-        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)(?:\s+\\)?", line)
-        if match is None:
-            raise ValueError("build requirements must contain exact version pins")
-        name, version = match.groups()
-        normalized = re.sub(r"[-_.]+", "-", name).lower()
-        if normalized in pins:
-            raise ValueError("build requirements contain a duplicate distribution")
-        pins[normalized] = version
-    if not pins:
-        raise ValueError("build requirements must not be empty")
+    pins = build_tool_pins(BUILD_REQUIREMENTS.read_text(encoding="utf-8"))
     for name, expected in pins.items():
         try:
             installed = metadata.version(name)

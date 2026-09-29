@@ -51,8 +51,11 @@ Linux x86-64 with each CPython ABI 3.11, 3.12, 3.13 and 3.14. For each ABI:
    enforce every required encryption, export, rotation, custody and recovery suite.
 4. Exercise wrong/missing/unsupported keys, key-first admission, no plaintext
    fallback, schema-2/3/4-to-5 keyed migration and unchanged unsupported metadata.
-   Re-run all real statement/process-exit, audit-publication and whole-CLI recovery
-   tests imported from main with the actual pinned SQLCipher backend.
+   Re-run applicable application statement/process-exit, audit-publication and
+   whole-CLI recovery tests with the actual pinned SQLCipher backend. The imported
+   `test_migration_crash.py` deliberately uses stdlib SQLite and remains a separate
+   engine matrix even inside the full suite. A keyed native process-exit migration
+   matrix is still unprepared and unrun; this refresh does not supply that evidence.
 5. Exercise prepared read-only observer behavior, WAL/SHM preservation and repeated
    writer commits. Verify each rotation/recovery fault and stable audit key, vault,
    capabilities and original receipts. Verify a durable pre-rotation locator still
@@ -80,3 +83,26 @@ and wheel hashes, source SBOM, NOASSERTION, custody, license/security review,
 privileged installer, signing/trust/revocation, publication and platform gates
 remain unchanged. No backup surface or native authority was added. Keep #7 and
 all dependent issues open until their actual acceptance criteria are satisfied.
+
+## Independent review repairs after checkpoint 267e0ce
+
+Three source defects were identified and repaired in a bounded follow-up:
+
+- Restored `storage.ensure_private_regular` as the strict security compatibility
+  export used by `fixtures/rotation.py` for key validation. The fixture and custody
+  sources remain byte-identical; the SQLite metadata observer is not used for keys.
+- Replaced the build-tool bare-line parser with strict bare-name/exact-version
+  validation plus the already-pinned `packaging` PEP 508 marker parser. Extras,
+  URLs, ranges, wildcard/invalid versions and normalized duplicates across all
+  entries are refused, including inactive branches. Only matching host pins are
+  queried in installed metadata; the original full requirements and hash set pass
+  unchanged to the existing offline, hash-required pip dry run. Four focused
+  tests are prepared for host selection, malformed/inactive pins, duplicate
+  aliases and metadata/resolver behavior; none was executed.
+- Corrected `LINUX_RELEASE.md` from 30 to the 91 source-enumerated exclusions
+  (62 Windows, 29 macOS), explicitly retaining unexecuted native status.
+
+Follow-up evidence is limited to AST/compile parsing, source diff inspection,
+unchanged protected-input hashes and unchanged ignored-file inventory. No project
+imports, test execution, resolver/package build or native/key activity was used.
+Independent exact-diff review and all runtime gates above remain outstanding.

@@ -31,6 +31,9 @@ from .security import (
     canonical_json,
     create_private_directory,
     ensure_private_directory,
+    # Compatibility export used by strict fixture key validation; never use the
+    # SQLite-specific metadata observer for keys or offline custody material.
+    ensure_private_regular,
     ensure_private_sqlite_file,
     now_iso,
     path_exists,

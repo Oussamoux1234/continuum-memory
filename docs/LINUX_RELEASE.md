@@ -54,9 +54,10 @@ export CONTINUUM_BUILD_WHEELHOUSE="$PWD/work/build-wheels"
 ```
 
 These are verification entry points, not a recorded pass. The proposed Linux test policy
-permits only 30 named platform-inapplicable skips: 11 Windows filesystem, 15 Windows IPC,
-and four macOS application tests. That exact ID/reason policy has passed independent source review; no
-cryptographic, encryption, rotation, or recovery test may be skipped. See
+requires exactly 91 named platform-inapplicable skips: 62 Windows and 29 macOS methods.
+The refreshed IDs and reasons were enumerated from source; this candidate's native
+matrix remains unexecuted. No applicable cryptographic, encryption, rotation, or
+recovery test may be skipped. See
 [the evidence boundary](VERIFICATION.md).
 
 The output directory must be empty or absent; the builder refuses to overwrite an earlier
