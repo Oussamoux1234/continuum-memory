@@ -1,6 +1,7 @@
 # Daemon ownership and crash restart
 
-This held encrypted branch imports the main `152450a` contracts and prepared tests.
+This held encrypted branch imports the main `152450a` contracts and the bounded
+prepared crash tests/docs from merged PRs #46 (`4b1eaf5`) and #47 (`1e0bb0f`).
 Historical plaintext results below are not validation of this source refresh. No
 application or native test ran for this checkpoint; see [the pending matrix](ISSUE7_SOURCE_REFRESH.md).
 
@@ -12,9 +13,12 @@ default-branch database is still the plaintext prototype.
 
 Use one private vault on a local POSIX filesystem with working `flock` and
 no-follow opens. Every daemon accessing that vault must use this lock-aware version.
-This runbook covers POSIX, not the [native Windows lifecycle candidate](WINDOWS_IPC.md),
-which uses held pipe instances and no socket-file cleanup. Its integrated native
-acceptance remains pending. Network filesystems, concurrent old/new daemons, and
+This runbook covers POSIX, not MAIN's [native Windows plaintext prototype](WINDOWS_IPC.md),
+which uses held pipe instances and no socket-file cleanup. Its hosted Windows Server
+2025 acceptance is documented in [Windows verification](WINDOWS_VERIFICATION.md);
+that is not desktop certification or native approval/encryption acceptance.
+Windows encrypted execution remains unsupported and disabled on this held branch.
+Network filesystems, concurrent old/new daemons, and
 protection against malicious same-user processes replacing private files are not supported.
 Development-host macOS tests do not certify the macOS runtime/approval boundary.
 
