@@ -1,4 +1,4 @@
-# Held issue #7 source refresh: main 152450a plus PR46/47/48 preparation
+# Held issue #7 source refresh: main 152450a, PR46/47/48 and backup preparation
 
 Recorded 2026-09-29. This is an unsigned local source checkpoint, not native
 acceptance, publication, a release, or issue closure. No application imports,
@@ -16,6 +16,9 @@ retrieval or real-vault operations were performed for this refresh.
 - Subsequent keyed initialization/preview source input: PR #48
   `d0ba7f56306515090956982954005a7a800fd657`, applied after local checkpoint
   `03d67b862bf97e10311a2985b1946b419cb3f1c2`.
+- Subsequent format-v2 backup candidate input:
+  `238418d70783cb2c2133ec8ff2d162df448afa44`, applied after keyed-initialization
+  checkpoint `06b6533e7b7ee317133750607ce3637c01334bd2`.
 - Local base before this source-only test/docs follow-up:
   `07856f7b43bfc00c1911f310dadb66b3e31c234f`.
 - Local branch: `codex/issue-7-source-refresh-152450a`.
@@ -24,7 +27,8 @@ retrieval or real-vault operations were performed for this refresh.
 - PR46/47 imported only five crash helper/test files and bounded documentation.
   The subsequent PR48 source-only follow-up adds initialization containment and
   prepared bootstrap/preview checks while retaining the native keyed backend.
-  The issue #4 backup candidate remains outside this checkpoint.
+  The later issue #4 source-only integration adds held staging/validation
+  primitives and prepared tests, not a public backup command or restore activation.
 
 ## File-level compatibility decisions
 
@@ -38,6 +42,7 @@ retrieval or real-vault operations were performed for this refresh.
 | `test_encrypted_platform_contract.py`, `test_encrypted_storage.py`, `test_encrypted_recovery_compatibility.py` | Prepared, unexecuted checks cover Windows refusal before side effects, read-only/hardening incompatibility, actual native read-only behavior/live sidecar preservation, and durable receipt recovery across native storage-key rotation. No new acceptance is inferred. |
 | `lifecycle_crash_support.py`, `test_retention_crash.py`, `test_proposal_purge_crash.py`, `test_propose_crash.py`, `test_recall_feedback_crash.py` | Source-only PR46/47 copies preserve merged test logic and literal boundary inventories; only module docstrings identify the hold. Existing helper/fixtures already use the held keyed `Store` interface; no direct stdlib database open or backend bypass was added. These application matrices have not run with SQLCipher. |
 | `bootstrap_state.py`, `storage.py`, `daemon.py`, `test_bootstrap_crash.py`, `test_preview_crash.py`, `test_recovery_protocol.py` | PR48 initialization records/metadata are adapted to native keyed admission. Prepared bootstrap coverage adds storage-key write/directory-sync hooks and uses keyed fixture mutation only; preview preserves its four-point operation oracle. The relabel fixture first expects initialization refusal, then explicitly tampers both synthetic records to reach the independent receipt-binding checks. All native execution remains unrun. |
+| `backup.py`, `admission.py`, `test_backup_contract.py`, `test_backup_native.py`, `BACKUP_CANDIDATE.md` | Held format-v2 staging/validation is imported with the bounded captured-policy parser. The native fixture initializes before taking its lease, while retaining lease ownership through Store/export/close. Current receipt and initialization metadata remain in full-row comparisons; no restore authority is inferred. Parser and native cases remain unexecuted. |
 | `scripts/release_package.py`, `packaging/build-requirements.txt` | Main's portable archive-member checks and installed Unicode CLI smoke are combined with exact native dependency/origin verification and the existing privileged-installer incompatibility flag. Main's platform-conditional tool lock additions are retained; Linux native pins are unchanged. |
 | `scripts/application_test_results.py`, `tests/platform-skips-linux.json`, `scripts/verify.py` | Source-enumerated exact Linux exclusions now name 91 methods: 62 Windows and 29 macOS. IDs/reasons, missing outcomes and required crypto/recovery suites remain strict. No encryption/rotation/missing-backend skip is allowed. New recovery files must appear in the sdist. |
 | `.github/workflows/windows-runtime.yml`, platform/recovery docs | Imported plaintext Windows runtime/account jobs are explicitly disabled for this encrypted branch. Main's historical evidence and closed plaintext issue #1 are distinguished from encrypted support. macOS remains a primitive-only workflow with native encrypted acceptance held. |
@@ -105,7 +110,7 @@ exception behavior, real runtime locks or packaging execution. The prepared
 observer and receipt-through-rotation tests have not run. Existing native source
 and wheel hashes, source SBOM, NOASSERTION, custody, license/security review,
 privileged installer, signing/trust/revocation, publication and platform gates
-remain unchanged. No backup surface or native authority was added. Keep #7 and
+remain unchanged. No public backup surface or native authority was added. Keep #7 and
 all dependent issues open until their actual acceptance criteria are satisfied.
 
 ## Independent review repairs after checkpoint 267e0ce
@@ -184,3 +189,28 @@ on each approved ABI; tests, native provider activity, key/vault access and buil
 were not run for this source-only preparation. Source parsing and review are not
 runtime acceptance. Windows encrypted execution and real human-presence, custody,
 backup-freshness and license gates remain unchanged.
+
+## Format-v2 backup candidate integration
+
+The subsequent source-only increment adds the reviewed internal candidate from
+`238418d` and its prepared tests. Its schema and audit verifier match this held
+application. New exports use format 2 with an optional untrusted checkpoint;
+legacy format 1 still requires its strict nonnull checkpoint and matching marker.
+Results remain `staged_not_published` / `validated_not_activated`,
+`restore_ready: false`, `freshness: unverified` and
+`revocation_reconciliation: not_performed`.
+
+The narrow parser extraction lets both private-file admission and embedded-policy
+validation use the same bounded captured bytes. Three additional pure contracts
+cover absent/default policy, agreement with a real private-file load, and uniform
+refusal of malformed, duplicate, oversized and nonbyte inputs. The native fixture
+now bootstraps before taking its daemon lease, which is then held before Store
+opening and through export and close. Full-row/control-file comparisons preserve
+newer receipt bindings and initialization records without granting them authority.
+
+No CLI/MCP wiring, restore/activation implementation, authority selection, native
+execution, test execution, build, artifact retrieval, publication, pin/hash or
+NOASSERTION change is part of this integration. Base issue #4 still needs an
+approved fresh-vault restore/owner-access contract and native acceptance;
+independent freshness/revocation remains separate issue #6 work. See
+[the held backup contract](BACKUP_CANDIDATE.md) for exact limits and open gates.

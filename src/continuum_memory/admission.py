@@ -4,7 +4,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import FrozenSet, Iterable, Tuple
+from typing import FrozenSet, Iterable, Optional, Tuple
 
 from .errors import MemoryError
 from .security import MAX_BODY_BYTES, bounded_text, ensure_private_regular, path_exists, read_private
@@ -58,7 +58,19 @@ class AdmissionPolicy:
             # Reject FIFOs/devices before open; read_private repeats validation on
             # the descriptor and rejects symlinks/hardlinks and oversized reads.
             ensure_private_regular(path, "Admission policy")
-            value = decode_frame(read_private(path, MAX_POLICY_BYTES))
+            return cls.from_bytes(read_private(path, MAX_POLICY_BYTES))
+        except (MemoryError, ValueError, TypeError, UnicodeError, RecursionError):
+            raise MemoryError("admission_policy_invalid", "The local admission policy is invalid or unsafe.") from None
+
+    @classmethod
+    def from_bytes(cls, payload: Optional[bytes]) -> "AdmissionPolicy":
+        """Validate one bounded captured policy; None denotes an absent policy."""
+        if payload is None:
+            return cls()
+        try:
+            if not isinstance(payload, bytes) or not 0 < len(payload) <= MAX_POLICY_BYTES:
+                raise ValueError
+            value = decode_frame(payload)
             if (not isinstance(value, dict) or set(value) - {"version", "deny_literals", "allow_sha256"}
                     or type(value.get("version")) is not int or value["version"] != 1):
                 raise ValueError
