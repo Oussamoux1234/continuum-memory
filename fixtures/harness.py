@@ -12,10 +12,24 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from continuum_memory import storage
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import MAX_FRAME_BYTES, canonical_json, sign_grant, write_private
 from continuum_memory.storage import Store, load_capability, paths
+
+
+def open_fixture_connection(data_dir: Path, *, writable: bool = False, read_only: bool = False):
+    """Inspect a keyed fixture without implicitly upgrading its schema."""
+    files = paths(data_dir)
+    connection = storage._connect(
+        files["db"],
+        storage._read_storage_key(files["storage_key"]),
+        apply_hardening=writable,
+        read_only=read_only,
+    )
+    connection.row_factory = None
+    return connection
 
 
 MCP_STARTUP_TIMEOUT = 5.0

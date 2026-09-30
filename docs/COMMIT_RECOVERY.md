@@ -3,7 +3,9 @@
 This is the committed-result slice of [issue #8](https://github.com/Oussamoux1234/continuum-memory/issues/8),
 not completion of its crash, lock, key-rotation and audit-hardening roadmap.
 It applies to schema v5 owner operations through the local daemon. The database
-is still the plaintext prototype; use synthetic data, not production secrets.
+in this branch requires the held SQLCipher backend. These recovery tests passed on
+plaintext main separately; they have not executed against this refreshed candidate.
+Use only synthetic data after native execution is separately authorized.
 
 ## Owner workflow
 

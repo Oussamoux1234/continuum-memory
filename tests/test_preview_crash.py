@@ -1,4 +1,10 @@
-"""Process death during preview challenge creation and global challenge GC.
+"""Held source-only preview matrix; NOT EXECUTED on this encrypted candidate.
+
+Imported from MAIN PR48; native execution needs separately reviewed inputs and
+authorization. The original plaintext description below is historical context,
+not encrypted acceptance. No missing-runtime skip or fallback is provided.
+
+Process death during preview challenge creation and global challenge GC.
 
 Preview is neither approval nor an idempotent operation. Only known pre-commit
 test cases retry; no committed preview is replayed and no target grant is made.
@@ -69,7 +75,7 @@ def preview_child(home, crash_after, request):
         store.close()
 
 
-@unittest.skipIf(os.name == "nt", "POSIX plaintext preview crash fixture; native Windows acceptance is separate")
+@unittest.skipIf(os.name == "nt", "POSIX keyed preview crash fixture; encrypted Windows is unsupported")
 class PreviewProcessCrashTest(AdminCrashFixture, unittest.TestCase):
     child_module = "tests.test_preview_crash"
 

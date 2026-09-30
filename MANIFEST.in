@@ -1,5 +1,7 @@
 recursive-include packaging/linux *
+recursive-include packaging/sqlcipher *.json *.md *.pm *.py *.toml
 recursive-include fixtures *.py
+recursive-include sbom *.json
 recursive-include tests *.py
 recursive-include tests/fixtures *.sql
 recursive-include docs *.md
@@ -11,8 +13,17 @@ include docs/DAEMON_RECOVERY.md
 include schemas/context-response.schema.json
 include docs/PROPOSAL_ERASURE.md
 include docs/LINUX_APPROVAL_BROKER.md
+include docs/PATCHED_SQLCIPHER_WHEELS.md
+include scripts/build_patched_sqlcipher_wheel.sh
+include scripts/fetch_patched_sqlcipher_sources.py
+include scripts/inspect_patched_sqlcipher_wheel.py
 include scripts/polkit_smoke.py
 include docs/SECRET_ADMISSION.md
+include scripts/test_patched_sqlcipher_install.py
+include scripts/test_patched_sqlcipher_runtime.py
+include scripts/verify_patched_sqlcipher_inputs.py
+include docs/SQLCIPHER_STORAGE.md
+include scripts/verify_encrypted_application.py
 include pyproject.toml
 include scripts/verify.py
 include scripts/release_package.py
@@ -20,3 +31,6 @@ include scripts/macos_environment.py
 include packaging/build-requirements.txt
 include packaging/backend-requirements.txt
 include docs/LINUX_RELEASE.md
+include scripts/application_inputs.py
+include scripts/application_test_results.py
+include tests/platform-skips-linux.json

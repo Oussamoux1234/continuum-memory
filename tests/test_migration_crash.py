@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory.migrations import SCHEMA_VERSION, migrate
@@ -33,7 +34,7 @@ def snapshot(db):
     # Logical comparison includes FTS shadow tables and every row. Filesystem
     # bytes (WAL salts/checkpoint layout) are not logical database state.
     return (db.execute("PRAGMA user_version").fetchone()[0],
-            db.execute("PRAGMA application_id").fetchone()[0], tuple(db.iterdump()))
+            db.execute("PRAGMA application_id").fetchone()[0], tuple(database_dump(db)))
 
 
 class BoundaryConnection:

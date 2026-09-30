@@ -1,0 +1,54 @@
+{
+  "endpoint": "https://api.osv.dev/v1/query",
+  "evidenceDate": "2026-09-23",
+  "qualification": "Empty exact-commit query responses mean no known OSV findings at query time; they are not proof of safety. SQLCipher 4.19.0 is the upstream remediation for two issues disclosed 2026-09-08 affecting 4.18.0 and earlier.",
+  "queriedAt": "2026-09-23T13:23:10.882825+00:00",
+  "queries": [
+    {
+      "component": "OpenSSL",
+      "request": {
+        "commit": "f4dc4d58b48d346a8270183f89acf826d459b0ca"
+      },
+      "response": {}
+    },
+    {
+      "component": "sqlcipher3",
+      "request": {
+        "commit": "14fc2632676b20011e0bba64fdda49763a2dd2ec"
+      },
+      "response": {}
+    },
+    {
+      "component": "SQLCipher",
+      "request": {
+        "commit": "c4b275a47932888216bade83aff2bbc73df0ff85"
+      },
+      "response": {}
+    }
+  ],
+  "requestContentType": "application/json",
+  "schemaVersion": 1,
+  "vendorAdvisories": [
+    {
+      "affectedVersions": "4.18.0 and earlier",
+      "component": "SQLCipher",
+      "fixedVersion": "4.19.0",
+      "issues": [
+        {
+          "conditions": "Attacker-controlled attached database aliases must reach sqlcipher_export through SQL injection or unrestricted SQL access.",
+          "effect": "Aliases can alter generated SQL statements; upstream says encryption and per-page integrity remain intact and this issue does not leak data.",
+          "name": "Unquoted schema aliases in sqlcipher_export"
+        },
+        {
+          "conditions": "A new database is opened with the optional hexkey URI parameter containing no valid key material.",
+          "effect": "Affected versions can create a plaintext SQLite database without reporting an error; 4.19.0 reports an error.",
+          "name": "Invalid nonempty URI hexkey"
+        }
+      ],
+      "observedDate": "2026-09-23",
+      "publishedDate": "2026-09-08",
+      "qualification": "Upstream rates both issues Low. The export issue and plaintext-creation issue have different effects. These vendor findings invalidate an unqualified security clearance for 4.18.0 even when its OSV response is empty; the 4.19.0 candidate still requires signature, build, runtime, and independent acceptance checks.",
+      "url": "https://www.zetetic.net/blog/2026/09/08/sqlcipher-4.19.0-release/"
+    }
+  ]
+}

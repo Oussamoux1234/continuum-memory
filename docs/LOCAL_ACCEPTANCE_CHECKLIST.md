@@ -8,6 +8,15 @@ The owner requested checklists and explicitly kept the gates open on 2026-09-23.
 
 ## 1. Genuine Linux human-presence check
 
+Current encrypted-candidate prerequisite: the wheel stager accepts only this
+application's exact `continuum-sqlcipher3==0.6.2.post2` dependency metadata. The
+approval-only environment deliberately installs the unchanged wheel with `--no-deps`;
+it must not install or import SQLCipher. The build gate checks the actual installed
+helper in a separate fresh environment before and after relocation. This new check
+still needs a passing hosted run and review for the selected revision. It does not
+exercise privileged installation or human presence, or authorize the operator steps
+below; those remain separate acceptance gates.
+
 Audience: a human operator on a controlled Linux workstation or desktop VM, with
 administrator authority and a real terminal. CI mocks, an automatically answered
 prompt, a macOS host, or merely finding `pkexec` are not acceptance evidence.

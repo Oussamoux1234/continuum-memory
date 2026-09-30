@@ -1,5 +1,11 @@
 # Local failure-injection matrix
 
+This held encrypted branch imports the main `152450a` contracts and the bounded
+prepared crash tests/docs from merged PRs #46 (`4b1eaf5`), #47 (`1e0bb0f`) and
+#48 (`d0ba7f5`). PR48 initialization containment is adapted to the keyed backend.
+Historical plaintext results below are not validation of this source refresh. No
+application or native test ran for this checkpoint; see [the pending matrix](ISSUE7_SOURCE_REFRESH.md).
+
 This is evidence for bounded slices of
 [issue #8](https://github.com/Oussamoux1234/continuum-memory/issues/8), not its
 completion. Tests use synthetic temporary vaults/databases. No host power-loss,
@@ -329,6 +335,10 @@ revocation or power-loss acceptance. Issue #8 remains incomplete.
 
 ## Read-triggered retention and proposal-purge process crashes
 
+Prepared source only on this held encrypted candidate; **not executed here**.
+The commands below are a gated validation plan, not authorization to run native
+code. MAIN plaintext results do not validate this candidate or its backend.
+
 ```bash
 PYTHONPATH=src python3 -W error::ResourceWarning -m unittest \
   tests.test_retention_crash tests.test_proposal_purge_crash -v
@@ -382,6 +392,7 @@ key integrity are checked again after reopening. These are plaintext, synthetic,
 POSIX process-exit tests. They do not prove physical erasure, Windows crash
 semantics, host power-loss durability, encrypted rotation, backup freshness, or
 completion of issue #8.
+
 
 ## POSIX audit-anchor publication faults
 
@@ -505,6 +516,10 @@ They neither add approval authority nor complete issue #8.
 
 ## Agent proposal, recall and feedback process crashes
 
+Prepared source only on this held encrypted candidate; **not executed here**.
+The commands below are a gated validation plan, not authorization to run native
+code. MAIN plaintext results do not validate this candidate or its backend.
+
 ```bash
 PYTHONPATH=src python3 -W error::ResourceWarning -m unittest \
   tests.test_propose_crash tests.test_recall_feedback_crash -v
@@ -559,21 +574,32 @@ evidence of deduplication. These are bounded POSIX plaintext process-death cases
 not OS-backed approval, SQLCipher, native Windows process-crash, host power-loss,
 backup-revocation evidence or completion of issue #8.
 
+
 ## Initialization containment under process crashes
+
+Prepared encrypted source only; **not executed here**. The command is a future
+gated validation plan, not authorization to run the native backend.
 
 ```bash
 PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_bootstrap_crash -v
 ```
 
-This fixture initializes two projects with two providers each. Its **48 selected
+This fixture initializes two projects with two providers each. Its literal **51 prepared
 process-exit boundaries** cover exclusive claim creation, an actual positive
 partial record write and file flush, private-directory/key/capability/database
 creation, the outer schema script, explicit SQL mutations, SQL commit, initial
 audit-anchor publication, verification readback, checkpoint, connection close,
-completion-record creation/partial write/flush, and lost response. The schema
+completion-record creation/partial write/flush, and lost response. Compared with
+MAIN's 48 points, this keyed fixture adds the storage-key write plus before/after
+the existing required key-directory sync. Backend/key-first connection setup is
+inside the outer database-open hooks, not individually interrupted. The schema
 script, native cascades, VFS instructions and filesystem internals are not each
 individually interrupted. Deterministic IDs, tokens and time are synthetic;
-private writes, SQLite commits and abrupt `os._exit(73)` are real.
+future execution uses actual private writes, keyed SQLCipher commits and abrupt
+`os._exit(73)`, with no mocked backend or missing-runtime skip. The oracle also
+requires native cipher integrity, distinct synthetic storage/audit key identities
+and encrypted storage-mode metadata. Deliberate metadata-damage and legacy-fixture
+setup use only the existing keyed writable helper, never stdlib SQLite.
 
 Before admission, the parent inventories the residue without opening SQLite or
 following links. Every selected incomplete case must repeatedly refuse Store,
@@ -591,18 +617,22 @@ all-or-nothing creation of a directory. Partial files remain quarantined in plac
 retry uses a fresh unrelated location. See [the operator contract](DAEMON_RECOVERY.md#interrupted-initialization)
 for both-records-missing/SQLite side-effect limits, legacy compatibility and why
 neither initialization record authorizes reconstructing an audit anchor. This
-matrix is POSIX plaintext process-crash evidence, not native Windows crash,
-encrypted initialization, anti-rollback, same-user isolation or power-loss proof.
+matrix is prepared POSIX encrypted test source, not executed encrypted
+initialization evidence, native Windows crash, anti-rollback, same-user isolation
+or power-loss proof. MAIN's plaintext execution does not satisfy this native gate.
 
 ## Preview creation and expired/used challenge cleanup
+
+Prepared encrypted source only; **not executed here**. This is another future
+gated command, with unchanged native/provider/approval holds.
 
 ```bash
 PYTHONPATH=src python3 -W error::ResourceWarning -m unittest tests.test_preview_crash -v
 ```
 
 The public `admin_preview(accept_proposal)` path is cut after its global challenge
-DELETE and INSERT, and immediately before/after SQL commit: **four real process
-exits**. Real synthetic previews in two projects supply expired, exactly-at-expiry,
+DELETE and INSERT, and immediately before/after SQL commit: **four prepared process-
+exit points**. Real synthetic previews in two projects supply expired, exactly-at-expiry,
 live and already-used controls. The strict `expires_at < now` boundary retains
 equality; both projects' expired/used challenges disappear atomically with the
 new challenge, or all original rows survive before commit. No target approval
@@ -616,7 +646,8 @@ preview has no committed-result receipt. Agents cannot preview/apply/recover own
 actions, and an invalid owner grant is refused without mutation. Full raw logical
 state and anchor checks precede semantic calls. Only known pre-commit test cases
 retry; a committed preview is never blindly recreated. This is bounded synthetic
-POSIX plaintext process-death coverage, not Windows crash or human-approval proof.
+POSIX process-death test source adapted to the keyed Store, not executed encrypted
+coverage, Windows crash or human-approval proof.
 
 ## Other current failure coverage
 

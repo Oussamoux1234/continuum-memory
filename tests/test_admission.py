@@ -4,11 +4,11 @@ import hashlib
 import json
 import os
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory.admission import AdmissionPolicy, POLICY_FILE
@@ -16,8 +16,7 @@ from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.security import canonical_json, create_private_directory, replace_private, require_keys
 from continuum_memory.storage import Store, load_capability
-from fixtures.harness import EphemeralHarness, private_test_home
-from fixtures.windows_acl import set_fixture_acl
+from fixtures.harness import EphemeralHarness, open_fixture_connection, private_test_home
 from tests import test_snapshot_forget as fixture
 
 SECRETS = {
@@ -186,7 +185,7 @@ class WriteAdmissionTests(unittest.TestCase):
         return value
 
     def clean(self, secret):
-        self.assertNotIn(secret, '\n'.join(self.store.connection.iterdump()))
+        self.assertNotIn(secret, '\n'.join(database_dump(self.store.connection)))
         for path in self.home.iterdir():
             if path.is_file() and path.name != POLICY_FILE:
                 self.assertNotIn(secret.encode(), path.read_bytes(), path.name)
@@ -372,7 +371,7 @@ class BootstrapAndDiagnosticTests(unittest.TestCase):
             self.assertNotIn(secret,canonical_json(response))
             client.process.stdin.close(); self.assertEqual(client.process.wait(timeout=3),0)
             self.assertEqual(client.process.stderr.read(),'')
-            connection = sqlite3.connect(str(harness.data_dir/'continuum.db'))
+            connection = open_fixture_connection(harness.data_dir)
             try:
                 self.assertEqual(connection.execute('SELECT count(*) FROM proposals').fetchone()[0],0)
             finally:

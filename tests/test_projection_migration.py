@@ -1,5 +1,4 @@
 """Exercise the shipped v2 schema, including interrupted upgrades and old receipts."""
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +9,8 @@ from continuum_memory import storage
 from continuum_memory.errors import MemoryError
 from continuum_memory.kernel import Kernel
 from continuum_memory.migrations import SCHEMA_VERSION, migrate
-from continuum_memory.storage import Store, load_capability, paths
+from continuum_memory.storage import Store, load_capability, paths, sqlite3
+from fixtures.harness import open_fixture_connection
 
 
 class ProjectionMigrationTest(unittest.TestCase):
@@ -23,7 +23,7 @@ class ProjectionMigrationTest(unittest.TestCase):
                                                 "providers": ["codex", "claude"]}])
         self.project = boot["projects"][0]["id"]
         self.cap_path = Path(boot["projects"][0]["capabilities"]["codex"])
-        self.db = sqlite3.connect(str(paths(self.home)["db"]))
+        self.db = open_fixture_connection(self.home, writable=True)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
         scope = self.db.execute("SELECT id FROM scopes WHERE project_id=?", (self.project,)).fetchone()[0]

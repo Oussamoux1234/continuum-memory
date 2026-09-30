@@ -20,7 +20,7 @@ from continuum_memory.security import (
     ensure_private_directory, ensure_private_regular, ensure_private_socket,
     read_private, write_private,
 )
-from continuum_memory.storage import Store, _connect, paths
+from continuum_memory.storage import Store, _connect, _read_storage_key, paths
 
 
 class FakeACL:
@@ -493,6 +493,7 @@ class NativeMacOSACLTest(unittest.TestCase):
     def test_database_and_every_existing_sidecar_acl_refused_before_sqlite(self):
         Store.bootstrap(self.home, [{"name": "mac", "path_hint": "/synthetic", "providers": ["codex"]}])
         database = paths(self.home)["db"]
+        storage_key = _read_storage_key(paths(self.home)["storage_key"])
         for suffix in ("", "-wal", "-shm", "-journal"):
             with self.subTest(suffix=suffix):
                 target = Path(str(database) + suffix)
@@ -504,7 +505,7 @@ class NativeMacOSACLTest(unittest.TestCase):
                 try:
                     with patch("continuum_memory.storage.sqlite3.connect") as connect:
                         with self.assertRaises(MemoryError) as caught:
-                            _connect(database)
+                            _connect(database, storage_key)
                         self.assertEqual(caught.exception.code, "unsafe_permissions")
                         connect.assert_not_called()
                     self.assertEqual(target.read_bytes(), before)

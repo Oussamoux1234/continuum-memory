@@ -1,5 +1,11 @@
 # Native Windows pipe boundary and runtime
 
+This document preserves the separately accepted **plaintext main** Windows contract
+at `152450a`. Issue #1 is closed for that scope. This held encrypted candidate refuses
+Windows storage before accessing keys; its imported full-runtime and account-lifecycle
+workflow jobs are disabled. The commands and evidence below apply to plaintext main,
+not this branch, and confer no encrypted Windows acceptance.
+
 The Windows daemon and client select this boundary only on native Windows. It
 builds on the [filesystem boundary](WINDOWS_BOUNDARY.md). Native acceptance must
 cover the complete runtime and full verifier, not just these low-level primitives.
@@ -133,6 +139,6 @@ non-Windows and therefore do not supply native proof there.
 - [Pipe-bound client identification](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient)
 - [Cancellation does not mean completion](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)
 
-Issue #1 remains open until complete native runtime and filesystem acceptance,
-including a genuine different-account peer fixture, has been reviewed. Isolated
+Issue #1's plaintext scope required complete native runtime and filesystem acceptance,
+including a genuine different-account peer fixture; that scope has been reviewed. Isolated
 pipe CI alone is not native application acceptance.

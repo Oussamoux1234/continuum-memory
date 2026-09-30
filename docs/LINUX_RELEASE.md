@@ -6,17 +6,25 @@ or production readiness. No publication or signing credentials are used by this 
 
 ## Prerequisites and offline preparation
 
-The release verification toolchain uses Python 3.11–3.14. The application metadata retains
-its existing Python 3.9+ compatibility floor; Python 3.9 is end-of-life and is not in the
-supported release CI matrix. SQLite must provide FTS5 and version 3.37 or later. Linux
-release CI runs on Ubuntu 24.04 x86-64 for each supported Python minor version.
+The encrypted application candidate requires Linux x86-64, CPython 3.11–3.14, and exactly
+`continuum-sqlcipher3` 0.6.2.post2 with SQLCipher 4.19.0 / SQLite 3.53.4. The native artifact
+gate has separate recorded results; the combined application/release verification has
+not run successfully. There is no standard-library SQLite fallback or Python 3.9 support.
 Both local transports enforce an explicit 64-container JSON nesting limit before parsing,
 independent of a Python interpreter's recursion behavior. Delimiters inside strings do not
 count. Over-deep input receives the existing bounded parse error and is never dispatched.
 
-Start from the exact reviewed checkout. The following **preparation** downloads only
-hash-pinned build/verification tools. It is the one network step; it neither downloads
-application runtime dependencies nor publishes artifacts:
+Start from the exact reviewed checkout. Two separate input directories are required:
+
+- The strict native wheelhouse contains exactly the selected ABI's manifest-locked post2
+  wheel, setuptools 80.9.0, and wheel 0.45.1. Obtain it through the
+  [reviewed native pipeline](PATCHED_SQLCIPHER_WHEELS.md), not a package-index substitution.
+- The build-tool wheelhouse contains the hash-pinned PEP 517 and SPDX verification tools
+  from `packaging/build-requirements.txt`. Its backend subset is locked separately in
+  `packaging/backend-requirements.txt`. Keep it separate from the three-wheel native directory.
+
+The following **preparation** downloads only build/verification tools. It is separate from
+native source acquisition, offline verification, and publication:
 
 ```bash
 python3 -m venv .venv
@@ -28,18 +36,35 @@ python3 -m venv .venv
 
 An offline machine instead receives that exact reviewed wheelhouse via its normal trusted
 transfer process. Do not remove `--require-hashes`, add an online fallback, or substitute
-unreviewed wheels to make a missing dependency pass. The lock currently includes Linux
-x86-64 and local macOS arm64 wheel hashes; it is not a Windows support claim.
+unreviewed wheels to make a missing dependency pass. The build-tool lock includes Linux
+x86-64 and macOS arm64 hashes; those hashes do not establish an approved macOS native
+backend or application support.
 
 ## Complete verification and artifacts
 
+After installing the exact reviewed native runtime and build tools into the isolated
+Linux environment, the combined candidate gate is:
+
 ```bash
+export CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/native-wheelhouse
+export CONTINUUM_BUILD_WHEELHOUSE="$PWD/work/build-wheels"
 .venv/bin/python scripts/verify.py
-.venv/bin/python scripts/release_package.py --output work/release
+.venv/bin/python scripts/release_package.py --output work/release \
+  --wheelhouse "$CONTINUUM_BUILD_WHEELHOUSE"
 ```
+
+These are verification entry points, not a recorded pass. The proposed Linux test policy
+requires exactly 91 named platform-inapplicable skips: 62 Windows and 29 macOS methods.
+The refreshed IDs and reasons were enumerated from source; this candidate's native
+matrix remains unexecuted. No applicable cryptographic, encryption, rotation, or
+recovery test may be skipped. See
+[the evidence boundary](VERIFICATION.md).
 
 The output directory must be empty or absent; the builder refuses to overwrite an earlier
 result. The verifier needs the local wheelhouse and performs no package-index access.
+Before creating output, it checks every installed tool version against the lock and uses
+an offline hash-checked pip dry run, ignoring installed packages, to validate the complete
+build-tool wheelhouse; installed-byte provenance still relies on the reviewed setup above.
 `PIP_NO_INDEX=1`, `PIP_CONFIG_FILE=/dev/null`, no build isolation downloads, and no pip cache
 are used during builds and installs. This is an offline dependency-resolution check, not
 a packet-capture or operating-system network-isolation proof.
@@ -56,19 +81,25 @@ The output contains:
 Both artifacts are installed into separate fresh virtual environments with offline pip.
 Each installation exercises `continuum --version`, `memoryd --help`, `continuum-mcp --help`,
 and `continuum-polkit-helper --help`, outside the source checkout and without `PYTHONPATH`.
-The source install provisions only its hash-pinned backend into its fresh environment.
+Both fresh environments require the exact hash-locked native dependency; the source
+install also provisions its hash-pinned PEP 517 backend.
 No polkit privilege prompt, actual vault, or installed AI-client profile is touched.
 Separately, the wheel environment is renamed and its original path removed; the relocated
 interpreter runs `-I -m continuum_memory.polkit_helper --help` from an unrelated directory.
 That verifies the installed wrapper's invocation strategy, not a real privileged approval.
 
-The payload SBOM does **not** inventory the host OS, Python, SQLite/OpenSSL, or verification
-toolchain: those are not bundled application dependencies. Build-tool pins/hashes live in
+The payload SBOM inventories the application archives and links the exact post2 dependency
+as external and unbundled, with `NOASSERTION` declared/concluded licensing and hashes of
+its manifest and source SBOM. The selected ABI wheel hash and installed-runtime proof are
+recorded in `build-evidence.json`; native source/binary evidence remains in the separate
+SQLCipher pipeline. The payload SBOM does **not** inventory the host OS or verification
+toolchain. Build-tool pins/hashes live in
 `packaging/build-requirements.txt`. Host versions appear in the build evidence. Licensing
 conclusions remain `NOASSERTION`; `Apache-2.0` is the project's declared license, not a
-third-party legal review. SQLCipher candidates are not bundled or approved by this SBOM.
-Adding runtime dependencies fails the metadata gate until the SBOM model/install checks
-are deliberately updated. A deployable encrypted release needs that later dependency gate.
+third-party legal review. The native wheel is not bundled into the application wheel or
+approved by this payload SBOM. Runtime metadata must name only the exact reviewed post2
+dependency; unexpected dependencies fail the release gate. Neither payload checks nor the
+native source SBOM settle the binding/aggregate `NOASSERTION` license hold.
 
 ## Reproducibility boundary
 
@@ -89,15 +120,23 @@ Python/zlib versions. To investigate a mismatch, compare archive members and evi
 never accept a changed hash merely to make CI green. GitHub runner images remain managed
 inputs, not immutable machine images.
 
-## Optional Linux approval-helper installation
+## Privileged approval-helper compatibility gate
 
-Only an owner who has reviewed the checkout, wheel hashes, matching revision, and policy
-should execute the privileged installer. Build tools are never installed as root:
+The privileged stager requires the application's exact single dependency header,
+`continuum-sqlcipher3==0.6.2.post2`; it rejects missing, additional or changed requirements.
+The unchanged wheel is installed offline with `--no-deps` into an approval-only environment.
+SQLCipher is deliberately absent there: the fixed helper's import closure uses only its
+approval/security modules and the standard library, with system OpenSSL for signing.
+This is not a usable environment for the daemon or the full application.
 
-```bash
-sudo packaging/linux/install-polkit.sh \
-  "$PWD/work/release/continuum_memory-0.1.0.dev0-py3-none-any.whl"
-```
+A separate packaging probe stages the actual built wheel, installs it without SQLCipher
+in a fresh environment, verifies installed module origins and absent backend/storage imports,
+and runs isolated helper `--help` before and after relocation. On success, build evidence
+records `helper_only_runtime`; `privileged_installation_tested` remains false. This new
+probe still needs hosted execution at the selected revision. Neither it nor the existing
+native application smoke test proves privileged installation, provisioning or real human
+presence. Those steps require separate operator approval and acceptance. Build tools are
+never installed as root.
 
 The wheel argument must be an absolute canonical regular path (no symlink/hardlink), with
 the exact expected name and metadata. The installer copies it into root-owned staging

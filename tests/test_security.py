@@ -1,10 +1,9 @@
-import sqlite3
 import unittest
 
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import sign_grant
 from continuum_memory.storage import load_capability, paths
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 
 class SecurityBoundaryTest(unittest.TestCase):
@@ -31,7 +30,7 @@ class SecurityBoundaryTest(unittest.TestCase):
         )
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(response["result"]["structuredContent"]["error"]["code"], "secret_rejected")
-        connection = sqlite3.connect(str(self.harness.data_dir / "continuum.db"))
+        connection = open_fixture_connection(self.harness.data_dir)
         try:
             self.assertEqual(connection.execute("SELECT count(*) FROM proposals").fetchone()[0], 0)
             for table, column in (("proposals", "body"), ("evidence", "body"), ("assertion_versions", "body")):

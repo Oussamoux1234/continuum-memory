@@ -1,7 +1,8 @@
 """Policy-enforcing domain kernel. The daemon is its only post-bootstrap caller."""
 
+from __future__ import annotations
+
 import json
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,7 +50,7 @@ from .security import (
     validate_capability_authority,
     verify_grant,
 )
-from .storage import POLICY_VERSION, Store
+from .storage import POLICY_VERSION, Store, sqlite3
 from .temporal import canonical_utc, datetime_utc, format_utc
 
 CLASSIFICATIONS = {"public", "internal", "confidential", "restricted"}
@@ -259,16 +260,22 @@ class Kernel:
         self._expire_due(project)
         watermark = self._watermark(self._eligibility(project, capability["provider"],
                                                       owner_read=is_owner_capability(capability)))
-        return {
+        result = {
             "status": "available",
             "project_bound": project,
             "provider": capability["provider"],
             "projection_watermark": watermark,
             "recorded_sequence_domain": "vault_v1" if is_owner_capability(capability) else "project_provider_v1",
-            "storage_mode": "plaintext_prototype",
+            "storage_mode": self.store.storage_mode,
             "network_default": "disabled",
             "approval_boundary": self._approval_boundary(),
         }
+        if is_owner_capability(capability):
+            generation = self.db.execute(
+                "SELECT value FROM metadata WHERE key='storage_generation'"
+            ).fetchone()
+            result["storage_generation"] = generation[0] if generation else "initial"
+        return result
 
     def _approval_public_key(self) -> Optional[Path]:
         return self._approval_public_key_provider(self.store.owner_uid)
@@ -1722,6 +1729,9 @@ class Kernel:
         result = self.store.verify_audit()
         integrity = self.db.execute("PRAGMA integrity_check").fetchone()[0]
         result["sqlite_integrity"] = integrity
+        result["cipher_integrity"] = (
+            "ok" if not self.db.execute("PRAGMA cipher_integrity_check").fetchall() else "invalid"
+        )
         result["content_free_event_schema"] = True
         return result
 

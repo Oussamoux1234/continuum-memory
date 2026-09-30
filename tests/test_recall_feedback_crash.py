@@ -1,4 +1,10 @@
-"""Real process death during public search/context recall and agent feedback.
+"""Held source-only crash-test preparation; not executed on this candidate.
+
+Imported from MAIN 1e0bb0f. The original plaintext fixture description below
+is historical context, not encrypted runtime or platform acceptance. Execution
+requires separately approved native inputs and remains held.
+
+Real process death during public search/context recall and agent feedback.
 
 These APIs have no idempotency or durable-result receipt contract. A retry here
 is permitted ONLY by the test's known pre-commit crash location; this is not
@@ -293,3 +299,4 @@ if __name__ == "__main__":
         recall_feedback_child(Path(sys.argv[2]), int(sys.argv[3]), json.loads(sys.stdin.buffer.read()))
     else:
         unittest.main()
+

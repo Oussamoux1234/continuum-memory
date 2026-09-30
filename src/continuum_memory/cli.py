@@ -210,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
     approval_sub = approval.add_subparsers(dest="approval_command", required=True)
     approval_sub.add_parser("status")
     approval_sub.add_parser("provision-linux")
+    storage = sub.add_parser("storage", help="Offline encrypted storage maintenance.")
+    storage_sub = storage.add_subparsers(dest="storage_command", required=True)
+    storage_sub.add_parser("rotate-key", help="Rotate the storage key after fresh OS approval.")
+    storage_sub.add_parser("recover-key", help="Recover an interrupted rotation after fresh OS approval.")
     return parser
 
 
@@ -250,6 +254,12 @@ def run(args: argparse.Namespace) -> Any:
         path_hint = str(args.project_path.resolve())
         bounded_text(path_hint, "project_path", MAX_BODY_BYTES)
         return Store.bootstrap(data_dir, [{"name": name, "path_hint": path_hint, "providers": providers}])
+    if args.command == "storage":
+        from .storage_rotation import recover_storage_key, rotate_storage_key
+
+        if args.storage_command == "rotate-key":
+            return rotate_storage_key(data_dir)
+        return recover_storage_key(data_dir)
     client = _client(data_dir)
     if args.command == "approval":
         information = client.call("approval_info", {})

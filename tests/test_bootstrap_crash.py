@@ -1,8 +1,13 @@
-"""Bounded plaintext bootstrap crashes preserve residue and refuse partial use.
+"""Prepared encrypted bootstrap crash matrix; NOT EXECUTED on this held branch.
+
+Adapted from MAIN PR48. Native execution requires separately reviewed inputs and
+authorization; no missing-backend skip or plaintext fallback is provided.
+Bounded bootstrap crashes preserve residue and refuse partial use.
 
 No interrupted initialization is repaired here. Synthetic IDs, tokens and time
-make fixture copies comparable; SQLite, private writes and process exits are real.
-This is not power-loss, native Windows, encryption or same-user isolation proof.
+make fixture copies comparable. Future execution uses actual keyed SQLCipher,
+private writes and process exits, not a mock backend. No encrypted runtime,
+power-loss, native Windows or same-user isolation proof is claimed by this source.
 """
 
 import hashlib
@@ -10,12 +15,12 @@ import json
 import os
 import re
 import select
-import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
@@ -26,6 +31,7 @@ from continuum_memory.errors import MemoryError
 from continuum_memory.migrations import SCHEMA_SQL, SCHEMA_VERSION
 from continuum_memory.security import canonical_json, create_private_directory, read_private, write_private
 from continuum_memory.storage import Store, load_capability, paths
+from fixtures.harness import open_fixture_connection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -117,6 +123,7 @@ class BootstrapObserver:
         self.real_write, self.real_fsync = os.write, os.fsync
         self.real_connect, self.real_private = storage._connect, storage.write_private
         self.real_directory = storage.create_private_directory
+        self.real_directory_sync = storage._sync_private_directory
         self.real_anchor = Store._sync_audit_head_raw
         self.real_verify = Store._verify_bootstrap
 
@@ -197,6 +204,14 @@ class BootstrapObserver:
         self.tick("directory:capabilities")
         return result
 
+    def sync_key_directory(self, directory):
+        if directory != self.home:
+            raise AssertionError("Unexpected storage-key directory sync")
+        self.tick("before_key_directory_sync")
+        result = self.real_directory_sync(directory)
+        self.tick("after_key_directory_sync")
+        return result
+
     def connect(self, *args, **kwargs):
         self.tick("before_database_open")
         connection = self.real_connect(*args, **kwargs)
@@ -218,6 +233,7 @@ class BootstrapObserver:
             stack.enter_context(patch.object(security.os, name, side_effect=getattr(self, name)))
         stack.enter_context(patch.object(storage, "write_private", side_effect=self.private))
         stack.enter_context(patch.object(storage, "create_private_directory", side_effect=self.directory))
+        stack.enter_context(patch.object(storage, "_sync_private_directory", side_effect=self.sync_key_directory))
         stack.enter_context(patch.object(storage, "_connect", side_effect=self.connect))
         stack.enter_context(patch.object(Store, "_sync_audit_head_raw", side_effect=self.anchor))
         stack.enter_context(patch.object(Store, "_verify_bootstrap", side_effect=self.verify))
@@ -225,7 +241,7 @@ class BootstrapObserver:
 
 def bootstrap_child(home, ordinal=0, race=False):
     observed = BootstrapObserver(home, ordinal, race)
-    ids, tokens = Counter(), Counter()
+    ids, tokens, key_calls = Counter(), Counter(), []
 
     def identifier(prefix):
         ids[prefix] += 1
@@ -235,11 +251,18 @@ def bootstrap_child(home, ordinal=0, race=False):
         tokens["token"] += 1
         return "synthetic_bootstrap_token_%048d" % tokens["token"]
 
+    def key_bytes(size):
+        # Fixture-only distinct keys; leave native key-first/backend checks real.
+        key_calls.append(size)
+        if size != 32 or len(key_calls) > 2:
+            raise AssertionError("Unexpected bootstrap key-generation inventory")
+        return (b"S" if len(key_calls) == 1 else b"B") * 32
+
     with ExitStack() as stack:
         observed.install(stack)
         stack.enter_context(patch.object(storage, "random_id", side_effect=identifier))
         stack.enter_context(patch.object(storage, "now_iso", return_value=TIME))
-        stack.enter_context(patch.object(storage.secrets, "token_bytes", return_value=b"B" * 32))
+        stack.enter_context(patch.object(storage.secrets, "token_bytes", side_effect=key_bytes))
         stack.enter_context(patch.object(storage.secrets, "token_urlsafe", side_effect=token))
         try:
             result = Store.bootstrap(home, PROJECTS)
@@ -251,6 +274,8 @@ def bootstrap_child(home, ordinal=0, race=False):
         observed.tick("response_ready")
         if ids != {"vlt": 1, "cap": 5, "prj": 2, "scp": 2} or tokens != {"token": 5}:
             raise AssertionError("Unexpected bootstrap identifier inventory")
+        if key_calls != [32, 32]:
+            raise AssertionError("Unexpected bootstrap key-generation inventory")
         if observed.live:
             raise AssertionError("Marker descriptor was not closed")
         print(canonical_json({"boundaries": observed.boundaries, "vault_id": result["vault_id"]}), flush=True)
@@ -261,7 +286,8 @@ def bootstrap_child(home, ordinal=0, race=False):
 # script internals, VFS instructions and native filesystem internals are excluded.
 BOUNDARIES = [
     "bootstrap.claim:created", "bootstrap.claim:partial", "bootstrap.claim:synced",
-    "directory:capabilities", "file:audit.key", "file:control.cap", "file:continuum.db",
+    "directory:capabilities", "file:storage.key", "before_key_directory_sync", "after_key_directory_sync",
+    "file:audit.key", "file:control.cap", "file:continuum.db",
     "before_database_open", "after_database_open", "before_schema_script", "after_schema_script", "schema_version",
     "sql:metadata", "sql:metadata", "sql:metadata", "sql:metadata", "sql:capabilities",
     "sql:sequence", "sql:projects", "sql:scopes", "sql:capabilities", "file:agent_capability",
@@ -274,7 +300,7 @@ BOUNDARIES = [
 ]
 
 
-@unittest.skipIf(os.name == "nt", "POSIX bootstrap process-crash fixture; native Windows gate is separate")
+@unittest.skipIf(os.name == "nt", "POSIX keyed bootstrap crash fixture; encrypted Windows is unsupported")
 class BootstrapCrashTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="continuum-bootstrap-crash-")
@@ -303,7 +329,7 @@ class BootstrapCrashTest(unittest.TestCase):
             db = with_store.connection
             self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(dict(db.execute("SELECT key,value FROM metadata")), {
-                "vault_id": VAULT_ID, "storage_mode": "plaintext_prototype",
+                "vault_id": VAULT_ID, "storage_mode": storage.STORAGE_MODE,
                 "policy_version": storage.POLICY_VERSION, "bootstrap_protocol": "1"})
             self.assertEqual([tuple(row) for row in db.execute(
                 "SELECT id,name,path_hint,created_at,created_seq FROM projects ORDER BY created_seq")],
@@ -323,14 +349,16 @@ class BootstrapCrashTest(unittest.TestCase):
             self.assertEqual([tuple(row) for row in db.execute(
                 "SELECT id,token_hash,project_id,provider,permissions_json,created_at,revoked_at FROM capabilities ORDER BY id")],
                 expected_capabilities)
-            self.assertEqual(hashlib.sha256(read_private(paths(home)["audit_key"])).hexdigest(),
-                             hashlib.sha256(b"B" * 32).hexdigest())
+            for key_name, expected in (("storage_key", b"S" * 32), ("audit_key", b"B" * 32)):
+                self.assertTrue(hashlib.sha256(read_private(paths(home)[key_name])).digest()
+                                == hashlib.sha256(expected).digest(), "Synthetic key-file identity changed")
             self.assertEqual([tuple(row) for row in db.execute(
                 "SELECT event_seq,actor_kind,operation,scoped_id,target_id,policy_decision,result,occurred_at FROM audit_events")],
                 [(3, "user_control", "vault_initialized", VAULT_ID, VAULT_ID, "bootstrap", "ok", TIME)])
             self.assertEqual(with_store.verify_audit()["status"], "valid")
             self.assertEqual([tuple(row) for row in db.execute("PRAGMA integrity_check")], [("ok",)])
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertEqual(db.execute("PRAGMA cipher_integrity_check").fetchall(), [])
             for table in ("assertion_versions", "evidence", "proposals", "recalls", "feedback", "admin_challenges", "admin_results"):
                 self.assertEqual(db.execute("SELECT count(*) FROM " + table).fetchone()[0], 0)
             control = with_store.authenticate(load_capability(paths(home)["control"])["token"])
@@ -348,7 +376,7 @@ class BootstrapCrashTest(unittest.TestCase):
                 identities.add((capability["project_id"], capability["provider"]))
             self.assertEqual(identities, {(row[0], provider) for row in db.execute("SELECT id FROM projects")
                                            for provider in ("claude", "codex")})
-            return tuple(db.iterdump())
+            return tuple(database_dump(db))
         finally:
             with_store.close()
 
@@ -480,7 +508,7 @@ class BootstrapCrashTest(unittest.TestCase):
         for name in MARKERS:
             (home / name).unlink()  # Explicit synthetic accidental-loss fixture.
         before = raw_inventory(home)
-        with patch.object(storage, "_configure_connection", side_effect=AssertionError("Admission configured database")), \
+        with patch.object(storage, "_apply_connection_hardening", side_effect=AssertionError("Admission configured database")), \
                 patch.object(storage, "migrate", side_effect=AssertionError("Admission migrated database")):
             for _ in range(2):
                 with self.assertRaises(MemoryError) as caught:
@@ -499,14 +527,14 @@ class BootstrapCrashTest(unittest.TestCase):
             with self.subTest(name=name):
                 home = self.home("metadata-" + name)
                 self.child(home)
-                connection = sqlite3.connect(paths(home)["db"])
+                connection = open_fixture_connection(home, writable=True)
                 try:
                     connection.execute(mutation)  # Explicit synthetic damaged completed fixture.
                     connection.commit()
                 finally:
                     connection.close()
                 before = raw_inventory(home)
-                with patch.object(storage, "_configure_connection", side_effect=AssertionError("Admission configured database")), \
+                with patch.object(storage, "_apply_connection_hardening", side_effect=AssertionError("Admission configured database")), \
                         patch.object(storage, "migrate", side_effect=AssertionError("Admission migrated database")):
                     for _ in range(2):
                         with self.assertRaises(MemoryError) as caught:
@@ -584,7 +612,7 @@ class BootstrapCrashTest(unittest.TestCase):
         home = self.home("legacy")
         self.child(home)
         # Explicit synthetic pre-protocol vault; no new migration or repair API.
-        connection = sqlite3.connect(paths(home)["db"])
+        connection = open_fixture_connection(home, writable=True)
         try:
             connection.execute("DELETE FROM metadata WHERE key='bootstrap_protocol'")
             connection.commit()

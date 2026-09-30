@@ -3,7 +3,6 @@
 import json
 import os
 import select
-import sqlite3
 import stat
 import subprocess
 import sys
@@ -136,9 +135,10 @@ class NativeSQLiteLockPreservationTest(unittest.TestCase):
         self.home = Path(self.temporary.name)
 
     def observer_count(self):
-        # Deliberately ordinary writable-mode sqlite3.connect, even though its
-        # only statement is SELECT. mode=ro would conceal the historical bug.
-        connection = sqlite3.connect(self.home / "continuum.db")
+        # Deliberately a keyed writable-mode observer, even though its only
+        # application statement is SELECT. mode=ro would conceal the old bug.
+        from fixtures.harness import open_fixture_connection
+        connection = open_fixture_connection(self.home, writable=True)
         try:
             return connection.execute("SELECT count(*) FROM metadata WHERE key='synthetic_lock_probe'").fetchone()[0]
         finally:

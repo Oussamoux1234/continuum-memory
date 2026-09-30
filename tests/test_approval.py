@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from tests.database_dump import database_dump
 import xml.etree.ElementTree as ElementTree
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -424,7 +425,7 @@ class AsymmetricApprovalIntegrationTest(unittest.TestCase):
     def _approval_state(self):
         # All logical rows, including FTS, and the exact anchor. Do not format
         # this snapshot in a failed assertion; tests need no content in logs.
-        return tuple(self.store.connection.iterdump()), paths(self.data_dir)["audit_head"].read_bytes()
+        return tuple(database_dump(self.store.connection)), paths(self.data_dir)["audit_head"].read_bytes()
 
     @staticmethod
     def _apply_parameters(challenge, grant):

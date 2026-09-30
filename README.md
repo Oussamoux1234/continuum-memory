@@ -5,7 +5,7 @@
 [![verify](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml/badge.svg)](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
 
 **Maturity: experimental local prototype.** Continuum Memory is not production-ready,
-encrypted, hardened against same-user malware, or validated with native Codex, Claude
+release-approved for encrypted storage, hardened against same-user malware, or validated with native Codex, Claude
 Code, or Antigravity installations. It is a narrow, offline, Linux-first vertical slice
 that demonstrates the ledger and trust-boundary design with deterministic MCP fixtures.
 
@@ -16,7 +16,7 @@ capsules are disposable views. Returned memory always has `authority=data`; it c
 inform an answer but never authorize a command, URL, recipient, credential, permission
 change, destructive operation, publication, or external message.
 
-Context response v2 uses `accepted_claims`, not `verified_current`: user acceptance,
+Context response v3 uses `accepted_claims`, not `verified_current`: user acceptance,
 recorded verification, and declared date applicability are separate. Existing clients
 must update their JSON field access. See the [read contract and upgrade guide](docs/CONTEXT_CONTRACT.md).
 
@@ -56,13 +56,16 @@ Context clients must now support `response_version: 3`: conflict fragments can b
 or not fully assessed. Strict v2 consumers must upgrade with the service. Tiny budgets
 that cannot fit a result return `budget_too_small`, not an empty continuation.
 
-## Five-minute safe quickstart
+## Held Linux candidate evaluation
 
-The application retains Python 3.9+ compatibility with SQLite 3.37+ and FTS5; release
-verification uses supported Python 3.11–3.14. First prepare the hash-pinned local build
-wheelhouse using [the Linux distribution guide](docs/LINUX_RELEASE.md). Dependency
-preparation is a separate download step; the following install and runtime stay offline.
-Use a temporary directory while evaluating the prototype:
+This held candidate requires Linux x86-64, CPython 3.11–3.14, and the exact
+project-built `continuum-sqlcipher3` 0.6.2.post2 wheel. There is no published
+package or stdlib SQLite fallback. Combined native application verification remains
+pending. Complete the reviewed offline runtime setup in
+[encrypted storage](docs/SQLCIPHER_STORAGE.md) and prepare the separate hash-locked
+build tools in [distribution verification](docs/LINUX_RELEASE.md) before these
+synthetic-only evaluation commands.
+Use only a temporary directory while evaluating the candidate:
 
 ```bash
 .venv/bin/python -m pip install --no-index --no-deps --no-build-isolation -e .
@@ -76,9 +79,6 @@ In another terminal, using the project ID printed by `init`:
 
 ```bash
 export CONTINUUM_HOME=/path/printed/above
-continuum remember --project PROJECT_ID --subject database \
-  --claim "This project uses SQLite because the local slice must stay offline." \
-  --evidence "Milestone 1 build decision"
 continuum search --project PROJECT_ID --query SQLite
 continuum context --project PROJECT_ID --query database
 continuum status --project PROJECT_ID
@@ -87,18 +87,28 @@ continuum audit verify
 
 Administrative commands require an interactive OS-backed confirmation over the exact
 preview. There is deliberately no `--yes` bypass, and live use fails closed when no native
-broker is provisioned. Linux users can install and provision the broker described in
-`docs/LINUX_APPROVAL_BROKER.md`. The old same-UID terminal/HMAC seam is injectable only by
+broker is provisioned. The current privileged helper stager rejects all runtime
+dependencies and must refuse the encrypted application wheel; installation compatibility
+needs separate review before live owner writes. See
+[the broker boundary](docs/LINUX_APPROVAL_BROKER.md). The old same-UID terminal/HMAC seam is injectable only by
 the temporary test harness; the packaged daemon and CLI never select it.
 
-To run the verified fixture demo and complete local test suite:
+The prepared fixture demo, application suite and reproducible PEP 517/SPDX gate use two
+separate reviewed wheelhouses: exactly the selected native wheel plus setuptools/wheel,
+and the full hash-locked build-tool set. In the prepared Linux environment, run:
 
 ```bash
-.venv/bin/python scripts/verify.py
+CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/native-wheelhouse \
+  CONTINUUM_BUILD_WHEELHOUSE=/absolute/reviewed/build-tool-wheelhouse \
+  .venv/bin/python scripts/verify.py
 ```
 
 The demo prints an ephemeral directory, assertion/version IDs, provenance, correction
 history, conflict output, deletion receipt, replay rejection, and isolation checks.
+This command is not a recorded native application pass. The proposed Linux allowance for
+91 exact platform-only skip IDs/reasons (62 Windows and 29 macOS methods) is
+source-enumerated in `tests/platform-skips-linux.json`; its refreshed native execution
+remains unrun. Encryption, rotation and missing-backend skips are forbidden.
 
 Native agent installers and plugins are roadmap work. Nothing here mutates real Codex,
 Claude Code, Antigravity, or Agent Relay profiles.
@@ -123,24 +133,35 @@ provenance when reviewing older records, whose evidence/author labels may be wro
 
 ## Storage notice
 
-The prototype database is **not encrypted**. Python's bundled SQLite has FTS5 but no
-reproducible SQLCipher binding in this dependency-free slice. File permissions, strict
-date parsing, lifecycle expiry, and deletion semantics are tested, but plaintext can remain
-in filesystem or OS snapshots. The owner-only directory blocks other local accounts; it
-does not resist a malicious process already running as the same user. New writes have
-[local secret-admission checks](docs/SECRET_ADMISSION.md), with bounded owner policy
-and explicit limitations. Do not store secrets
-or sensitive production data. The storage interface is isolated so a reviewed SQLCipher
-implementation can replace it later.
+This branch is a **held encrypted-storage candidate** for issue #7. New synthetic
+vaults require the exact SQLCipher 4.19.0 / SQLite 3.53.4 runtime and a random
+32-byte owner-only `storage.key`. Missing, malformed, wrong or unsupported keys,
+runtimes and legacy plaintext vaults fail closed. The key is stored beside the
+database: this does not protect against same-user malware or copying the complete
+vault and key. Do not store production secrets.
+
+The candidate preserves schema-5 migrations, secret admission, daemon locking,
+operation receipts and audit recovery. Existing plaintext vaults are never
+silently converted. See [storage and migration boundaries](docs/SQLCIPHER_STORAGE.md).
+The native pipeline and all applicable application tests must pass independently. Main's
+reproducible source/wheel/SPDX pipeline is retained with the exact external post2 dependency;
+combined native application verification, human security/license acceptance, privileged
+installer compatibility, and artifact signing/publication decisions remain open.
+macOS is limited to planned source-only peer checks until an approved native artifact
+exists; prepared APFS application tests remain pending. Neither macOS nor Windows encrypted
+application support is established by Linux CI.
+
+See [the source-refresh checkpoint](docs/ISSUE7_SOURCE_REFRESH.md) for the exact
+152450a integration, static evidence, preserved holds and still-unrun validation plan.
 
 ## Repository map
 
 - `docs/PRODUCT_CONSTITUTION.md` — durable product rules.
 - `docs/architecture/` — accepted architecture decisions.
-- `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit installation, boundary, smoke test, and removal.
-- `docs/MACOS_BOUNDARY.md` — native macOS verification, evaluation runbook, and unresolved approval/key/ACL gates.
-- [Windows verification](docs/WINDOWS_VERIFICATION.md) — native PowerShell evaluation and CI for disposable synthetic vaults; candidate status, not production approval or encryption.
-- [Windows security boundary](docs/WINDOWS_BOUNDARY.md) — NTFS ownership, named-pipe runtime, and remaining security acceptance gates.
+- `docs/LINUX_APPROVAL_BROKER.md` — Linux polkit boundary, blocked encrypted-installer compatibility, controlled smoke test, and removal.
+- `docs/LINUX_RELEASE.md` — separate locked tool/native inputs, reproducible packaging, SPDX evidence, and release holds.
+- `docs/PATCHED_SQLCIPHER_WHEELS.md` — native test-artifact supply chain and its blockers.
+- `docs/MACOS_BOUNDARY.md` — source-only peer checks and pending native artifact, APFS, approval/key/ACL gates.
 - `BUILD_BRIEF_M1.md` — executable slice and acceptance contract.
 - `src/continuum_memory/` — daemon, ledger, CLI, MCP bridge, and policy.
 - `schemas/` — protocol and canonical schema contracts.

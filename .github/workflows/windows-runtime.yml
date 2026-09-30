@@ -1,10 +1,7 @@
-name: Windows native prototype
+name: Windows plaintext runtime (held for encrypted candidate)
 
 on:
-  push:
-    branches: [main]
-    tags: ['**']
-  pull_request:
+  # Native Windows encrypted evaluation has not been authorized.
   workflow_dispatch:
 
 permissions:
@@ -12,6 +9,8 @@ permissions:
 
 jobs:
   native:
+    # Retained main workflow only. No approved Windows SQLCipher runtime exists.
+    if: ${{ false }}
     name: Windows 2025 Python ${{ matrix.python }}
     runs-on: windows-2025
     timeout-minutes: 25
@@ -52,6 +51,8 @@ jobs:
       # on the disposable runner. Logs report verification, never vault content.
 
   foreign-account:
+    # Main's account-lifecycle authorization does not cover this encrypted branch.
+    if: ${{ false }}
     name: Windows 2025 real different-account boundary
     runs-on: windows-2025
     timeout-minutes: 10

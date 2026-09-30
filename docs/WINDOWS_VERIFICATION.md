@@ -1,5 +1,11 @@
 # Native Windows prototype verification
 
+This document preserves the separately accepted **plaintext main** Windows contract
+at `152450a`. Issue #1 is closed for that scope. This held encrypted candidate refuses
+Windows storage before accessing keys; its imported full-runtime and account-lifecycle
+workflow jobs are disabled. The commands and evidence below apply to plaintext main,
+not this branch, and confer no encrypted Windows acceptance.
+
 The full-gate candidate targets standard public `windows-2025` x64 runners with
 Python 3.11, 3.12, 3.13 and 3.14. A configured workflow is not evidence that its
 current revision passes: inspect all four native results before accepting the

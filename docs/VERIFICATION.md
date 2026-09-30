@@ -1,72 +1,127 @@
 # Verification gates and evidence
 
-## Run the supported gate
+Integration state recorded 2026-09-24: current main's context/pagination, provider authority,
+platform primitives and release packaging are combined with the held encrypted
+application and offline rotation candidate. Native application verification has not run
+successfully. Source-only checks, historical plaintext results and native-artifact passes
+remain separate evidence; none establishes a pass for this combined application.
 
-Prepare the pinned toolchain/wheelhouse as described in
-[Linux distribution verification](LINUX_RELEASE.md), then run:
+The earlier checkpoint `79b74d9ef177710e9bf1e0d4fe7bfd51a49befd4` recorded 28 passing
+source/supply-chain tests. That count is historical, not the integrated suite's result.
+
+## Supported application verification
+
+Use Linux x86-64 and a supported CPython 3.11-3.14 interpreter in an isolated environment
+with the exact manifest-locked `continuum-sqlcipher3` 0.6.2.post2 wheel, SQLCipher 4.19.0 /
+SQLite 3.53.4, setuptools 80.9.0, and wheel 0.45.1. The native wheelhouse must contain exactly
+those three matching wheels; filenames, regular-file status, and hashes are checked.
+The separate build-tool wheelhouse must satisfy `packaging/build-requirements.txt` for
+PEP 517 and SPDX validation; `packaging/backend-requirements.txt` locks the source-install
+backend subset. Do not merge the two wheelhouse directories. The controlled setup
+is implemented in `.github/workflows/encrypted-storage.yml` and
+`scripts/verify_encrypted_application.py`. In an equivalent offline environment, run:
 
 ```bash
-.venv/bin/python scripts/verify.py
+CONTINUUM_SQLCIPHER_WHEELHOUSE=/absolute/reviewed/wheelhouse \
+  CONTINUUM_BUILD_WHEELHOUSE=/absolute/reviewed/build-tool-wheelhouse \
+  /absolute/isolated/venv/bin/python scripts/verify.py
 ```
 
-The command parses the project's JSON schemas, checks whitespace, compiles Python modules,
-runs all unit/integration tests with resource warnings promoted to errors, executes the
-17-check two-client lifecycle demo, verifies the source/wheel distributions below, and
-runs `git diff --check`. The current test count is printed by the run; do not interpret an
-old count as evidence for a newer revision.
+The command parses the checked-in JSON schemas, checks source whitespace, compiles every Python
+module, runs the unit/integration suite with resource warnings promoted to errors, executes
+the complete two-client fixture demo, builds a normalized PEP 517 source distribution and
+wheel twice, requires identical hashes, validates their SPDX payload inventory and external
+native dependency link, installs each artifact with the strict runtime into a fresh offline
+environment, checks entry points and installed runtime origins, and runs
+`git diff --check`. It also validates the checked-in patched-SQLCipher manifest, source SBOM,
+recipe hashes, and negative regression tests. It requires the reviewed native backend and
+offline build tools; it does not compile native wheels itself. The ordinary `verify` workflow
+runs source/supply-chain checks. The four-ABI `encrypted-storage` workflow is the full native
+application gate. See [SQLCIPHER_STORAGE.md](SQLCIPHER_STORAGE.md) for its scope and limits.
 
-The [verify workflow](https://github.com/Oussamoux1234/continuum-memory/actions/workflows/verify.yml)
-runs the same gate on Ubuntu 24.04 x86-64 with Python 3.11, 3.12, 3.13, and 3.14. Its
-networked preparation obtains hash-pinned verification dependencies first. The actual
-build/install verifier uses offline dependency resolution and emits host/tool versions.
-Every matrix job must pass for the exact candidate revision before a release decision.
+## Historical plaintext prototype result
 
-The separate `macOS boundary` workflow exercises the complete gate on macOS 14/15 arm64,
-Python 3.11–3.14, recording actual runner versions and requiring native APFS fixture evidence.
-This is a candidate native verification matrix, not completed macOS support. Read
-[the macOS boundary/runbook](MACOS_BOUNDARY.md) for the missing approval, key isolation,
-extended-ACL, packaging/signing, and same-user security gates. Issue #10 remains open.
+Host: macOS 26.5.2, Darwin arm64; Python 3.9.6; Python SQLite 3.51.0 with FTS5.
+The following records predate the encrypted application candidate. They are not evidence
+that the current candidate runs on this host or supports Python 3.9. The prior plaintext
+verifier also ran on GitHub-hosted Ubuntu 24.04; the current workflow split is described above.
 
-## What the gate exercises
+## Native SQLCipher artifact gate
 
-- Ledger proposal, review, correction/history, recorded-time queries, conflicts, retention,
-  project/provider isolation, forget cleanup, and content-free audit integrity.
-- MCP fixture discovery/validation, transport and response limits, context honesty, and
-  explicit test-only approval seams. Fixtures are not real client compatibility claims.
-- Filesystem owner/mode/type/link checks, transactional commit-result recovery, secret
-  admission, schema migration regressions, daemon lifetime locks and stale-socket guards.
-- Deterministic Linux broker/signature tests without invoking interactive polkit.
-- PEP 517 source and wheel builds twice in independent clean trees, byte-for-byte digest
-  comparison, wheel construction from the source archive, metadata and required-file checks.
-- Each artifact installed in its own clean offline environment; all four entry points
-  executed outside the source checkout, without source imports through `PYTHONPATH`.
-- Full payload/file SPDX 2.3 inventory reconciled against the archives and validated by
-  independent SPDX tools. Mutated/missing files, false hashes and changed license
-  conclusions are rejected. This is not a host/toolchain SBOM or legal certification.
-- Explicit reviewed-wheel staging for the privileged Linux installer, without actually
-  running that installer or altering system paths during the verifier.
+The separate `patched-sqlcipher-wheel` workflow targets Linux x86-64 on CPython 3.11-3.14.
+For every matrix entry it performs two clean builds in the same digest-pinned manylinux
+environment, requires byte-for-byte equality and a manifest-locked digest, deeply inspects
+the wheel and ELF payload, installs it offline outside the checkout, and runs the encrypted
+runtime/recovery suite, including default denial of loadable extensions. Only successful test
+wheels are retained, for seven days.
 
-## Reading a result honestly
+Strict native runs passed for `2e90daa6161139de37cccd659703d9fa8fc25aea`; the exact three
+run links are in [the native gate record](PATCHED_SQLCIPHER_WHEELS.md). Those runs validate
+ephemeral native test artifacts. They do not establish that this later application candidate
+passes, migrate a vault, publish a package, or prove release readiness. macOS arm64 is blocked
+until an immutable builder/toolchain can satisfy the same evidence standard; Windows is not
+a target.
 
-The current application remains an **experimental plaintext local prototype**. A green
-gate is not evidence of real OS user presence, encrypted pages/WAL/FTS, encrypted backups,
-deletion across restored backups, universal DLP, Windows runtime support, macOS OS-backed
-approval, native Codex/Claude/Antigravity profiles, same-UID malware resistance, physical
-erasure, independent trusted builders, signed provenance, or production readiness.
+## Held encrypted application gate
 
-Issue #3 still requires an owner-controlled interactive Linux polkit smoke test. Encryption
-and platform acceptance remain tracked separately. No real vault/profile is touched by
-the fixture suite. Distribution artifacts are unsigned and unpublished; artifact retention
-in CI for review is not a release.
+The separate `encrypted-storage` workflow repeats signed-source verification, A/B native
+builds, strict wheel comparison/inspection, and the installed native regression suite for
+all four supported ABIs. It then creates a fresh offline virtual environment with the three
+hash-locked native wheels plus the separate locked build tools, verifies the installed
+backend's version and origin, and runs the full application verifier in a disposable copy
+of the checkout. All applicable tests, all 17 demo checks, reproducible distributions and
+fresh offline installs must pass. This workflow uploads no wheels.
 
-For a durable acceptance record, save the exact commit, clean/dirty state, command, host
-and SQLite versions, full test/demo result, artifact SHA-256s, and CI run links. The
-`build-evidence.json` records packaging evidence but is explicitly unsigned. A changed
-revision or dependency set needs a fresh run. See [release verification](LINUX_RELEASE.md)
-for reproducibility limits, signing/provenance policy, and the publication hold.
+The refreshed Linux skip policy names exactly 91 platform-only methods with their
+expected reasons: 62 Windows and 29 macOS methods, including the new native ACL,
+SQLite-lock and recovery-journal cases. This inventory was enumerated from source,
+not by importing or running tests. Native report acceptance remains unrun. Unknown,
+missing, duplicate or changed skip IDs/reasons must fail; a count of 91 alone is insufficient. No cryptographic, encryption, rotation, recovery or
+missing-runtime skip is allowed. This is a reviewed platform inventory, not a native pass.
 
-## Historical evidence
+The reproducible PEP 517/SPDX pipeline is implemented; combined application execution
+remains pending. No source-test count replaces native evidence, independent human
+acceptance, or the open license, privileged-installer compatibility, signing, macOS,
+migration and backup/restore gates. Rotation tests prepare real native crash boundaries;
+death observed inside the rekey call and power-loss durability are not demonstrated.
 
-The initial 2026-09-03 slice passed 46 tests and the lifecycle demo on the macOS build host
-and the original Ubuntu/Python 3.9 CI job. That was source-archive-only evidence and did
-not establish the newer packaging gate or any of the security/platform claims above.
+## Other platform checks
+
+The macOS workflow runs source-only peer primitives. Four prepared macOS
+application/APFS tests await an approved native artifact; no encrypted macOS startup or
+full-verifier result is claimed. Windows filesystem and IPC primitives are isolated
+experiments, not an application port. See [macOS](MACOS_BOUNDARY.md),
+[Windows filesystem](WINDOWS_BOUNDARY.md), and [Windows IPC](WINDOWS_IPC.md).
+
+## Historical initial-slice and native-only checklist
+
+This table preserves the disposition before the current application integration. Its
+plaintext behavior and passing counts describe that earlier evidence, not the held
+application checkpoint. Current application status is recorded in the section above.
+
+| Area | Result |
+|---|---|
+| Architecture/constitution/build brief/Relay contract | Passed review-by-construction; no external review claimed |
+| Real SQLite lifecycle and FTS5 vertical slice | Passed on the macOS build host |
+| Agent cannot self-accept through MCP; forged fields/replay | Passed fixture/API tests |
+| Cross-project and provider-disclosure result/count isolation | Passed; timing/physical-shard noninterference not claimed |
+| Correction, historical query, explicit conflict | Passed |
+| Strict ISO/RFC 3339 validation and persisted retention expiry | Passed with deterministic injected-clock tests |
+| Transactional forget, feedback removal, recall pruning, and live FTS cleanup | Passed |
+| Filesystem owner/mode/type/link and socket identity checks | Passed on macOS; same-UID race resistance not claimed |
+| Content-free HMAC audit verification/tamper detection | Passed prototype tests |
+| Default runtime network access | No network code exists; packet-level instrumentation not run |
+| Linux x86-64 validation | Full verifier passed on a GitHub-hosted Ubuntu 24.04 runner |
+| Linux distribution package | Application source archive build/install passed; patched SQLCipher wheels are separate ephemeral CI test artifacts, not an application or release package |
+| Windows runtime/CI | Unsupported and not run; POSIX boundary redesign tracked in issue #1 |
+| SQLCipher/page/WAL/temp encryption | Native Linux artifact harness covers encryption, FTS5, WAL, temp, wrong-key, recovery, integrity, and plaintext canaries; application integration is not implemented and the prototype remains plaintext |
+| Real Linux polkit/user-presence broker | Independent review and deterministic RSA/broker tests passed; real interactive pkexec/polkit smoke not run; issue #3 remains open |
+| Backup/revocation/restore/key rotation/fault injection | Out of slice; not run |
+| Native Codex/Claude/Antigravity profiles | Not run and never modified; fixtures only |
+| Patched SQLCipher supply chain | Linux x86-64 CPython 3.11-3.14 pipeline pins and verifies sources/tools, builds twice, emits SBOM/provenance, and tests offline; independent acceptance, binding `NOASSERTION`, signing, application integration, and permanent distribution remain open |
+| macOS patched SQLCipher artifacts | Blocked: no approved immutable macOS arm64 builder/toolchain currently meets the Linux evidence standard |
+| Public retrieval benchmarks and latency distributions | Explicit non-goal; not run |
+
+This historical result supports only the maturity label “experimental local prototype.” It is not
+evidence for application encryption, production security, native-host compatibility, Linux packaging,
+cross-platform behavior, physical erasure, backup revocation, or benchmark-leading recall.

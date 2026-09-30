@@ -1,4 +1,10 @@
-"""Process-exit mechanics for synthetic automatic lifecycle transactions only."""
+"""Held source-only crash-test preparation; not executed on this candidate.
+
+Imported from MAIN 4b1eaf5. The original plaintext fixture description below
+is historical context, not encrypted runtime or platform acceptance. Execution
+requires separately approved native inputs and remains held.
+
+Process-exit mechanics for synthetic automatic lifecycle transactions only."""
 
 import json
 from contextlib import contextmanager
@@ -126,3 +132,4 @@ class LifecycleCrashFixture(AdminCrashFixture):
                 with self.opened(home) as (store, kernel, control):
                     assert_semantics(store, kernel, control)
                     self.assert_integrity(store)
+

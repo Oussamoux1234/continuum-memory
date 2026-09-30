@@ -1,8 +1,10 @@
 import copy
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -10,8 +12,8 @@ import zipfile
 from pathlib import Path
 
 from scripts.release_package import (
-    ROOT, archive_members, make_sbom, normalize_sdist, offline_environment,
-    validate_metadata, validate_sbom,
+    ROOT, RUNTIME_PACKAGE_ID, archive_members, build_release, build_tool_pins, install_smoke, make_sbom,
+    helper_only_install_smoke, normalize_sdist, offline_environment, validate_metadata, validate_sbom,
 )
 
 
@@ -19,11 +21,14 @@ spec = importlib.util.spec_from_file_location("stage_polkit_wheel", ROOT / "pack
 staging = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(staging)
 
-METADATA = (
+HELPER_METADATA = (
     "Metadata-Version: 2.4\nName: continuum-memory\nVersion: 0.1.0.dev0\n"
     "License-Expression: Apache-2.0\n"
     "Author-email: Oussama Essalmani <98963291+Oussamoux1234@users.noreply.github.com>\n\n"
 ).encode()
+METADATA = HELPER_METADATA.replace(
+    b"\n\n", b"\nRequires-Python: >=3.11,<3.15\nRequires-Dist: continuum-sqlcipher3==0.6.2.post2\n\n"
+)
 INFO = "continuum_memory-0.1.0.dev0.dist-info/"
 EPOCH = 1700000000
 
@@ -46,20 +51,181 @@ def sdist(directory, name="continuum_memory-0.1.0.dev0/PKG-INFO", payload=METADA
     return path
 
 
+def helper_wheel(directory, fields=METADATA, entry="continuum_memory.polkit_helper:main"):
+    """Synthetic staging metadata fixture; actual payload is checked by the build gate."""
+    return wheel(directory, fields, entry)
+
+
 class ReleasePackageTest(unittest.TestCase):
+    def test_build_tool_markers_select_only_matching_host_pins(self):
+        requirements = 'base==1.0 \\\n --hash=sha256:fixture\ncolorama==0.4.6 ; os_name == "nt" \\\n --hash=sha256:fixture\n'
+        self.assertEqual(build_tool_pins(requirements, environment={"os_name": "posix"}), {"base": "1.0"})
+        self.assertEqual(build_tool_pins(requirements, environment={"os_name": "nt"}),
+                         {"base": "1.0", "colorama": "0.4.6"})
+
+    def test_build_tool_pins_reject_ranges_wildcards_urls_extras_and_invalid_markers(self):
+        invalid = ('tool', 'tool>=1.0', 'tool==1.*', 'tool===1.0', 'tool==1.0,!=2.0', 'tool==1.0,==1.0',
+                   'tool[extra]==1.0', 'tool @ https://example.invalid/tool.whl',
+                   'tool==not-a-version', 'tool==1.0 ; unknown_platform == "nt"')
+        for requirement in invalid:
+            with self.subTest(requirement=requirement), self.assertRaises(ValueError):
+                build_tool_pins('base==1.0\n' + requirement, environment={"os_name": "posix"})
+        with self.assertRaises(ValueError):
+            build_tool_pins('base==1.0\ntool==1.* ; os_name == "nt"', environment={"os_name": "posix"})
+
+    def test_duplicate_normalized_build_tools_fail_even_in_inactive_marker_branches(self):
+        for second in ('example-package==1.0', 'example.package==2.0 ; os_name == "nt"'):
+            with self.subTest(second=second), self.assertRaisesRegex(ValueError, "duplicate"):
+                build_tool_pins('Example_Package==1.0\n' + second, environment={"os_name": "posix"})
+
+    def test_build_tool_metadata_and_resolver_preserve_marker_contract(self):
+        from unittest.mock import patch
+        from packaging.markers import default_environment
+        from scripts import release_package
+        environment = dict(default_environment(), os_name="posix")
+        requirements = 'base==1.0\ncolorama==0.4.6 ; os_name == "nt"\n'
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            lock = directory / "build-requirements.txt"
+            lock.write_text(requirements)
+            with patch.object(release_package, "BUILD_REQUIREMENTS", lock), \
+                    patch("packaging.markers.default_environment", return_value=environment), \
+                    patch.object(release_package.metadata, "version", return_value="1.0") as version, \
+                    patch.object(release_package, "run") as resolver:
+                release_package.require_build_tools(directory)
+                version.assert_called_once_with("base")
+                command = resolver.call_args.args[0]
+                self.assertIn("--require-hashes", command)
+                self.assertIn("--dry-run", command)
+                self.assertEqual(command[-2:], ["-r", lock])
+            self.assertEqual(lock.read_text(), requirements)
+
     def test_exact_metadata_and_payload_are_verified_for_both_artifact_types(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             self.assertIn(INFO + "METADATA", validate_metadata(wheel(directory)))
             self.assertEqual(list(validate_metadata(sdist(directory))), ["continuum_memory-0.1.0.dev0/PKG-INFO"])
 
-    def test_runtime_dependency_or_wrong_author_requires_explicit_sbom_update(self):
+    def test_runtime_dependency_and_python_range_must_be_exact(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
-            for content in (METADATA.replace(b"\n\n", b"\nRequires-Dist: example\n\n"), METADATA.replace(b"Oussama Essalmani", b"Someone Else")):
+            dependency = b"Requires-Dist: continuum-sqlcipher3==0.6.2.post2\n"
+            python = b"Requires-Python: >=3.11,<3.15\n"
+            invalid = (
+                METADATA.replace(dependency, b""),
+                METADATA.replace(dependency, dependency + dependency),
+                METADATA.replace(dependency, dependency + b"Requires-Dist: example\n"),
+                METADATA.replace(b"==0.6.2.post2", b"==0.6.2.post1"),
+                METADATA.replace(b"==0.6.2.post2", b">=0.6.2.post2"),
+                METADATA.replace(dependency, dependency.rstrip(b"\n") + b'; sys_platform == "linux"\n'),
+                METADATA.replace(python, b""),
+                METADATA.replace(python, python + python),
+                METADATA.replace(python, b"Requires-Python: >=3.9\n"),
+                METADATA.replace(python, b"Requires-Python: >=3.11\n"),
+                METADATA.replace(b"Oussama Essalmani", b"Someone Else"),
+            )
+            for content in invalid:
                 with self.subTest(content=content):
-                    with self.assertRaises(ValueError):
-                        validate_metadata(wheel(directory, content))
+                    for artifact in (wheel(directory, content), sdist(directory, payload=content)):
+                        with self.assertRaises(ValueError):
+                            validate_metadata(artifact)
+            reordered = METADATA.replace(python, b"Requires-Python: <3.15,>=3.11\n")
+            validate_metadata(wheel(directory, reordered))
+
+    def test_installed_runtime_gate_requires_reviewed_inputs_before_creating_venv(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            artifact = wheel(directory)
+            destination = directory / "fresh-environment"
+            with patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "reviewed offline wheelhouse"):
+                    install_smoke(artifact, destination, EPOCH)
+            self.assertFalse(destination.exists())
+
+    def test_helper_only_gate_refuses_nonwheel_or_changed_metadata_before_staging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            destination = directory / "helper"
+            for artifact in (sdist(directory), wheel(directory, HELPER_METADATA)):
+                with self.subTest(artifact=artifact.name), self.assertRaises(ValueError):
+                    helper_only_install_smoke(artifact, destination, EPOCH)
+            self.assertFalse(destination.exists())
+            self.assertFalse(directory.joinpath("helper-wheel").exists())
+
+    def test_helper_only_command_contract_is_offline_and_never_invokes_approval(self):
+        # Only subprocess orchestration is replaced here. The full build gate
+        # separately executes these probes on its actual built application wheel.
+        from unittest.mock import patch
+        from scripts import release_package
+        expected = {"installed_helper_import": True, "sqlcipher_installed": False,
+                    "sqlcipher_importable": False, "storage_imported": False}
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory).resolve()
+            artifact = wheel(directory)
+            destination = directory / "helper"
+            commands = []
+
+            def record(arguments, *, cwd, env):
+                commands.append(list(map(str, arguments)))
+                self.assertEqual(cwd, directory)
+                self.assertEqual(env["PIP_NO_INDEX"], "1")
+                self.assertNotIn("PYTHONPATH", env)
+                if "venv" in arguments:
+                    destination.mkdir()
+
+            with patch.object(release_package, "run", side_effect=record), \
+                    patch.object(release_package.subprocess, "check_output",
+                                 return_value=json.dumps(expected)) as probes:
+                result = helper_only_install_smoke(artifact, destination, EPOCH)
+            self.assertEqual(result, {**expected,
+                "staged_wheel_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                "module_help_before_and_after_relocation": True,
+                "privileged_installation_tested": False})
+            self.assertFalse(destination.exists())
+            self.assertTrue(directory.joinpath("helper-activated").is_dir())
+            self.assertEqual(len(commands), 4)
+            self.assertEqual(commands[0][1:4], ["-I", "-m", "venv"])
+            for flag in ("--isolated", "--no-index", "--no-deps", "--no-build-isolation", "--only-binary=:all:"):
+                self.assertIn(flag, commands[1])
+            self.assertEqual(Path(commands[1][-1]).read_bytes(), artifact.read_bytes())
+            for command, home in zip(commands[2:], ("helper", "helper-activated")):
+                self.assertEqual(command, [str(directory / home / "bin/python"),
+                    "-I", "-m", "continuum_memory.polkit_helper", "--help"])
+            self.assertEqual(probes.call_count, 2)
+            for call, home in zip(probes.call_args_list, ("helper", "helper-activated")):
+                self.assertEqual(call.args[0], [str(directory / home / "bin/python"),
+                                              "-I", "-c", release_package.HELPER_ONLY_CHECK])
+                self.assertEqual(call.kwargs["cwd"], str(directory))
+
+    def test_empty_build_wheelhouse_fails_real_offline_hash_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "release"
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                build_release(output, Path(directory))
+            self.assertNotEqual(caught.exception.returncode, 0)
+            self.assertIn("--dry-run", caught.exception.cmd)
+            self.assertIn("--ignore-installed", caught.exception.cmd)
+            self.assertIn("--require-hashes", caught.exception.cmd)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_wrong_installed_build_tool_version_fails_before_resolving_inputs(self):
+        from unittest.mock import patch
+        from scripts import release_package
+        real_version = release_package.metadata.version
+
+        def wrong_version(name):
+            return "0.0.synthetic" if name == "build" else real_version(name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "release"
+            with patch.object(release_package.metadata, "version", side_effect=wrong_version):
+                with patch.object(release_package, "run") as resolver:
+                    with self.assertRaisesRegex(RuntimeError, "pinned build requirements.*build"):
+                        build_release(output, Path(directory))
+                    resolver.assert_not_called()
+            self.assertFalse(output.exists())
 
     def test_canonical_sdist_is_deterministic_without_changing_payload(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -113,6 +279,22 @@ class ReleasePackageTest(unittest.TestCase):
             validate_sbom(path, artifacts, EPOCH)
             self.assertEqual(len(document["files"]), 4)
             self.assertEqual({package["licenseConcluded"] for package in document["packages"]}, {"NOASSERTION"})
+            packages = {package["SPDXID"]: package for package in document["packages"]}
+            runtime = packages[RUNTIME_PACKAGE_ID]
+            self.assertEqual(runtime["name"], "continuum-sqlcipher3")
+            self.assertEqual(runtime["versionInfo"], "0.6.2.post2")
+            self.assertEqual(runtime["licenseDeclared"], "NOASSERTION")
+            self.assertFalse(runtime["filesAnalyzed"])
+            self.assertNotIn("packageFileName", runtime)
+            self.assertNotIn("packageVerificationCode", runtime)
+            for name in ("packaging/sqlcipher/manifest.json", "sbom/patched-sqlcipher-sources.spdx.json"):
+                digest = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+                self.assertIn(name + " (SHA-256 " + digest + ")", runtime["sourceInfo"])
+            dependencies = {row["spdxElementId"] for row in document["relationships"]
+                            if row["relationshipType"] == "DEPENDS_ON" and row["relatedSpdxElement"] == RUNTIME_PACKAGE_ID}
+            self.assertEqual(dependencies, {"SPDXRef-Package-wheel", "SPDXRef-Package-sdist"})
+            self.assertFalse(any(row["spdxElementId"] == RUNTIME_PACKAGE_ID
+                                 and row["relationshipType"] == "CONTAINS" for row in document["relationships"]))
 
     def test_sbom_missing_files_modified_hash_or_invented_license_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -130,6 +312,18 @@ class ReleasePackageTest(unittest.TestCase):
             invented = copy.deepcopy(document)
             invented["packages"][0]["licenseConcluded"] = "Apache-2.0"
             mutations.append(invented)
+            omitted_dependency = copy.deepcopy(document)
+            omitted_dependency["relationships"] = [row for row in omitted_dependency["relationships"]
+                                                    if row["relationshipType"] != "DEPENDS_ON"]
+            mutations.append(omitted_dependency)
+            wrong_runtime = copy.deepcopy(document)
+            next(package for package in wrong_runtime["packages"]
+                 if package["SPDXID"] == RUNTIME_PACKAGE_ID)["versionInfo"] = "0.6.2.post1"
+            mutations.append(wrong_runtime)
+            invented_runtime_license = copy.deepcopy(document)
+            next(package for package in invented_runtime_license["packages"]
+                 if package["SPDXID"] == RUNTIME_PACKAGE_ID)["licenseDeclared"] = "Apache-2.0"
+            mutations.append(invented_runtime_license)
             for mutation in mutations:
                 path.write_text(json.dumps(mutation))
                 with self.assertRaisesRegex(ValueError, "SBOM does not match"):
@@ -161,7 +355,7 @@ class PolkitWheelStagingTest(unittest.TestCase):
     def test_stages_exact_wheel_in_new_destination(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
-            artifact = wheel(directory)
+            artifact = helper_wheel(directory)
             destination = directory / "staged.whl"
             staging.stage_wheel(artifact, destination)
             self.assertEqual(artifact.read_bytes(), destination.read_bytes())
@@ -171,7 +365,7 @@ class PolkitWheelStagingTest(unittest.TestCase):
     def test_rejects_relative_missing_symlink_hardlink_and_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
-            artifact = wheel(directory)
+            artifact = helper_wheel(directory)
             alias = directory / "alias"
             alias.symlink_to(directory, target_is_directory=True)
             for source in (Path(staging.WHEEL_NAME), directory / "missing.whl", alias / artifact.name, directory):
@@ -186,9 +380,28 @@ class PolkitWheelStagingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
             for index, (fields, entry) in enumerate(((METADATA.replace(b"Version: 0.1.0.dev0", b"Version: 9.0"), "continuum_memory.polkit_helper:main"), (METADATA, "unexpected:main"))):
-                artifact = wheel(directory, fields, entry)
+                artifact = helper_wheel(directory, fields, entry)
                 with self.assertRaises(ValueError):
                     staging.stage_wheel(artifact, directory / ("staged-%s.whl" % index))
+
+    def test_stager_requires_exact_single_application_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory).resolve()
+            dependency = b"Requires-Dist: continuum-sqlcipher3==0.6.2.post2\n"
+            invalid = (
+                METADATA.replace(dependency, b""),
+                METADATA.replace(dependency, dependency + dependency),
+                METADATA.replace(dependency, dependency + b"Requires-Dist: other-package==1.0\n"),
+                METADATA.replace(b"==0.6.2.post2", b"==0.6.2.post1"),
+                METADATA.replace(b"==0.6.2.post2", b">=0.6.2.post2"),
+                METADATA.replace(b"==0.6.2.post2", b"==0.6.*"),
+                METADATA.replace(dependency, dependency.rstrip(b"\n") + b'; sys_platform == "linux"\n'),
+                METADATA.replace(b"continuum-sqlcipher3==", b"continuum-sqlcipher3[extra]=="),
+                METADATA.replace(dependency, b"Requires-Dist: continuum-sqlcipher3 @ https://example.invalid/native.whl\n"),
+            )
+            for index, fields in enumerate(invalid):
+                with self.subTest(case=index), self.assertRaisesRegex(ValueError, "exactly the reviewed"):
+                    staging.stage_wheel(wheel(directory, fields), directory / ("staged-%d.whl" % index))
 
     def test_rejects_fifo_without_waiting_for_a_writer(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -201,7 +414,7 @@ class PolkitWheelStagingTest(unittest.TestCase):
     def test_rejects_unsafe_wheel_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory).resolve()
-            artifact = wheel(directory)
+            artifact = helper_wheel(directory)
             with zipfile.ZipFile(artifact, "a") as bundle:
                 bundle.writestr("../escape", "unsafe")
             with self.assertRaisesRegex(ValueError, "unsafe wheel member"):
@@ -222,6 +435,7 @@ class PolkitWheelStagingTest(unittest.TestCase):
         self.assertIn('[ "$#" -ne 1 ]', installer)
         self.assertIn('"$SCRIPT_DIRECTORY/stage-polkit-wheel.py"', installer)
         self.assertIn('--no-index --force-reinstall "$BUILD_DIRECTORY/continuum_memory-0.1.0.dev0-py3-none-any.whl"', installer)
+        self.assertIn("--no-cache-dir --no-deps", installer)
         self.assertNotIn('"$SOURCE_DIRECTORY"', installer)
 
 

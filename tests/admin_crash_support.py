@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from tests.database_dump import database_dump
 
 from continuum_memory import kernel as kernel_module, results, storage
 from continuum_memory.errors import MemoryError
@@ -32,7 +33,7 @@ FIXED_TIME = "2027-01-01T00:00:00Z"
 
 def snapshot(connection):
     """Every logical row, including FTS shadow tables; not WAL byte layout."""
-    return tuple(connection.iterdump())
+    return tuple(database_dump(connection))
 
 
 def fixture_kernel(store):

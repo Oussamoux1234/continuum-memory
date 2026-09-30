@@ -1,15 +1,24 @@
-"""SQLite bootstrap, connection hardening, sequencing, and audit integrity."""
+"""SQLCipher bootstrap, connection hardening, sequencing, and audit integrity."""
+
+from __future__ import annotations
 
 import hashlib
 import hmac
 import json
 import os
 import secrets
-import sqlite3
+import stat
+from importlib import metadata
+
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+except ImportError:
+    sqlite3 = None  # Runtime admission fails closed; help/metadata remain available.
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .admission import AdmissionPolicy
+from .audit_validation import verify_audit_snapshot
 from .bootstrap_state import (
     claim_initialization,
     complete_initialization,
@@ -19,6 +28,7 @@ from .bootstrap_state import (
 )
 from .errors import CommittedAuditError, MemoryError
 from .migrations import SCHEMA_SQL, SCHEMA_VERSION, migrate
+from .storage_key_custody import require_no_legacy_key_residue
 from .security import (
     MAX_BODY_BYTES,
     MAX_SUBJECT_BYTES,
@@ -28,6 +38,9 @@ from .security import (
     canonical_json,
     create_private_directory,
     ensure_private_directory,
+    # Compatibility export used by strict fixture key validation; never use the
+    # SQLite-specific metadata observer for keys or offline custody material.
+    ensure_private_regular,
     ensure_private_sqlite_file,
     now_iso,
     path_exists,
@@ -42,12 +55,29 @@ from .transport import decode_frame
 
 POLICY_VERSION = "prototype-1"
 AUDIT_KEY_ID = "prototype-local-hmac-1"
+SQLCIPHER_VERSION = "4.19.0 community"
+STORAGE_KEY_BYTES = 32
+STORAGE_MODE = "sqlcipher-4.19.0"
+REQUIRED_CONNECTION_SETTINGS = {
+    "busy_timeout": 5000,
+    "foreign_keys": 1,
+    "mmap_size": 0,
+    "query_only": 0,
+    "secure_delete": 1,
+    "synchronous": 2,
+    "temp_store": 2,
+    "trusted_schema": 0,
+}
+
 
 
 def paths(data_dir: Path) -> Dict[str, Path]:
     return {
         "db": data_dir / "continuum.db",
         "socket": data_dir / "memoryd.sock",
+        "storage_key": data_dir / "storage.key",
+        "rotation_state": data_dir / "storage.rotation.json",
+        "next_storage_key": data_dir / "storage.key.next",
         "audit_key": data_dir / "audit.key",
         "audit_head": data_dir / "audit.head",
         "control": data_dir / "control.cap",
@@ -55,6 +85,146 @@ def paths(data_dir: Path) -> Dict[str, Path]:
         "ipc_binding": data_dir / "ipc.binding",
         **initialization_paths(data_dir),
     }
+
+
+def require_no_pending_rotation(data_dir: Path) -> None:
+    require_no_legacy_key_residue(data_dir)
+    file_map = paths(data_dir)
+    if any(path_exists(file_map[name]) for name in ("rotation_state", "next_storage_key")):
+        raise MemoryError(
+            "rotation_pending",
+            "Storage key rotation requires explicit offline recovery before opening the vault.",
+        )
+
+
+def _read_storage_key(key_path: Path) -> bytes:
+    try:
+        key = read_private(key_path, STORAGE_KEY_BYTES)
+    except (MemoryError, OSError):
+        raise MemoryError(
+            "storage_key_unavailable",
+            "The vault storage key is unavailable.",
+        ) from None
+    if len(key) != STORAGE_KEY_BYTES:
+        raise MemoryError(
+            "storage_key_unavailable",
+            "The vault storage key is unavailable.",
+        )
+    return key
+
+
+def _sync_private_directory(directory: Path) -> None:
+    expected = ensure_private_directory(directory)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        fd = os.open(str(directory), flags)
+        try:
+            opened = os.fstat(fd)
+            if (
+                not stat.S_ISDIR(opened.st_mode)
+                or opened.st_dev != expected.st_dev
+                or opened.st_ino != expected.st_ino
+            ):
+                raise MemoryError("unsafe_directory", "The private data directory changed.")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except MemoryError:
+        raise
+    except OSError:
+        raise MemoryError(
+            "storage_key_unavailable",
+            "The vault storage key could not be made durable.",
+        ) from None
+
+
+def _require_sqlcipher_platform() -> None:
+    # Main's Windows connector opens plaintext SQLite. It is never a fallback
+    # for this held encrypted candidate or an authority to create Windows keys.
+    if os.name == "nt":
+        raise MemoryError("unsupported_platform", "Encrypted storage is unavailable on Windows.")
+
+
+def _require_sqlcipher_runtime() -> None:
+    _require_sqlcipher_platform()
+    if sqlite3 is None:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        )
+    try:
+        if metadata.version("continuum-sqlcipher3") != "0.6.2.post2":
+            raise metadata.PackageNotFoundError("continuum-sqlcipher3")
+    except metadata.PackageNotFoundError:
+        raise MemoryError("sqlcipher_unavailable", "The required encrypted storage runtime is unavailable.") from None
+    if sqlite3.sqlite_version != "3.53.4":
+        raise MemoryError("sqlcipher_unavailable", "The required encrypted storage runtime is unavailable.")
+    try:
+        connection = sqlite3.connect(":memory:", isolation_level=None)
+    except sqlite3.Error:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        ) from None
+    try:
+        connection.execute('PRAGMA key = "x\'%s\'"' % (b"\x00" * STORAGE_KEY_BYTES).hex())
+        cipher_row = connection.execute("PRAGMA cipher_version").fetchone()
+        status_row = connection.execute("PRAGMA cipher_status").fetchone()
+        if (
+            not cipher_row
+            or cipher_row[0] != SQLCIPHER_VERSION
+            or not status_row
+            or str(status_row[0]) != "1"
+        ):
+            raise MemoryError(
+                "sqlcipher_unavailable",
+                "The required encrypted storage runtime is unavailable.",
+            )
+    except MemoryError:
+        raise
+    except sqlite3.Error:
+        raise MemoryError(
+            "sqlcipher_unavailable",
+            "The required encrypted storage runtime is unavailable.",
+        ) from None
+    finally:
+        connection.close()
+
+
+def _read_connection_settings(
+    connection: sqlite3.Connection,
+    include_journal: bool = False,
+) -> Dict[str, Any]:
+    pragmas = {
+        "busy_timeout": "busy_timeout",
+        "foreign_keys": "foreign_keys",
+        "mmap_size": "mmap_size",
+        "query_only": "query_only",
+        "secure_delete": "secure_delete",
+        "synchronous": "synchronous",
+        "temp_store": "temp_store",
+        "trusted_schema": "trusted_schema",
+    }
+    settings: Dict[str, Any] = {}
+    for name, pragma in pragmas.items():
+        row = connection.execute("PRAGMA %s" % pragma).fetchone()
+        if not row:
+            raise MemoryError(
+                "storage_hardening_failed",
+                "The encrypted storage safety settings could not be applied.",
+            )
+        settings[name] = int(row[0])
+    if include_journal:
+        journal = connection.execute("PRAGMA journal_mode").fetchone()
+        if not journal:
+            raise MemoryError(
+                "storage_hardening_failed",
+                "The encrypted storage safety settings could not be applied.",
+            )
+        settings["journal_mode"] = str(journal[0]).lower()
+    return settings
 
 
 def _validate_database_files(db_path: Path) -> None:
@@ -66,59 +236,122 @@ def _validate_database_files(db_path: Path) -> None:
             ensure_private_sqlite_file(sidecar, "The SQLite %s sidecar" % suffix[1:])
 
 
-def _connect(db_path: Path, *, admission: Optional[Callable[[sqlite3.Connection], None]] = None) -> sqlite3.Connection:
-    # Reject existing unsafe companions before SQLite can read/recover them.
-    # This is an observation, not a custom VFS or arbitrary-race prevention.
-    _validate_database_files(db_path)
-    if os.name == "nt":
-        from .windows_storage import connect
-        connection = connect(db_path)
-    else:
-        connection = sqlite3.connect(str(db_path), timeout=5.0, isolation_level=None)
-    try:
-        if admission is not None:
-            # Guarded reads precede persistent PRAGMAs, FTS probes or migration.
-            # SQLite itself may still recover/open sidecars while reading; this
-            # is not an immutable backend or a zero-filesystem-effects promise.
-            connection.execute("PRAGMA trusted_schema=OFF")
-            connection.execute("PRAGMA query_only=ON")
-            admission(connection)
-            connection.execute("PRAGMA query_only=OFF")
-        _configure_connection(connection, db_path)
-    except BaseException:
-        connection.close()
-        raise
-    return connection
-
-
-def _configure_connection(connection, db_path):
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("PRAGMA trusted_schema=OFF")
-    connection.execute("PRAGMA busy_timeout=5000")
-    connection.execute("PRAGMA synchronous=FULL")
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA secure_delete=ON")
-    connection.execute("PRAGMA temp_store=MEMORY")
-    connection.execute("PRAGMA mmap_size=0")
+def _apply_connection_hardening(connection: sqlite3.Connection, db_path: Path) -> None:
     try:
         connection.enable_load_extension(False)
     except (AttributeError, sqlite3.NotSupportedError):
         pass
     if sqlite3.sqlite_version_info < (3, 37, 0):
-        connection.close()
         raise MemoryError("unsupported_sqlite", "SQLite 3.37 or newer is required for strict schemas.")
+    try:
+        connection.execute("PRAGMA query_only=OFF")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA secure_delete=ON")
+        connection.execute("PRAGMA temp_store=MEMORY")
+        connection.execute("PRAGMA mmap_size=0")
+        if _read_connection_settings(connection) != REQUIRED_CONNECTION_SETTINGS:
+            raise MemoryError(
+                "storage_hardening_failed",
+                "The encrypted storage safety settings could not be applied.",
+            )
+        connection.execute("PRAGMA journal_mode=WAL")
+        expected = dict(REQUIRED_CONNECTION_SETTINGS, journal_mode="wal")
+        if _read_connection_settings(connection, include_journal=True) != expected:
+            raise MemoryError(
+                "storage_hardening_failed",
+                "The encrypted storage safety settings could not be applied.",
+            )
+    except MemoryError:
+        raise
+    except sqlite3.Error:
+        raise MemoryError(
+            "storage_hardening_failed",
+            "The encrypted storage safety settings could not be applied.",
+        ) from None
     try:
         connection.execute("CREATE VIRTUAL TABLE temp.continuum_fts_probe USING fts5(value)")
         connection.execute("DROP TABLE temp.continuum_fts_probe")
-    except sqlite3.Error as exc:
-        connection.close()
-        raise MemoryError("fts5_unavailable", "The SQLite runtime does not provide FTS5.") from exc
+    except sqlite3.Error:
+        raise MemoryError("fts5_unavailable", "The SQLite runtime does not provide FTS5.") from None
+    _validate_database_files(db_path)
+
+
+def _connect(
+    db_path: Path,
+    storage_key: bytes,
+    apply_hardening: bool = False,
+    *,
+    read_only: bool = False,
+) -> sqlite3.Connection:
+    _require_sqlcipher_platform()
+    if read_only and apply_hardening:
+        raise MemoryError("storage_validation_failed", "A read-only observer cannot enable storage writes.")
+    _validate_database_files(db_path)
+    _require_sqlcipher_runtime()
+    if len(storage_key) != STORAGE_KEY_BYTES:
+        raise MemoryError("storage_key_unavailable", "The vault storage key is unavailable.")
     try:
+        mode = "ro" if read_only else "rw"
+        connection = sqlite3.connect(db_path.resolve().as_uri() + "?mode=" + mode,
+                                     uri=True, timeout=5.0, isolation_level=None)
+    except sqlite3.Error:
+        raise MemoryError("storage_unavailable", "The encrypted vault could not be opened.") from None
+    connection.row_factory = sqlite3.Row
+    try:
+        # SQLCipher requires the key to be the first operation on a new connection.
+        # Hex encoding constrains the interpolated value to a non-injectable alphabet.
+        connection.execute('PRAGMA key = "x\'%s\'"' % storage_key.hex())
+        cipher_row = connection.execute("PRAGMA cipher_version").fetchone()
+        status_row = connection.execute("PRAGMA cipher_status").fetchone()
+        if (
+            not cipher_row
+            or cipher_row[0] != SQLCIPHER_VERSION
+            or not status_row
+            or str(status_row[0]) != "1"
+        ):
+            raise MemoryError(
+                "sqlcipher_unavailable",
+                "The required encrypted storage runtime is unavailable.",
+            )
+        if not apply_hardening:
+            connection.execute("PRAGMA query_only=ON")
+            query_only = connection.execute("PRAGMA query_only").fetchone()
+            if not query_only or int(query_only[0]) != 1:
+                raise MemoryError(
+                    "storage_validation_failed",
+                    "The encrypted vault's query-only preflight could not be enabled.",
+                )
+        connection.execute("PRAGMA trusted_schema=OFF")
+        trusted_schema = connection.execute("PRAGMA trusted_schema").fetchone()
+        if not trusted_schema or int(trusted_schema[0]) != 0:
+            raise MemoryError(
+                "storage_validation_failed",
+                "The encrypted vault's trusted-schema preflight could not be enabled.",
+            )
+        # Force page authentication before applying any write-affecting pragmas.
+        connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
         _validate_database_files(db_path)
-    except Exception:
+    except MemoryError:
         connection.close()
         raise
+    except sqlite3.Error:
+        connection.close()
+        raise MemoryError(
+            "storage_key_invalid",
+            "The encrypted vault could not be opened.",
+        ) from None
+    except BaseException:
+        connection.close()
+        raise
+    if apply_hardening:
+        try:
+            _apply_connection_hardening(connection, db_path)
+        except Exception:
+            connection.close()
+            raise
     return connection
 
 
@@ -135,44 +368,75 @@ def _capability_document(project_id: Optional[str], provider: str, permissions: 
 
 class Store:
     def __init__(self, data_dir: Path):
+        self._initialize(data_dir, allow_rotation=False)
+
+    @classmethod
+    def _open_during_rotation(cls, data_dir: Path):
+        """Internal maintenance opener; the caller must hold the daemon lease."""
+        store = cls.__new__(cls)
+        store._initialize(data_dir, allow_rotation=True)
+        return store
+
+    def _initialize(self, data_dir: Path, *, allow_rotation: bool) -> None:
+        _require_sqlcipher_platform()
         self.data_dir = data_dir
         self.files = paths(data_dir)
         directory_info = ensure_private_directory(data_dir)
-        self.owner_uid = None if os.name == "nt" else int(directory_info.st_uid)
+        self.owner_uid = int(directory_info.st_uid)
+        # Bootstrap admission is mandatory even for the internal rotation opener.
         read_initialization_state(data_dir)
+        if not allow_rotation:
+            require_no_pending_rotation(data_dir)
+            # Normal operation uses WAL. A rollback journal belongs to offline
+            # maintenance or an unknown state: opening it can replay pages even
+            # with query_only enabled, before metadata admission is possible.
+            if path_exists(Path(str(self.files["db"]) + "-journal")):
+                raise MemoryError(
+                    "storage_recovery_required",
+                    "An unexpected rollback journal requires offline investigation.",
+                )
         if not path_exists(self.files["db"]):
             raise MemoryError("not_initialized", "The selected Continuum home is not initialized.")
-        # Re-observe after DB presence: a newly claimed attempt must not slip
-        # between the first marker observation and connection admission.
+        # Re-observe after DB presence so a newly claimed attempt is not admitted.
         marker_vault_id = read_initialization_state(data_dir)
         ensure_private_sqlite_file(self.files["db"], "The vault database")
+        storage_key = _read_storage_key(self.files["storage_key"])
         audit_key = read_private(self.files["audit_key"], 128)
-
-        def admit(connection):
+        connection = _connect(self.files["db"], storage_key)
+        try:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version not in (2, 3, 4, SCHEMA_VERSION):
                 raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
-            metadata = dict(connection.execute(
-                "SELECT key,value FROM metadata WHERE key IN ('vault_id','bootstrap_protocol')"))
-            vault_id = metadata.get("vault_id")
-            require_initialization_metadata(metadata.get("bootstrap_protocol"), vault_id, marker_vault_id)
+            vault_metadata = dict(connection.execute(
+                "SELECT key,value FROM metadata WHERE key IN ('vault_id','storage_mode','bootstrap_protocol')"))
+            vault_id = vault_metadata.get("vault_id")
+            require_initialization_metadata(vault_metadata.get("bootstrap_protocol"), vault_id, marker_vault_id)
+            if vault_metadata.get("storage_mode") != STORAGE_MODE:
+                raise MemoryError("storage_mode_mismatch", "The vault storage mode is unsupported.")
             if vault_id is None:
                 raise MemoryError("integrity_error", "The vault identity is unavailable.")
-            self.vault_id = bounded_id(vault_id, "vault_id")
-
-        self.connection = _connect(self.files["db"], admission=admit)
-        try:
-            version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-            version = migrate(self.connection, version)
-            if version != SCHEMA_VERSION:
+            vault_id = bounded_id(vault_id, "vault_id")
+            # Admit the encrypted format and identity before enabling writes or schema upgrades.
+            _apply_connection_hardening(connection, self.files["db"])
+            if migrate(connection, version) != SCHEMA_VERSION:
                 raise MemoryError("schema_mismatch", "The vault schema version is unsupported.")
-            self.audit_key = audit_key
-        except BaseException:
-            self.connection.close()
+        except MemoryError:
+            connection.close()
             raise
+        except sqlite3.Error:
+            connection.close()
+            raise MemoryError("integrity_error", "The encrypted vault metadata is invalid.") from None
+        except BaseException:
+            connection.close()
+            raise
+        self.connection = connection
+        self.vault_id = vault_id
+        self.storage_mode = STORAGE_MODE
+        self.audit_key = audit_key
 
     @classmethod
     def bootstrap(cls, data_dir: Path, projects: List[Dict[str, Any]]) -> Dict[str, Any]:
+        _require_sqlcipher_platform()
         if not projects or len(projects) > 16:
             raise MemoryError("invalid_request", "Bootstrap requires one to sixteen projects.")
         admission_policy = AdmissionPolicy.load(data_dir)
@@ -190,44 +454,49 @@ class Store:
             admission_policy.check([name, path_hint] + providers)
             normalized_projects.append({"name": name, "path_hint": path_hint, "providers": providers})
         projects = normalized_projects
-        if os.name == "nt":
-            from .windows_boundary import WindowsBoundary
-            WindowsBoundary().require_creation_owner()
-        if path_exists(data_dir):
-            ensure_private_directory(data_dir)
-        else:
-            create_private_directory(data_dir, parents=True)
         file_map = paths(data_dir)
         reserved = list(file_map.values()) + [data_dir / "memoryd.lock"] + [
             Path(str(file_map["db"]) + suffix) for suffix in ("-wal", "-shm", "-journal")]
+        if path_exists(data_dir):
+            ensure_private_directory(data_dir)
+            require_no_pending_rotation(data_dir)
+            if any(path_exists(path) for path in reserved):
+                raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
+        # Refuse a visible interrupted attempt before any native runtime opening;
+        # for a new home, runtime admission still precedes filesystem creation.
+        _require_sqlcipher_runtime()
+        if path_exists(data_dir):
+            ensure_private_directory(data_dir)
+            require_no_pending_rotation(data_dir)
+        else:
+            create_private_directory(data_dir, parents=True)
         if any(path_exists(path) for path in reserved):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         vault_id = random_id("vlt")
-        # This immutable, exclusive claim wins before any private material is
-        # created. A failed or interrupted attempt remains occupied, never repaired.
+        # Exclusive reservation precedes all key, capability and database writes.
+        # Failed attempts remain occupied; no retry adopts or repairs their files.
         claim_initialization(data_dir, vault_id)
         if any(path_exists(path) for path in reserved if path != file_map["bootstrap_claim"]):
             raise MemoryError("already_initialized", "The selected Continuum home is already initialized.")
         create_private_directory(file_map["caps"])
-        expected_files = {}
-        if os.name == "nt":
-            binding = secrets.token_bytes(32)
-            write_private(file_map["ipc_binding"], binding)
-            expected_files[file_map["ipc_binding"]] = binding
+        storage_key = secrets.token_bytes(STORAGE_KEY_BYTES)
         audit_key = secrets.token_bytes(32)
+        write_private(file_map["storage_key"], storage_key)
+        _sync_private_directory(data_dir)
         write_private(file_map["audit_key"], audit_key)
         control_token = secrets.token_urlsafe(32)
         control_document = _capability_document(None, "user_control", ["control", "read"], control_token)
         write_private(file_map["control"], control_document)
-        expected_files.update({file_map["audit_key"]: audit_key, file_map["control"]: control_document})
+        expected_files = {file_map["storage_key"]: storage_key, file_map["audit_key"]: audit_key,
+                          file_map["control"]: control_document}
         write_private(file_map["db"], b"")
-        connection = _connect(file_map["db"])
+        connection = _connect(file_map["db"], storage_key, apply_hardening=True)
         try:
             connection.executescript(SCHEMA_SQL)
             connection.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("INSERT INTO metadata(key,value) VALUES ('vault_id',?)", (vault_id,))
-            connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode','plaintext_prototype')")
+            connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_mode',?)", (STORAGE_MODE,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('policy_version',?)", (POLICY_VERSION,))
             connection.execute("INSERT INTO metadata(key,value) VALUES ('bootstrap_protocol','1')")
             now = now_iso()
@@ -301,8 +570,8 @@ class Store:
             raise
         finally:
             connection.close()
-        # Publication is deliberately after successful close. No failure path
-        # removes the claim, rewrites capabilities or fabricates an audit anchor.
+        # A completion record is published only after successful verification,
+        # checkpoint and real close. Preserve every interrupted attempt in place.
         complete_initialization(data_dir, vault_id)
         return {
             "vault_id": vault_id,
@@ -310,19 +579,19 @@ class Store:
             "socket": str(file_map["socket"]),
             "control_capability": str(file_map["control"]),
             "projects": created,
-            "storage_mode": "plaintext_prototype",
+            "storage_mode": STORAGE_MODE,
         }
 
     @classmethod
     def _verify_bootstrap(cls, connection, file_map, vault_id, audit_key, expected_files,
                           expected_capabilities, expected_projects, expected_scopes) -> None:
-        """Read back this claimed initialization before allowing any admission."""
+        """Read back this claimed encrypted initialization before admission."""
         ensure_private_directory(file_map["caps"])
         expected_cap_files = {path for path in expected_files if path.parent == file_map["caps"]}
         valid = set(file_map["caps"].iterdir()) == expected_cap_files
         for path, expected in expected_files.items():
             valid = hmac.compare_digest(read_private(path), expected) and valid
-        expected_metadata = {"vault_id": vault_id, "storage_mode": "plaintext_prototype",
+        expected_metadata = {"vault_id": vault_id, "storage_mode": STORAGE_MODE,
                              "policy_version": POLICY_VERSION, "bootstrap_protocol": "1"}
         valid = dict(connection.execute("SELECT key,value FROM metadata")) == expected_metadata and valid
         for table, columns, expected in (
@@ -335,9 +604,12 @@ class Store:
             valid = rows == sorted(expected) and valid
         valid = connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION and valid
         valid = connection.execute("SELECT count(*) FROM audit_events").fetchone()[0] == 1 and valid
-        valid = connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok" and valid
+        valid = not connection.execute("PRAGMA cipher_integrity_check").fetchall() and valid
+        valid = [row[0] for row in connection.execute("PRAGMA integrity_check")] == ["ok"] and valid
         valid = not connection.execute("PRAGMA foreign_key_check").fetchall() and valid
-        valid = cls._verify_audit_raw(connection, audit_key, file_map["audit_head"])["status"] == "valid" and valid
+        audit = verify_audit_snapshot(connection, audit_key,
+                                     lambda: decode_frame(read_private(file_map["audit_head"], 1024)))
+        valid = audit["status"] == "valid" and valid
         if not valid:
             raise MemoryError("initialization_incomplete", "Initialization did not complete safely.")
 
@@ -504,58 +776,8 @@ class Store:
                 self.connection.rollback()
 
     def _verify_audit_locked(self) -> Dict[str, Any]:
-        return self._verify_audit_raw(self.connection, self.audit_key, self.files["audit_head"])
-
-    @staticmethod
-    def _verify_audit_raw(connection, audit_key: bytes, audit_head: Path) -> Dict[str, Any]:
-        previous = "GENESIS"
-        count = 0
-        last_seq = 0
-        for row in connection.execute("SELECT * FROM audit_events ORDER BY audit_seq"):
-            count += 1
-            last_seq = int(row["audit_seq"])
-            if row["previous_mac"] != previous:
-                return {"status": "invalid_internal_link", "first_invalid_audit_seq": row["audit_seq"]}
-            payload = {
-                "actor_kind": row["actor_kind"],
-                "event_seq": row["event_seq"],
-                "key_id": row["key_id"],
-                "occurred_at": row["occurred_at"],
-                "operation": row["operation"],
-                "policy_decision": row["policy_decision"],
-                "result": row["result"],
-                "scoped_id": row["scoped_id"],
-                "target_id": row["target_id"],
-            }
-            expected = hmac.new(
-                audit_key,
-                (previous + "\n" + canonical_json(payload)).encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            if not hmac.compare_digest(expected, row["mac"]):
-                return {"status": "invalid_event_mac", "first_invalid_audit_seq": row["audit_seq"]}
-            previous = row["mac"]
-        try:
-            anchor = decode_frame(read_private(audit_head, 1024))
-        except (OSError, ValueError, RecursionError, MemoryError):
-            return {"status": "anchor_unavailable", "events": count}
-        if (not isinstance(anchor, dict) or set(anchor) != {"audit_seq", "mac"}
-                or type(anchor["audit_seq"]) is not int or anchor["audit_seq"] < 0
-                or not isinstance(anchor["mac"], str)):
-            return {"status": "anchor_malformed", "events": count}
-        anchor_seq = anchor["audit_seq"]
-        if (anchor_seq == 0 and anchor["mac"] != "GENESIS") or (anchor_seq > 0 and
-                (len(anchor["mac"]) != 64 or any(ch not in "0123456789abcdef" for ch in anchor["mac"]))):
-            return {"status": "anchor_malformed", "events": count}
-        if anchor_seq > last_seq:
-            return {"status": "database_tail_rollback", "events": count, "anchor_audit_seq": anchor_seq}
-        anchored = connection.execute("SELECT mac FROM audit_events WHERE audit_seq=?", (anchor_seq,)).fetchone()
-        prefix_mac = "GENESIS" if anchor_seq == 0 else (anchored[0] if anchored else "")
-        if not hmac.compare_digest(anchor["mac"], prefix_mac):
-            return {"status": "anchor_mismatch", "events": count}
-        if anchor_seq < last_seq:
-            return {"status": "external_anchor_stale", "events": count, "anchor_audit_seq": anchor_seq}
-        return {"status": "valid", "events": count, "head": previous}
+        return verify_audit_snapshot(self.connection, self.audit_key,
+            lambda: decode_frame(read_private(self.files["audit_head"], 1024)))
 
     def close(self) -> None:
         self.connection.close()

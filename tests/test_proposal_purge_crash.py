@@ -1,4 +1,10 @@
-"""Real process exits during finite proposal retention and legacy rejection purge.
+"""Held source-only crash-test preparation; not executed on this candidate.
+
+Imported from MAIN 4b1eaf5. The original plaintext fixture description below
+is historical context, not encrypted runtime or platform acceptance. Execution
+requires separately approved native inputs and remains held.
+
+Real process exits during finite proposal retention and legacy rejection purge.
 
 Public inbox invokes the real lifecycle path. One accepted finite-retention draft
 was legitimately corrected to a forever-retained canonical version before its
@@ -243,3 +249,4 @@ if __name__ == "__main__":
         purge_child(Path(sys.argv[2]), int(sys.argv[3]), json.loads(sys.stdin.buffer.read()))
     else:
         unittest.main()
+

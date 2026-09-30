@@ -1,10 +1,7 @@
-name: macOS boundary
+name: macOS peer primitives
 
 on:
-  push:
-    branches: [main]
-    tags: ['**']
-  pull_request:
+  # Native macOS encrypted evaluation has not been authorized.
   workflow_dispatch:
 
 permissions:
@@ -29,18 +26,10 @@ jobs:
           architecture: arm64
       - name: Check and record actual native environment
         run: python3 scripts/macos_environment.py --expected-runner '${{ matrix.os }}'
-      - name: Prepare hash-pinned verification tools
-        run: |
-          python3 -m pip download --only-binary=:all: --require-hashes -r packaging/build-requirements.txt --dest work/build-wheels
-          python3 -m pip install --no-index --find-links work/build-wheels --require-hashes -r packaging/build-requirements.txt
-      - name: Full native verifier (synthetic vaults only)
+      - name: Verify isolated peer and parser primitives (no encrypted application claim)
         env:
-          CONTINUUM_RELEASE_OUTPUT: work/release
-        run: python3 scripts/verify.py
-      - name: Retain unsigned review evidence (not a release)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: unsigned-${{ matrix.os }}-python-${{ matrix.python }}-${{ github.sha }}
-          path: work/release/
-          retention-days: 7
-          if-no-files-found: error
+          PYTHONPATH: src:.
+        run: |
+          python3 -m compileall -q src fixtures tests scripts
+          python3 -W error::ResourceWarning -m unittest tests.test_peer.PeerCredentialTest tests.test_json_depth tests.test_windows_boundary.WindowsPathTest tests.test_windows_pipe.PipeInputTest -v
+          git diff --check

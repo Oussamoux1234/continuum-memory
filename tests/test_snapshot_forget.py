@@ -5,6 +5,7 @@ Synthetic data and the explicit test-only approval seam; no real agent profiles.
 import copy
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from datetime import datetime, timezone
 from pathlib import Path
 from fixtures.harness import private_test_home
@@ -201,11 +202,11 @@ class SnapshotForgetTest(unittest.TestCase):
         first = self.remember()
         challenge = self.preview_forget(first["assertion_id"])
         self.approve(operation="correct", target_id=first["assertion_id"], claim="Engine uses Postgres.")
-        database_before = list(self.store.connection.iterdump())
+        database_before = list(database_dump(self.store.connection))
         with self.assertRaises(MemoryError) as caught:
             self.apply(challenge)
         self.assertEqual(caught.exception.code, "stale_preview")
-        self.assertEqual(list(self.store.connection.iterdump()), database_before)
+        self.assertEqual(list(database_dump(self.store.connection)), database_before)
         self.assertEqual(self.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 2)
         self.assertEqual(self.store.connection.execute("SELECT count(*) FROM deletion_receipts").fetchone()[0], 0)
         fresh = self.preview_forget(first["assertion_id"])
@@ -254,11 +255,11 @@ class SnapshotForgetTest(unittest.TestCase):
             second_store.commit()
         finally:
             second_store.close()
-        database_before = list(self.store.connection.iterdump())
+        database_before = list(database_dump(self.store.connection))
         with self.assertRaises(MemoryError) as caught:
             self.apply(challenge)
         self.assertEqual(caught.exception.code, "stale_preview")
-        self.assertEqual(list(self.store.connection.iterdump()), database_before)
+        self.assertEqual(list(database_dump(self.store.connection)), database_before)
         fresh = self.preview_forget(first["assertion_id"])
         self.assertEqual(fresh["preview"]["affected_set"]["owned_evidence"], [])
         self.assertEqual(fresh["preview"]["affected_set"]["retained_evidence_precondition"], [{"id": evidence_id}])

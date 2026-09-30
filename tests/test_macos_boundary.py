@@ -39,7 +39,8 @@ class MacOSBoundaryTest(unittest.TestCase):
         try:
             database = paths(self.home)["db"]
             for path in (database, Path(str(database) + "-wal"), Path(str(database) + "-shm"),
-                         paths(self.home)["control"], paths(self.home)["audit_key"]):
+                         paths(self.home)["control"], paths(self.home)["audit_key"],
+                         paths(self.home)["storage_key"]):
                 info = path.stat()
                 self.assertTrue(stat.S_ISREG(info.st_mode))
                 self.assertEqual(info.st_mode & 0o777, 0o600)

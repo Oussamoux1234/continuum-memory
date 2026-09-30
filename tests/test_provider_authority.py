@@ -94,6 +94,21 @@ class ProviderAuthorityTest(unittest.TestCase):
                 self.assertDenied(self.kernel.admin_preview, capability, {})
         self.assertEqual(self.kernel.status(self.owner, {"project": self.project})["recorded_sequence_domain"], "vault_v1")
 
+    def test_storage_generation_is_visible_only_to_owner_authority(self):
+        owner_params = {"project": self.project}
+        self.assertEqual(self.kernel.status(self.owner, owner_params)["storage_generation"], "initial")
+        scoped_before = {name: self.kernel.status(capability, {}) for name, capability in self.caps.items()}
+        for status in scoped_before.values():
+            self.assertNotIn("storage_generation", status)
+        # Synthetic metadata change isolates disclosure from the native rotation tests.
+        generation = "rot_synthetic_owner_visibility"
+        self.store.connection.execute("INSERT INTO metadata(key,value) VALUES ('storage_generation',?)",
+                                      (generation,))
+        self.assertEqual(self.kernel.status(self.owner, owner_params)["storage_generation"], generation)
+        for name, capability in self.caps.items():
+            with self.subTest(provider=name):
+                self.assertEqual(self.kernel.status(capability, {}), scoped_before[name])
+
     def test_plain_provider_label_never_disables_eligibility(self):
         saved = self.remember()
         latest = self.store.connection.execute("SELECT value FROM sequence").fetchone()[0]

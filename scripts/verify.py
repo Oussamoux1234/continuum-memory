@@ -2,6 +2,7 @@
 """One-command supported local verification suite."""
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -16,6 +17,10 @@ from typing import Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 if __package__ in (None, ""):
     sys.path.insert(0, str(ROOT))
+
+from scripts.application_inputs import application_verification_wheels
+
+
 ENV = dict(os.environ)
 ENV["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
 ENV["PYTHONPYCACHEPREFIX"] = str(ROOT / "work" / "pycache")
@@ -25,14 +30,39 @@ EXPECTED_DISTRIBUTION = "continuum-memory"
 EXPECTED_VERSION = "0.1.0.dev0"
 MAX_METADATA_BYTES = 1024 * 1024
 REQUIRED_SDIST_FILES = (
+    "docs/PATCHED_SQLCIPHER_WHEELS.md",
+    "docs/SQLCIPHER_STORAGE.md",
+    "fixtures/rotation.py",
+    "fixtures/key_custody.py",
     "fixtures/prototype_daemon.py",
     "packaging/linux/approval-helper",
     "packaging/linux/install-polkit.sh",
     "packaging/linux/org.continuummemory.approval.policy",
+    "packaging/sqlcipher/THIRD_PARTY_NOTICES.md",
+    "packaging/sqlcipher/manifest.json",
+    "packaging/sqlcipher/pyproject.toml",
+    "packaging/sqlcipher/setup_continuum.py",
+    "sbom/patched-sqlcipher-sources.spdx.json",
+    "scripts/build_patched_sqlcipher_wheel.sh",
+    "scripts/fetch_patched_sqlcipher_sources.py",
+    "scripts/inspect_patched_sqlcipher_wheel.py",
     "scripts/polkit_smoke.py",
+    "scripts/test_patched_sqlcipher_install.py",
+    "scripts/test_patched_sqlcipher_runtime.py",
+    "scripts/verify_patched_sqlcipher_inputs.py",
+    "scripts/verify_encrypted_application.py",
     "src/continuum_memory/approval.py",
+    "src/continuum_memory/audit_validation.py",
     "src/continuum_memory/polkit_helper.py",
+    "src/continuum_memory/storage_rotation.py",
+    "src/continuum_memory/storage_key_custody.py",
     "tests/test_approval.py",
+    "tests/test_audit_validation.py",
+    "tests/test_sqlcipher_supply_chain.py",
+    "tests/test_encrypted_storage.py",
+    "tests/test_encrypted_export_contract.py",
+    "tests/test_storage_rotation.py",
+    "tests/test_storage_key_custody.py",
     "tests/test_verify.py",
     "schemas/context-response.schema.json",
     "docs/CONTEXT_CONTRACT.md",
@@ -42,8 +72,22 @@ REQUIRED_SDIST_FILES = (
     "tests/test_daemon_lock.py",
     "tests/fixtures/schema-v4.sql",
     "src/continuum_memory/results.py",
+    "src/continuum_memory/recovery_locator.py",
+    "src/continuum_memory/recovery_journal.py",
+    "src/continuum_memory/macos_acl.py",
+    "tests/test_encrypted_platform_contract.py",
+    "tests/test_encrypted_recovery_compatibility.py",
+    "tests/test_cli_recovery.py",
+    "tests/test_recovery_journal.py",
+    "tests/test_recovery_protocol.py",
+    "tests/test_sqlite_lock_preservation.py",
+    "docs/ISSUE7_SOURCE_REFRESH.md",
     "pyproject.toml",
     "scripts/release_package.py",
+    "scripts/application_inputs.py",
+    "scripts/application_test_results.py",
+    "tests/platform-skips-linux.json",
+    "tests/test_application_test_results.py",
     "packaging/build-requirements.txt",
     "packaging/backend-requirements.txt",
     "docs/LINUX_RELEASE.md",
@@ -79,6 +123,75 @@ def whitespace_check() -> None:
             for number, line in enumerate(text.splitlines(), 1):
                 if line.endswith(" ") or line.endswith("\t"):
                     raise RuntimeError("trailing whitespace: %s:%d" % (path.relative_to(ROOT), number))
+
+
+def sqlcipher_supply_chain_check() -> None:
+    try:
+        from scripts.fetch_patched_sqlcipher_sources import (
+            inspect_project_inputs,
+            load_json_strict,
+            validate_manifest,
+        )
+    except ModuleNotFoundError:
+        from fetch_patched_sqlcipher_sources import (
+            inspect_project_inputs,
+            load_json_strict,
+            validate_manifest,
+        )
+
+    manifest = validate_manifest(
+        load_json_strict(ROOT / "packaging" / "sqlcipher" / "manifest.json")
+    )
+    inspect_project_inputs(ROOT, manifest)
+    if manifest["supportedSlice"].get("windowsSupported") is not False:
+        raise RuntimeError("patched SQLCipher wheel must not claim Windows support")
+    sbom = load_json_strict(ROOT / "sbom" / "patched-sqlcipher-sources.spdx.json")
+    if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
+        raise RuntimeError("patched SQLCipher source SBOM is invalid")
+    packages = sbom.get("packages")
+    if not isinstance(packages, list):
+        raise RuntimeError("patched SQLCipher source SBOM package set changed")
+    by_identifier = {item.get("SPDXID"): item for item in packages if isinstance(item, dict)}
+    expected_identifiers = {
+        "SPDXRef-Source-sqlcipher3",
+        "SPDXRef-Source-SQLCipher",
+        "SPDXRef-Source-SQLite",
+        "SPDXRef-Source-OpenSSL",
+        "SPDXRef-Builder-manylinux",
+        "SPDXRef-Build-setuptools",
+        "SPDXRef-Build-wheel",
+    }
+    if len(packages) != len(by_identifier) or set(by_identifier) != expected_identifiers:
+        raise RuntimeError("patched SQLCipher source SBOM package set changed")
+    binding = by_identifier.get("SPDXRef-Source-sqlcipher3", {})
+    if binding.get("licenseConcluded") != "NOASSERTION":
+        raise RuntimeError("patched SQLCipher source SBOM overstates the binding license")
+    files = sbom.get("files")
+    if not isinstance(files, list):
+        raise RuntimeError("patched SQLCipher source SBOM file inventory changed")
+    by_name = {item.get("fileName"): item for item in files if isinstance(item, dict)}
+    expected_shims = {
+        "./packaging/sqlcipher/perl/IPC/Cmd.pm": "packaging/sqlcipher/perl/IPC/Cmd.pm",
+        "./packaging/sqlcipher/perl/Time/Piece.pm": "packaging/sqlcipher/perl/Time/Piece.pm",
+    }
+    if len(files) != len(by_name) or set(by_name) != set(expected_shims):
+        raise RuntimeError("patched SQLCipher source SBOM shim inventory changed")
+    for sbom_name, manifest_name in expected_shims.items():
+        item = by_name[sbom_name]
+        checksums = item.get("checksums")
+        by_algorithm = {
+            checksum.get("algorithm"): checksum.get("checksumValue")
+            for checksum in checksums
+            if isinstance(checksum, dict)
+        } if isinstance(checksums, list) else {}
+        if (
+            item.get("licenseConcluded") != "Apache-2.0"
+            or set(by_algorithm) != {"SHA1", "SHA256"}
+            or by_algorithm["SHA256"]
+            != manifest["builder"]["reviewedProjectFiles"][manifest_name]
+        ):
+            raise RuntimeError("patched SQLCipher source SBOM shim evidence changed")
+    print("patched SQLCipher supply-chain manifest: ok")
 
 
 def normalized_distribution_name(value: str) -> str:
@@ -165,8 +278,10 @@ def main() -> int:
     (ROOT / "work").mkdir(exist_ok=True)
     schema_check()
     whitespace_check()
+    sqlcipher_supply_chain_check()
+    application_verification_wheels()
     run([sys.executable, "-m", "compileall", "-q", "src", "fixtures", "tests", "scripts"])
-    run([sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests", "-v"])
+    run([sys.executable, "-W", "error::ResourceWarning", "-m", "scripts.application_test_results"])
     run([sys.executable, "-m", "fixtures.demo"])
     packaging_smoke()
     run(["git", "diff", "--check"])

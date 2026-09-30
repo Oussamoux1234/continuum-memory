@@ -1,22 +1,26 @@
-# macOS: native verification slice, not complete platform acceptance
+# macOS: peer primitives only; encrypted application acceptance pending
 
-Issue #10 remains open. This is an **experimental plaintext prototype**, without a native
-macOS human-presence broker, protected approval/encryption key custody, or signed installer.
-Use synthetic data only. Passing native tests does not make those missing boundaries safe.
+Issue #10 remains open. The encrypted application requires a reviewed SQLCipher artifact,
+and no macOS artifact has met that gate. There is also no native macOS human-presence
+broker, protected approval/encryption key custody, or signed installer. Historical
+plaintext results and source-only peer checks do not establish encrypted application support.
 
 ## Candidate test matrix
 
-The `macOS boundary` workflow runs the complete `scripts/verify.py` gate on explicit
-standard GitHub-hosted `macos-14` and `macos-15` runners, each with CPython 3.11, 3.12, 3.13,
-and 3.14. The workflow requires observed arm64 architecture and the matching OS major;
-it records the actual macOS, Python, SQLite, and runner image versions. Actions are pinned
-to commits, but runner labels are not immutable machine images. No paid/custom runner,
-signing credential, Keychain operation, privileged installation, or human prompt is used.
+The integration narrows the `macOS boundary` workflow to source-only connected-peer
+primitive checks. It must not run the encrypted application verifier or claim native
+SQLCipher coverage. The proposed hosted matrix is `macos-14` and `macos-15` arm64 with
+CPython 3.11–3.14; workflow review and execution remain pending. Runner labels are not
+immutable machine images. No signing credential, Keychain operation, privileged
+installation, or human prompt belongs to this primitive gate.
 
-The native fixture test resolves the temporary directory's real device and checks
+The prepared application/APFS fixture resolves the temporary directory's real device and checks
 `diskutil` reports APFS with ownership permissions enabled. An unavailable or different
-filesystem fails that native gate; it is not silently described as APFS. Intel Macs,
-network volumes, other macOS majors, case-sensitive variants, custom ACL access policies, and
+filesystem must fail that future native gate. These application tests remain pending until
+an approved native backend is available. The refreshed Linux inventory excludes 29
+macOS-only methods: four APFS, 17 extended-ACL, seven SQLite-lock and one journal-ACL
+method. This is source enumeration, not native execution. Intel Macs,
+network volumes, other macOS majors, case-sensitive variants, unusual inherited ACLs, and
 actual user-presence hardware are outside this candidate matrix.
 
 ## Connected-peer identity
@@ -34,7 +38,7 @@ explicit `int`, unsigned 32-bit UID/GID pointers, and errno handling. Linux reta
 unsupported and fail closed. These are OS **user identity** checks, not proof of a trusted
 application, approved code signature, or human action.
 
-Tests cover real native connected sockets, closed descriptors, missing/error credentials,
+Prepared peer tests cover real native connected sockets, closed descriptors, missing/error credentials,
 short Linux records, wrong-UID injection, and deterministic endpoint replacement between
 validation and connection. Replacement or unverifiable peers receive no capability bytes.
 Wrong-UID injection is a unit check, not evidence from a real second OS account. Existing
@@ -42,14 +46,15 @@ daemon-lock tests separately verify that cleanup does not unlink a replacement e
 
 ## Filesystem evidence and explicit limits
 
-Native tests check database, WAL/SHM, capability and audit-key ownership/modes/link counts;
+Prepared native application tests check database, WAL/SHM, capability and audit-key ownership/modes/link counts;
 atomic replacement staging uses private regular files. Controlled races replace synthetic
 files with symlinks, FIFOs, or hardlinks immediately before open and must be rejected without
-blocking or reading the target. Existing full-suite tests cover directory/database/socket
-links, unsafe modes, lease replacement, stale sockets, and crash cleanup.
+blocking or reading the target. The full-suite tests also cover directory/database/socket
+links, unsafe modes, lease replacement, stale sockets, and crash cleanup. Their presence
+is not evidence of execution with an encrypted macOS runtime.
 
-Those checks do **not** isolate arbitrary processes running as the same account. A native
-test deliberately proves that a same-UID child can read a synthetic prototype audit key;
+Those checks do **not** isolate arbitrary processes running as the same account. A prepared
+native test checks that a same-UID child can read a synthetic prototype audit key;
 it returns only its hash, not key bytes. A same-user attacker can also read capabilities,
 change files/permissions, or impersonate another same-user process. Observing one inode
 replacement is not proof against every substitution/ABA race or malicious writable ancestor.
@@ -137,55 +142,19 @@ FileVault, APFS snapshots/clones, and
 `secure_delete` do not establish application encryption or physical erasure. Backup and
 restore protection is unimplemented, so no backup acceptance is claimed here.
 
-## Install and run a synthetic evaluation
+## Encrypted application evaluation is blocked
 
-Use a reviewed checkout and Python 3.11–3.14 on the candidate macOS/arm64 matrix. Prepare
-the hash-pinned build toolchain/wheelhouse using [distribution verification](LINUX_RELEASE.md);
-that guide's ordinary Python build commands also run on macOS. Do **not** run its Linux
-polkit installer on macOS. Dependency preparation is the separate network step.
+There is no current macOS install, initialization, daemon, or full-verifier runbook for
+this candidate. The Linux-only post2 wheel cannot satisfy macOS runtime admission, and
+ordinary build-tool wheels do not replace it. Do not substitute stdlib SQLite, an upstream
+wheel, or a locally unreviewed native build. The source-only peer workflow does not create
+a vault or establish application encryption.
 
-```bash
-.venv/bin/python scripts/macos_environment.py
-.venv/bin/python scripts/verify.py
-.venv/bin/python -m pip install --no-index --no-deps --no-build-isolation -e .
-export PATH="$PWD/.venv/bin:$PATH"
-export CONTINUUM_HOME="$(mktemp -d /private/tmp/continuum-macos-demo.XXXXXX)"
-continuum init --project-name demo --project-path "$PWD" --providers codex,claude
-memoryd --data-dir "$CONTINUUM_HOME"
-```
-
-Keep the daemon in the foreground. In another terminal, set the same `PATH` and exact
-temporary `CONTINUUM_HOME`, then use the project ID printed by initialization:
-
-```bash
-continuum status --project PROJECT_ID
-continuum approval status
-continuum audit verify
-```
-
-Administrative remember/review/correct/forget actions are expected to fail closed because
-macOS approval is unavailable. There is no terminal-confirmation bypass. The full verifier's
-temporary fixture demo supplies its explicit test-only approval seam; live commands never
-select that seam. This runbook does not install a LaunchAgent or persistent background job.
-
-If identity is unavailable, stop and inspect the native test results and interpreter;
-do not remove the UID check. For `unsafe_*` errors, inspect owner/mode/type, ACLs, and links
-on the exact synthetic directory; do not automatically chmod, follow, or replace it.
-For daemon lease errors, follow [daemon recovery](DAEMON_RECOVERY.md). Never unlink or
-truncate the persistent lock to force a second daemon to start.
-
-### Upgrade and uninstall
-
-Stop the foreground daemon with Ctrl-C and stop any separately configured restart mechanism
-before changing versions. Verify a clean reviewed candidate in a separate virtual environment
-and with a new synthetic vault. Do not mix daemon versions or downgrade a schema migrated by
-a newer executable; this prototype has no accepted encrypted backup/restore procedure.
-
-To remove only the package from the dedicated evaluation environment, stop the daemon and
-run `.venv/bin/python -m pip uninstall continuum-memory`. This does not delete vaults or
-OS files. Keep synthetic vault paths explicit and inspect them before separately choosing
-cleanup. Uninstall is not an audited forget operation, backup revocation, or secure erasure.
-No Keychain item, system helper, signing identity, or LaunchAgent was installed by this slice.
+Before restoring an application evaluation runbook, approve an immutable macOS
+builder/toolchain and exact native artifact, then run the application/APFS tests and
+review key custody, ACLs, installation, upgrade, and removal. A terminal confirmation
+fallback is not available. No LaunchAgent, Keychain item, system helper, or signing identity
+is installed by this source-only slice.
 
 ## Native approval/key boundary: proposed next gate, not implemented
 

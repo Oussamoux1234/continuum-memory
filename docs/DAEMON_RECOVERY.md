@@ -1,5 +1,11 @@
 # Daemon ownership and crash restart
 
+This held encrypted branch imports the main `152450a` contracts and the bounded
+prepared crash tests/docs from merged PRs #46 (`4b1eaf5`), #47 (`1e0bb0f`) and
+#48 (`d0ba7f5`). PR48 initialization containment is adapted to the keyed backend.
+Historical plaintext results below are not validation of this source refresh. No
+application or native test ran for this checkpoint; see [the pending matrix](ISSUE7_SOURCE_REFRESH.md).
+
 This is the daemon-lifecycle slice of issue #8, not completion of its key-rotation,
 power-loss, platform, and audit/backup rollback roadmap. Use synthetic data: the
 default-branch database is still the plaintext prototype.
@@ -8,10 +14,11 @@ default-branch database is still the plaintext prototype.
 
 Use one private vault on a local POSIX filesystem with working `flock` and
 no-follow opens. Every daemon accessing that vault must use this lock-aware version.
-This runbook covers POSIX, not the [native Windows plaintext prototype](WINDOWS_IPC.md),
+This runbook covers POSIX, not MAIN's [native Windows plaintext prototype](WINDOWS_IPC.md),
 which uses held pipe instances and no socket-file cleanup. Its hosted Windows Server
 2025 acceptance is documented in [Windows verification](WINDOWS_VERIFICATION.md);
 that is not desktop certification or native approval/encryption acceptance.
+Windows encrypted execution remains unsupported and disabled on this held branch.
 Network filesystems, concurrent old/new daemons, and
 protection against malicious same-user processes replacing private files are not supported.
 Development-host macOS tests do not certify the macOS runtime/approval boundary.
@@ -54,9 +61,12 @@ descriptor is non-inheritable across exec; this does not promise fork isolation.
 
 ## Interrupted initialization
 
+Prepared encrypted source contract only; native execution is **unrun** and held.
+MAIN plaintext results do not validate this SQLCipher adaptation.
+
 New homes use permanent private `bootstrap.claim` and `bootstrap.complete`
 records bound to the vault identity. The claim is exclusively created before any
-key, capability or database. Completion is published only after the initial SQL
+vault key, capability or database. Completion is published only after the initial SQL
 commit, verified audit anchor, private-file/database readback, successful WAL
 checkpoint and closed connection. A partially written record is not completion.
 An existing private directory may contain admission policy or unrelated files;
@@ -70,19 +80,24 @@ fresh, unrelated data directory for a new initialization and leave the interrupt
 one untouched. Repeated initialization of an occupied home returns
 `already_initialized`; there is no in-place repair/reset command in this slice.
 
-A visible incomplete record is refused before reading the audit key, opening
-SQLite, or acquiring/cleaning a daemon endpoint. The Store rechecks after observing
-database presence to catch a cooperating initializer that created its claim in
+A visible incomplete record is refused before reading storage/audit keys, opening
+the keyed vault, or acquiring/cleaning a daemon endpoint. The existing Windows
+platform refusal remains first; no plaintext connector is used. Native runtime
+admission and pending-rotation/key-custody checks remain mandatory. The Store
+rechecks after observing database presence to catch a cooperating initializer that created its claim in
 between. A transactional `bootstrap_protocol='1'` flag also prevents a new vault
 whose **both** records are missing from silently becoming legacy. That second
-check uses the existing guarded SQLite connection before mutating configuration
-or migration. SQLite itself may still recover WAL/sidecars while opening/reading;
+check uses the existing keyed, query-only connection before connection hardening
+or migration; no stdlib SQLite open of an encrypted vault is permitted. SQLite
+itself may still recover WAL/sidecars while opening/reading;
 there is no zero-filesystem-effects promise for this metadata-only refusal.
 The daemon may already own its endpoint lock or have checked a stale endpoint in
 that both-records-missing case; it still refuses application admission.
 
-Genuine older homes without either record or the database flag follow the existing
-legacy admission/migration path. No marker or missing audit anchor is backfilled.
+Genuine older encrypted homes without either record or the database flag follow
+the existing keyed legacy admission/migration path, including native format,
+storage-generation and custody/rotation rules. This is not plaintext-vault
+admission. No marker or missing audit anchor is backfilled.
 Older already-stranded homes are not repaired or retrospectively certified.
 Completed new homes retain normal audit diagnostics and exact-prefix recovery;
 these markers never authorize reconstructing a missing anchor. A lost reply after

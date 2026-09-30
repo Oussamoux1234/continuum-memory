@@ -1,10 +1,17 @@
 # Native Windows filesystem and storage candidate
 
+This document preserves the separately accepted **plaintext main** Windows contract
+at `152450a`. Issue #1 is closed for that scope. This held encrypted candidate refuses
+Windows storage before accessing keys; its imported full-runtime and account-lifecycle
+workflow jobs are disabled. The commands and evidence below apply to plaintext main,
+not this branch, and confer no encrypted Windows acceptance.
+
 The candidate runtime connects this boundary to plaintext SQLite and the
 [bounded native pipe daemon/client](WINDOWS_IPC.md). This is still acceptance
 work for [issue #1](https://github.com/Oussamoux1234/continuum-memory/issues/1):
 local macOS regressions and earlier isolated Windows primitive jobs are **not**
-a full native application verifier pass. Integrated Windows CI is pending.
+a full native application verifier pass. The separate main plaintext acceptance
+is complete; no result is inferred for this encrypted candidate.
 Use disposable synthetic vaults only; do not migrate a real vault onto this
 candidate or interpret it as production Windows security support.
 
@@ -155,6 +162,6 @@ bytes; pre/post checks are not continuous authorization. Writable ancestors can
 cause denial of service, and held handles do not promise availability. Native
 production human approval and encryption/key custody remain separate gates.
 
-Issue #1 remains open until the integrated native verifier, applicable negative
-fixtures and independent security review are complete. The [IPC contract and
+Issue #1 was closed after the integrated plaintext verifier, applicable negative
+fixtures and independent security review. Those results do not accept encrypted storage. The [IPC contract and
 remaining evidence limits](WINDOWS_IPC.md) must be evaluated with this document.

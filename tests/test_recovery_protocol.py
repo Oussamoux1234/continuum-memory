@@ -5,6 +5,7 @@ import hmac
 import json
 import tempfile
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 from unittest.mock import patch
 
@@ -92,13 +93,13 @@ class RecoveryProtocolTest(unittest.TestCase):
         expected = {"receipt_id": challenge["nonce"], "operation": "remember", "committed": True,
                     "result": {key: value for key, value in result.items() if key != "commit"},
                     "audit_anchor": "valid"}
-        before = list(self.fx.store.connection.iterdump())
+        before = list(database_dump(self.fx.store.connection))
         self.assertEqual(self.recover(challenge), expected)
         self.assertEqual(self.call("admin_result", self.legacy(challenge)), expected)
         with self.assertRaises(MemoryError) as replay:
             self.apply(challenge)
         self.assertEqual(replay.exception.code, "approval_replay")
-        self.assertEqual(list(self.fx.store.connection.iterdump()), before)
+        self.assertEqual(list(database_dump(self.fx.store.connection)), before)
 
     def test_descriptor_rejects_extra_missing_fields_and_noncanonical_types_without_content(self):
         challenge = self.challenge()
@@ -246,7 +247,7 @@ class RecoveryProtocolTest(unittest.TestCase):
         self.assertEqual(self.recover(challenge), original)
         self.assertEqual(self.call("admin_result", self.legacy(challenge)), original)
         self.assertEqual(self.fx.store.connection.execute("SELECT count(*) FROM assertion_versions").fetchone()[0], 0)
-        dump = "\n".join(self.fx.store.connection.iterdump())
+        dump = "\n".join(database_dump(self.fx.store.connection))
         self.assertNotIn("durable-protocol-canary", dump)
         self.assertNotIn(challenge["preview_digest"], dump)
 

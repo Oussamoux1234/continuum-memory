@@ -2,7 +2,9 @@
 
 Status: implemented but not yet exercised by a real interactive polkit run in project CI.
 Unprovisioned live vaults fail closed; the terminal signer is retained only as an explicitly
-injected temporary-test fixture.
+injected temporary-test fixture. The encrypted candidate now has an exact-metadata,
+helper-only installation boundary below; hosted verification and real privileged
+installation/human acceptance remain separate pending gates.
 
 ## Boundary
 
@@ -29,16 +31,22 @@ administrative preview/apply calls fail closed. HMAC grants are accepted only by
 explicitly injected temporary test kernel. Existing nonce consumption, expiry,
 exact-preview verification, and replay protection remain enforced by the daemon.
 
-## Reviewed-wheel installation
+## Reviewed-wheel installation: approval-only dependency boundary
 
-This development installer is intentionally separate from application initialization. It
-must be reviewed and run explicitly on Linux from a clean checkout. First follow
-[the Linux distribution guide](LINUX_RELEASE.md) to build and verify the matching wheel:
+The privileged stager `packaging/linux/stage-polkit-wheel.py` requires exactly one
+`Requires-Dist` header: `continuum-sqlcipher3==0.6.2.post2`. Missing, duplicate, additional,
+changed, marked or URL dependencies are refused. The wheel's metadata is not stripped.
+The fixed helper imports only its approval/security support and the Python standard
+library; signing uses the fixed system OpenSSL. It does not import application storage.
+The installer remains offline with `--no-deps`: SQLCipher is deliberately absent from
+this approval-only environment, which is not a usable daemon or application environment.
 
-```bash
-sudo packaging/linux/install-polkit.sh \
-  "$PWD/work/release/continuum_memory-0.1.0.dev0-py3-none-any.whl"
-```
+The separate build probe stages the actual wheel and installs it in a fresh environment
+without SQLCipher, checks installed helper origins and absent backend/storage imports,
+then runs isolated module `--help` before and after relocation. Hosted execution is
+pending for this change. This checks neither root installation nor polkit, key provisioning
+or human acceptance. Do not execute the privileged installation without explicit operator
+approval and review of the exact revision; see [the acceptance checklist](LOCAL_ACCEPTANCE_CHECKLIST.md).
 
 It creates an offline root-owned helper environment under `/opt/continuum-memory-polkit`,
 installs the fixed launcher at `/usr/libexec/continuum-memory/approval-helper`, and installs
@@ -56,7 +64,8 @@ and launcher and the exact verified wheel from the same revision remain trusted
 installation inputs. These checks are not signatures; signed release authorization is
 still a separate owner decision.
 
-With `memoryd` running for the selected vault, provision the per-user key through polkit:
+For a separately accepted, compatible installation only, with `memoryd` running for the
+selected vault, the provisioning sequence is:
 
 ```bash
 continuum approval status
@@ -91,7 +100,8 @@ end-to-end diagnostic; file checks alone are insufficient.
 ## Opt-in real smoke test
 
 Project CI uses deterministic fake-process and real-signature tests and never opens an OS
-authentication prompt. On a Linux workstation, copy the vault ID from `continuum approval
+authentication prompt. After the installation compatibility gate is accepted on a controlled
+Linux workstation, copy the vault ID from `continuum approval
 status`, then run this explicit non-mutating check from a terminal:
 
 ```bash
@@ -128,13 +138,15 @@ irreversible unless separately backed up; this is not part of ordinary uninstall
 
 ## Remaining limitations
 
-- This is not an encryption boundary; the database and current control capability remain
-  plaintext prototype material.
+- Approval and storage encryption are separate boundaries. The held application uses the
+  exact Linux post2 SQLCipher runtime with a co-located owner-only storage key; capability
+  files remain readable to the owning user. Neither boundary protects against same-user malware.
 - The real interactive path still needs controlled Linux-host evidence before issue #3 or
   trustworthy local v1 can be marked complete. The independent review is recorded in the
   issue and its focused pull request.
-- OpenSSL and polkit are Linux system dependencies. Distribution packaging, SBOM, and
-  signing remain issue #2.
+- OpenSSL and polkit are Linux system dependencies. Reproducible PEP 517 application
+  packaging and SPDX generation are implemented; encrypted native application execution,
+  privileged installer compatibility, license acceptance, signing and publication remain held.
 - A local administrator can override polkit policy through system rules or replace
   root-owned files; root/admin remains outside this boundary.
 - macOS and Windows require their own OS-specific approval designs in issues #10 and #1.

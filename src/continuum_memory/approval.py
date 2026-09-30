@@ -23,6 +23,8 @@ APPROVAL_OPERATIONS = {
     "forget",
     "reject_proposal",
     "remember",
+    "rotate_storage_key",
+    "recover_storage_key",
 }
 LINUX_APPROVAL_BOUNDARY = "linux_polkit_rsa_sha256"
 PROTOTYPE_APPROVAL_BOUNDARY = "terminal_prototype_same_uid_not_resistant"

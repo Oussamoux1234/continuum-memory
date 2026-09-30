@@ -4,7 +4,6 @@ import json
 import os
 import queue
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -18,7 +17,7 @@ from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
 from continuum_memory.security import MAX_FRAME_BYTES, canonical_json
 from continuum_memory.storage import Store, paths
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -376,7 +375,7 @@ class DaemonTransportTests(unittest.TestCase):
 
     def test_invalid_envelopes_auth_and_real_mcp_recovery(self):
         def mutation_counts():
-            connection = sqlite3.connect("file:" + str(paths(self.harness.data_dir)["db"]) + "?mode=ro", uri=True)
+            connection = open_fixture_connection(self.harness.data_dir)
             try:
                 return connection.execute("SELECT (SELECT COUNT(*) FROM proposals), "
                                           "(SELECT COUNT(*) FROM assertion_versions), "

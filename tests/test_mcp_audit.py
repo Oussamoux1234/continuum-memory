@@ -1,6 +1,5 @@
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -9,7 +8,7 @@ from pathlib import Path
 
 from continuum_memory.storage import Store
 from continuum_memory.errors import MemoryError
-from fixtures.harness import EphemeralHarness, private_test_home
+from fixtures.harness import EphemeralHarness, open_fixture_connection, private_test_home
 
 
 class McpAndAuditTest(unittest.TestCase):
@@ -75,7 +74,7 @@ class McpAndAuditTest(unittest.TestCase):
                 data_dir,
                 [{"name": "audit", "path_hint": "/fixture/audit", "providers": ["codex"]}],
             )
-            connection = sqlite3.connect(str(data_dir / "continuum.db"))
+            connection = open_fixture_connection(data_dir, writable=True)
             try:
                 connection.execute("UPDATE audit_events SET operation='tampered' WHERE audit_seq=1")
                 connection.commit()

@@ -1,4 +1,10 @@
-"""Real process death during agent proposal creation, before owner acceptance.
+"""Held source-only crash-test preparation; not executed on this candidate.
+
+Imported from MAIN 1e0bb0f. The original plaintext fixture description below
+is historical context, not encrypted runtime or platform acceptance. Execution
+requires separately approved native inputs and remains held.
+
+Real process death during agent proposal creation, before owner acceptance.
 
 Synthetic plaintext SQLite process-crash evidence only; not native Windows,
 encrypted storage, OS-backed approval, host power loss or backup recovery.
@@ -306,3 +312,4 @@ if __name__ == "__main__":
         propose_child(Path(sys.argv[2]), int(sys.argv[3]), json.loads(sys.stdin.buffer.read()))
     else:
         unittest.main()
+

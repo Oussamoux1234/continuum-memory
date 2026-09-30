@@ -1,24 +1,24 @@
 """Real CLI loss and fresh-process recovery with content-free durable locators.
 
-Plaintext synthetic approval only. POSIX fault cases use actual daemon/CLI
-processes and local sockets; the non-crash roundtrip also exercises native
-Windows named pipes when run by that platform's existing fixture harness.
-This is process-crash coverage, not power-loss or OS-backed approval evidence.
+Prepared SQLCipher candidate tests with synthetic approval only. POSIX fault
+cases use actual daemon/CLI processes and local sockets. The encrypted Windows
+runtime remains unsupported. These tests have not supplied native acceptance
+for this refreshed candidate, power-loss or OS-backed approval evidence.
 """
 
 import contextlib
 import json
 import os
 import select
-import sqlite3
 import subprocess
 import sys
 import unittest
+from tests.database_dump import database_dump
 from pathlib import Path
 
 from continuum_memory.security import read_private, sign_grant
 from continuum_memory.storage import load_capability, paths
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,8 +72,7 @@ class CliRecoveryTest(unittest.TestCase):
     def database(self):
         # An observer must not checkpoint or unlink the running daemon's WAL.
         # A writable second connection can clean up sidecars when it closes.
-        uri = paths(self.fx.data_dir)["db"].as_uri() + "?mode=ro"
-        return contextlib.closing(sqlite3.connect(uri, uri=True))
+        return contextlib.closing(open_fixture_connection(self.fx.data_dir, read_only=True))
 
     def counts(self):
         with self.database() as db:
@@ -279,7 +278,7 @@ class CliRecoveryTest(unittest.TestCase):
         self.assertEqual(self.assert_recovered(nonce, "committed", 0), recovered)
         self.assertEqual(self.journal_bytes(), journal)
         with self.database() as db:
-            dumped = "\n".join(db.iterdump())
+            dumped = "\n".join(database_dump(db))
         for forbidden in (BODY, EVIDENCE, SUBJECT, digest):
             self.assertNotIn(forbidden, dumped)
         self.assertEqual(self.fx.control.call("audit_verify", {})["status"], "valid")

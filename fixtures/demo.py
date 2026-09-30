@@ -2,13 +2,12 @@
 """Exact Milestone 1 killer demonstration in an ephemeral vault."""
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict
 
 from continuum_memory.client import DaemonClient
 from continuum_memory.errors import MemoryError
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 
 def run_demo() -> Dict[str, Any]:
@@ -157,7 +156,7 @@ def run_demo() -> Dict[str, Any]:
         deleted_fts = claude.call(
             "memory_search", {"query": "PostgreSQL", "limit": 5, "temporal_mode": "history"}
         )
-        connection = sqlite3.connect(str(harness.data_dir / "continuum.db"))
+        connection = open_fixture_connection(harness.data_dir)
         try:
             forgotten_fts_rows = connection.execute(
                 "SELECT count(*) FROM assertion_fts WHERE assertion_id IN (?,?,?)",
@@ -188,7 +187,8 @@ def run_demo() -> Dict[str, Any]:
             "forgotten_exact_unretrievable": deleted_exact["status"] == "no_matches",
             "forgotten_fts_unretrievable": deleted_fts["status"] == "no_matches" and forgotten_fts_rows == 0,
             "deletion_receipt_content_free": receipt_row is not None and "PostgreSQL" not in json.dumps(receipt_row),
-            "audit_chain_valid": audit["status"] == "valid" and audit["sqlite_integrity"] == "ok",
+            "audit_chain_valid": (audit["status"] == "valid" and audit["sqlite_integrity"] == "ok"
+                                  and audit["cipher_integrity"] == "ok"),
             "memory_never_authorizes_actions": conflict_context["memory_contract"]["may_authorize_actions"] is False,
         }
         if not all(checks.values()):

@@ -1,9 +1,8 @@
 import json
-import sqlite3
 import unittest
 
 from continuum_memory.errors import MemoryError
-from fixtures.harness import EphemeralHarness
+from fixtures.harness import EphemeralHarness, open_fixture_connection
 
 
 class LifecycleIntegrationTest(unittest.TestCase):
@@ -165,7 +164,7 @@ class LifecycleIntegrationTest(unittest.TestCase):
                 "show", {"project": self.project, "id": accepted["memory_id"], "history": True}
             )
         self.assertEqual(missing.exception.code, "not_found")
-        connection = sqlite3.connect(str(self.harness.data_dir / "continuum.db"))
+        connection = open_fixture_connection(self.harness.data_dir)
         try:
             self.assertEqual(connection.execute("SELECT count(*) FROM assertion_fts").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT count(*) FROM feedback").fetchone()[0], 0)
@@ -199,6 +198,7 @@ class LifecycleIntegrationTest(unittest.TestCase):
         audit = self.harness.control.call("audit_verify", {})
         self.assertEqual(audit["status"], "valid")
         self.assertEqual(audit["sqlite_integrity"], "ok")
+        self.assertEqual(audit["cipher_integrity"], "ok")
 
 
 if __name__ == "__main__":

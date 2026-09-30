@@ -1,4 +1,10 @@
-"""Actual agent-read-triggered retention expiry under bounded process death.
+"""Held source-only crash-test preparation; not executed on this candidate.
+
+Imported from MAIN 4b1eaf5. The original plaintext fixture description below
+is historical context, not encrypted runtime or platform acceptance. Execution
+requires separately approved native inputs and remains held.
+
+Actual agent-read-triggered retention expiry under bounded process death.
 
 Plaintext SQLite, POSIX processes and synthetic approval only. This is not
 physical erasure, native Windows, encryption, rotation or backup-freshness proof.
@@ -264,3 +270,4 @@ if __name__ == "__main__":
                             expire_via_agent_status)
     else:
         unittest.main()
+
