@@ -301,3 +301,22 @@ row/schema, receipt, audit, canary and fault checks. That projection does not
 establish restored-vault activation or full provider authorization. The full gate
 stopped at the failed suite, so demo and final packaging/helper-only acceptance
 remain unexecuted on this head. Another exact-head hosted run is required.
+
+### Disposable checkout packaging repair
+
+Run `36644265219` at `e222bbf` passed all four CPython 3.11–3.14 application
+suites: 625 tests, 534 passed, exactly 91 reviewed platform skips and no failures
+or errors per ABI. All 17 demo checks passed. Native duplicate builds, locked
+wheel comparison and offline encrypted runtime checks also passed. The full gate
+then failed before application builds: the disposable checkout omitted tracked
+`work/.gitkeep` and `outputs/.gitkeep` while retaining their Git index entries.
+The release source regular-file guard correctly rejected those missing files.
+
+The focused repair preserves only those two regular, unlinked placeholders;
+generated work/output content remains excluded. Missing, linked or nonregular
+placeholders and linked parent directories fail before copying. Real temporary
+Git fixtures cover source/index agreement, generated-content exclusion and
+commit mismatch. The release guard, dependency pins and reviewed-input hashes
+are unchanged. Application reproducibility, offline wheel/sdist installation,
+SPDX and helper-only relocation still require a passing hosted run. This does
+not establish real polkit acceptance, production key custody or release approval.

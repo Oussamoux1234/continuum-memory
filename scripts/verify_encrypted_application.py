@@ -104,6 +104,14 @@ def copy_checkout(destination: Path, expected_commit: str, environment: dict[str
     if actual_commit != expected_commit:
         raise RuntimeError("read-only checkout does not match the workflow commit")
 
+    # Generated output stays out, but these tracked source placeholders must
+    # agree with the copied Git index used by release_package's source checks.
+    placeholders = [ROOT / name / ".gitkeep" for name in ("work", "outputs")]
+    for placeholder in placeholders:
+        require_real_directory(placeholder.parent, "source placeholder parent")
+        if not is_single_regular_file(placeholder):
+            raise RuntimeError("source placeholder must be one unlinked regular file")
+
     def ignore_generated(directory: str, names: list[str]) -> list[str]:
         ignored = {"__pycache__"}
         if Path(directory) == ROOT:
@@ -114,7 +122,10 @@ def copy_checkout(destination: Path, expected_commit: str, environment: dict[str
     # Preserve normal Actions .git metadata for the verifier's git diff --check.
     # Copy symlinks as links instead of following them outside the checkout.
     shutil.copytree(ROOT, destination, symlinks=True, ignore=ignore_generated)
-    (destination / "work").mkdir()
+    for placeholder in placeholders:
+        copied = destination / placeholder.relative_to(ROOT)
+        copied.parent.mkdir()
+        shutil.copyfile(placeholder, copied)
     copied_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=str(destination), env=environment, text=True
     ).strip()
